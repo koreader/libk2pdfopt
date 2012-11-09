@@ -228,6 +228,7 @@ static double dst_min_figure_height_in = 0.75;
 static int dst_fulljustify = -1; // 0 = no, 1 = yes
 static int dst_color = 0;
 static int dst_landscape = 0;
+static double dst_gamma = 0.5;
 static int src_autostraighten = 0;
 static double dst_mar = 0.06;
 static double dst_martop = -1.0;
@@ -388,6 +389,7 @@ static void bmp_more_rows(WILLUSBITMAP *bmp, double ratio, int pixval);
 static int bmp_is_grayscale(WILLUSBITMAP *bmp);
 static int bmp_resample(WILLUSBITMAP *dest, WILLUSBITMAP *src, double x1,
 		double y1, double x2, double y2, int newwidth, int newheight);
+static void bmp_gamma_correct(WILLUSBITMAP *dest, WILLUSBITMAP *src, double gamma);
 static void bmp_contrast_adjust(WILLUSBITMAP *dest,WILLUSBITMAP *src,double contrast);
 static void bmp_convert_to_greyscale_ex(WILLUSBITMAP *dst, WILLUSBITMAP *src);
 static double bmp_autostraighten(WILLUSBITMAP *src, WILLUSBITMAP *srcgrey, int white,
@@ -482,6 +484,9 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx, WILLUSBITMAP *src) {
 	if (pageinfo != NULL)
 		wpdfboxes_free(&pageinfo->boxes);
 
+	if (fabs(dst_gamma - 1.0) > .001)
+		bmp_gamma_correct(&masterinfo->bmp, &masterinfo->bmp, dst_gamma);
+
 	kctx->page_width = masterinfo->bmp.width;
 	kctx->page_height = masterinfo->rows;
 	kctx->data = masterinfo->bmp.data;
@@ -499,6 +504,7 @@ static void k2pdfopt_init(KOPTContext *kctx) {
 	src_rot = kctx->rotate;
 	src_dpi = (int)300*kctx->quality;
 	defect_size_pts = kctx->defect_size;
+	dst_gamma = kctx->contrast;
 
 	if (kctx->trim == 0) {
 		mar_left = 0;
@@ -6182,6 +6188,29 @@ static void bmp_color_xform(WILLUSBITMAP *dest,WILLUSBITMAP *src,unsigned char *
             }
         }
     }
+
+/*
+** One of dest or src can be NULL, which is the
+** same as setting them equal to each other, but
+** in this case, the bitmap must be 24-bit!
+**
+** Note:  Used ...pow(i/256.,gc)... before 9-7-11.
+*/
+static void bmp_gamma_correct(WILLUSBITMAP *dest, WILLUSBITMAP *src,
+		double gamma)
+
+{
+	double gc;
+	int i;
+	static unsigned char newval[256];
+
+	if (gamma < 0.001)
+		gamma = 0.001;
+	gc = 1. / gamma;
+	for (i = 0; i < 256; i++)
+		newval[i] = 255. * pow(i / 255., gc) + .5;
+	bmp_color_xform(dest, src, newval);
+}
 
 /*
 ** One of dest or src can be NULL, which is the
