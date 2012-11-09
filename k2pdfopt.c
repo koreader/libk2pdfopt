@@ -104,27 +104,6 @@
 /* DATA STRUCTURES */
 
 typedef struct {
-	int page; /* Source page */
-	double rot_deg; /* Source rotation (happens first) */
-	double x0, y0; /* x0,y0, in points, of lower left point on rectangle */
-	double w, h; /* width and height of rectangle in points */
-	double scale; /* Scale rectangle by this factor on destination page */
-	double x1, y1; /* (x,y) position of lower left point on destination page, in points */
-} PDFBOX;
-
-typedef struct {
-	PDFBOX *box;
-	int n;
-	int na;
-} PDFBOXES;
-
-typedef struct {
-	int pageno; /* Source page number */
-	double page_rot_deg; /* Source page rotation */
-	PDFBOXES boxes;
-} PAGEINFO;
-
-typedef struct {
 	int pageno;
 	double finerot_deg;
 	double rot_deg;
@@ -191,19 +170,6 @@ typedef struct {
 	int centered; /* Is this set of rows centered? */
 	int n, na;
 } BREAKINFO;
-
-typedef struct {
-	int red[256];
-	int green[256];
-	int blue[256];
-	unsigned char *data; /* Top to bottom in native type, bottom to */
-	/* top in Win32 type.                      */
-	int width; /* Width of image in pixels */
-	int height; /* Height of image in pixels */
-	int bpp; /* Bits per pixel (only 8 or 24 allowed) */
-	int size_allocated;
-	int type; /* See defines above for WILLUSBITMAP_TYPE_... */
-} WILLUSBITMAP;
 
 typedef struct {
 	int r1, r2; /* row position from top of bmp, inclusive */
@@ -355,18 +321,9 @@ static void bmp_src_to_dst(MASTERINFO *masterinfo, WILLUSBITMAP *src,
 		int nocr, int dpi);
 static void bmp_fully_justify(WILLUSBITMAP *jbmp, WILLUSBITMAP *src, int nocr,
 		int whitethresh, int just);
-#ifdef HAVE_OCR
-static void ocrwords_fill_in(OCRWORDS *words,WILLUSBITMAP *src,int whitethresh,int dpi);
-#endif
 static void bmpregion_trim_margins(BMPREGION *region, int *colcount0,
 		int *rowcount0, int flags);
 static void bmpregion_hyphen_detect(BMPREGION *region);
-#if (WILLUSDEBUGX & 6)
-static void breakinfo_echo(BREAKINFO *bi);
-#endif
-#if (defined(WILLUSDEBUGX) || defined(WILLUSDEBUG))
-static void bmpregion_write(BMPREGION *region,char *filename);
-#endif
 static int height2_calc(int *rc, int n);
 static void trim_to(int *count, int *i1, int i2, double gaplen);
 static void bmpregion_analyze_justification_and_line_spacing(BMPREGION *region,
@@ -409,19 +366,6 @@ static void bmpregion_one_row_wrap_and_add(BMPREGION *region,
 		int rheight, int mean_row_gap, int rowbase, int marking_flags, int pi);
 static void white_margins(WILLUSBITMAP *src, WILLUSBITMAP *srcgrey);
 static void get_white_margins(BMPREGION *region);
-/* Bitmap orientation detection functions */
-static double bitmap_orientation(WILLUSBITMAP *bmp);
-static double bmp_inflections_vertical(WILLUSBITMAP *srcgrey, int ndivisions,
-		int delta, int *wthresh);
-static double bmp_inflections_horizontal(WILLUSBITMAP *srcgrey, int ndivisions,
-		int delta, int *wthresh);
-static int inflection_count(double *x, int n, int delta, int *wthresh);
-static void pdfboxes_init(PDFBOXES *boxes);
-static void pdfboxes_free(PDFBOXES *boxes);
-/*
- static void pdfboxes_add_box(PDFBOXES *boxes,PDFBOX *box);
- static void pdfboxes_delete(PDFBOXES *boxes,int n);
- */
 static void word_gaps_add(BREAKINFO *breakinfo, int lcheight,
 		double *median_gap);
 static void bmp_detect_vertical_lines(WILLUSBITMAP *bmp, WILLUSBITMAP *cbmp,
@@ -438,13 +382,8 @@ static int willus_mem_alloc_warn(void **ptr, int size, char *name, int exitcode)
 static void willus_mem_free(double **ptr, char *name);
 static void sortd(double *x, int n);
 static void sorti(int *x, int n);
-static void bmp_init(WILLUSBITMAP *bmap);
-static int bmp_alloc(WILLUSBITMAP *bmap);
-static void bmp_free(WILLUSBITMAP *bmap);
 static int bmp_copy(WILLUSBITMAP *dest, WILLUSBITMAP *src);
 static void bmp_fill(WILLUSBITMAP *bmp,int r,int g,int b);
-static int bmp_bytewidth(WILLUSBITMAP *bmp);
-static unsigned char *bmp_rowptr_from_top(WILLUSBITMAP *bmp, int row);
 static void bmp_more_rows(WILLUSBITMAP *bmp, double ratio, int pixval);
 static int bmp_is_grayscale(WILLUSBITMAP *bmp);
 static int bmp_resample(WILLUSBITMAP *dest, WILLUSBITMAP *src, double x1,
@@ -454,24 +393,21 @@ static void bmp_convert_to_greyscale_ex(WILLUSBITMAP *dst, WILLUSBITMAP *src);
 static double bmp_autostraighten(WILLUSBITMAP *src, WILLUSBITMAP *srcgrey, int white,
 		double maxdegrees, double mindegrees, int debug);
 static int bmp_rotate_right_angle(WILLUSBITMAP *bmp, int degrees);
-static int bmpmupdf_pixmap_to_bmp(WILLUSBITMAP *bmp, fz_context *ctx,
-		fz_pixmap *pixmap);
-static void handle(int wait, ddjvu_context_t *ctx);
 static void wpdfboxes_init(WPDFBOXES *boxes);
 static void wpdfboxes_free(WPDFBOXES *boxes);
 static void wpdfboxes_add_box(WPDFBOXES *boxes, WPDFBOX *box);
+static void k2pdfopt_init(KOPTContext *kctx);
 
 static MASTERINFO _masterinfo, *masterinfo;
 static int master_bmp_inited = 0;
-static int max_page_width_pix = 3000;
-static int max_page_height_pix = 4000;
-static double shrink_factor = 0.9;
 
-static void k2pdfopt_reflow_bmp(MASTERINFO *masterinfo, WILLUSBITMAP *src) {
+void k2pdfopt_reflow_bmp(KOPTContext *kctx, WILLUSBITMAP *src) {
 	WPDFPAGEINFO _pageinfo, *pageinfo;
 	WILLUSBITMAP _srcgrey, *srcgrey;
 	int i, white, dpi;
 	double area_ratio;
+
+	k2pdfopt_init(kctx);
 
 	if (use_crop_boxes) {
 		pageinfo = &_pageinfo;
@@ -479,7 +415,6 @@ static void k2pdfopt_reflow_bmp(MASTERINFO *masterinfo, WILLUSBITMAP *src) {
 	} else
 		pageinfo = NULL;
 
-	masterinfo->debugfolder[0] = '\0';
 	white = src_whitethresh; /* Will be set by adjust_contrast() or set to src_whitethresh */
 	dpi = src_dpi;
 	adjust_params_init();
@@ -487,6 +422,8 @@ static void k2pdfopt_reflow_bmp(MASTERINFO *masterinfo, WILLUSBITMAP *src) {
 
 	srcgrey = &_srcgrey;
 	if (master_bmp_inited == 0) {
+		masterinfo = &_masterinfo;
+		masterinfo->debugfolder[0] = '\0';
 		bmp_init(&masterinfo->bmp);
 		master_bmp_inited = 1;
 	}
@@ -544,6 +481,10 @@ static void k2pdfopt_reflow_bmp(MASTERINFO *masterinfo, WILLUSBITMAP *src) {
 	bmp_free(srcgrey);
 	if (pageinfo != NULL)
 		wpdfboxes_free(&pageinfo->boxes);
+
+	kctx->page_width = masterinfo->bmp.width;
+	kctx->page_height = masterinfo->rows;
+	kctx->data = masterinfo->bmp.data;
 }
 
 static void k2pdfopt_init(KOPTContext *kctx) {
@@ -591,149 +532,6 @@ static void k2pdfopt_init(KOPTContext *kctx) {
 		dst_justify = -1;
 		dst_fulljustify = 1;
 	}
-}
-
-void k2pdfopt_mupdf_reflow(KOPTContext *kctx, fz_document *doc, fz_page *page, fz_context *ctx) {
-	fz_device *dev;
-	fz_pixmap *pix;
-	fz_rect bounds,bounds2;
-	fz_matrix ctm;
-	fz_bbox bbox;
-	WILLUSBITMAP _src, *src;
-
-	pix = NULL;
-	fz_var(pix);
-
-	k2pdfopt_init(kctx);
-
-	bounds.x0 = kctx->bbox.x0;
-	bounds.y0 = kctx->bbox.y0;
-	bounds.x1 = kctx->bbox.x1;
-	bounds.y1 = kctx->bbox.y1;
-
-	double dpp,zoom;
-	zoom = kctx->zoom;
-	double dpi = 250*zoom*src_dpi/300;
-	do {
-		dpp = dpi / 72.;
-		ctm = fz_scale(dpp, dpp);
-		//    ctm=fz_concat(ctm,fz_rotate(rotation));
-		bounds2 = fz_transform_rect(ctm, bounds);
-		bbox = fz_round_rect(bounds2);
-		printf("reading page:%d,%d,%d,%d zoom:%.2f dpi:%.0f\n",bbox.x0,bbox.y0,bbox.x1,bbox.y1,zoom,dpi);
-		kctx->zoom = zoom;
-		zoom *= shrink_factor;
-		dpi *= shrink_factor;
-	} while (bbox.x1 > max_page_width_pix | bbox.y1 > max_page_height_pix);
-	//    ctm=fz_translate(0,-page->mediabox.y1);
-	//    ctm=fz_concat(ctm,fz_scale(dpp,-dpp));
-	//    ctm=fz_concat(ctm,fz_rotate(page->rotate));
-	//    ctm=fz_concat(ctm,fz_rotate(0));
-	//    bbox=fz_round_rect(fz_transform_rect(ctm,page->mediabox));
-	//    pix=fz_new_pixmap_with_rect(colorspace,bbox);
-	pix = fz_new_pixmap_with_bbox(ctx, fz_device_gray, bbox);
-	fz_clear_pixmap_with_value(ctx, pix, 0xff);
-	dev = fz_new_draw_device(ctx, pix);
-#ifdef MUPDF_TRACE
-	fz_device *tdev;
-	fz_try(ctx) {
-		tdev = fz_new_trace_device(ctx);
-		fz_run_page(doc, page, tdev, ctm, NULL);
-	}
-	fz_always(ctx) {
-		fz_free_device(tdev);
-	}
-#endif
-	fz_run_page(doc, page, dev, ctm, NULL);
-	fz_free_device(dev);
-
-	if(kctx->contrast >= 0.0) {
-		fz_gamma_pixmap(ctx, pix, kctx->contrast);
-	}
-
-	src = &_src;
-	masterinfo = &_masterinfo;
-	bmp_init(src);
-	int status = bmpmupdf_pixmap_to_bmp(src, ctx, pix);
-	k2pdfopt_reflow_bmp(masterinfo, src);
-	bmp_free(src);
-
-	fz_drop_pixmap(ctx, pix);
-
-	kctx->page_width = masterinfo->bmp.width;
-	kctx->page_height = masterinfo->rows;
-	kctx->data = masterinfo->bmp.data;
-}
-
-void k2pdfopt_djvu_reflow(KOPTContext *kctx, ddjvu_page_t *page, ddjvu_context_t *ctx, \
-		ddjvu_render_mode_t mode, ddjvu_format_t *fmt) {
-	WILLUSBITMAP _src, *src;
-	ddjvu_rect_t prect;
-	ddjvu_rect_t rrect;
-
-	k2pdfopt_init(kctx);
-
-	int px, py, pw, ph, rx, ry, rw, rh, idpi, status;
-	double zoom = kctx->zoom;
-	double dpi = 250*zoom;
-
-	while (!ddjvu_page_decoding_done(page))
-			handle(1, ctx);
-
-	printf("koptcontext bbox:%f,%f,%f,%f\n",kctx->bbox.x0,kctx->bbox.y0,kctx->bbox.x1,kctx->bbox.y1);
-
-	px = 0;
-	py = 0;
-	pw = ddjvu_page_get_width(page);
-	ph = ddjvu_page_get_height(page);
-	idpi = ddjvu_page_get_resolution(page);
-	prect.x = px;
-	prect.y = py;
-
-	rx = (int)kctx->bbox.x0;
-	ry = (int)kctx->bbox.y0;
-	rw = (int)(kctx->bbox.x1 - kctx->bbox.x0);
-	rh = (int)(kctx->bbox.y1 - kctx->bbox.y0);
-
-	do {
-		prect.w = pw * dpi / idpi;
-		prect.h = ph * dpi / idpi;
-		rrect.x = rx * dpi / idpi;
-		rrect.y = ry * dpi / idpi;
-		rrect.w = rw * dpi / idpi;
-		rrect.h = rh * dpi / idpi;
-		printf("rendering page:%d,%d,%d,%d dpi:%.0f idpi:%.0d\n",rrect.x,rrect.y,rrect.w,rrect.h,dpi,idpi);
-		kctx->zoom = zoom;
-		zoom *= shrink_factor;
-		dpi *= shrink_factor;
-	} while (rrect.w > max_page_width_pix | rrect.h > max_page_height_pix);
-
-	src = &_src;
-	masterinfo = &_masterinfo;
-	bmp_init(src);
-
-	src->width = rrect.w;
-	src->height = rrect.h;
-	src->bpp = 8;
-
-	bmp_alloc(src);
-	if (src->bpp == 8) {
-		int ii;
-		for (ii = 0; ii < 256; ii++)
-		src->red[ii] = src->blue[ii] = src->green[ii] = ii;
-	}
-
-	ddjvu_format_set_row_order(fmt, 1);
-
-	status = ddjvu_page_render(page, mode, &prect, &rrect, fmt,
-			bmp_bytewidth(src), (char *) src->data);
-
-	k2pdfopt_reflow_bmp(masterinfo, src);
-	bmp_free(src);
-
-	kctx->page_width = masterinfo->bmp.width;
-	kctx->page_height = masterinfo->rows;
-	kctx->data = masterinfo->bmp.data;
 }
 
 /* ansi.c */
@@ -5220,315 +5018,6 @@ static void get_white_margins(BMPREGION *region)
 }
 
 /*
- ** bitmap_orientation()
- **
- ** 1.0 means neutral
- **
- ** >> 1.0 means document is likely portrait (no rotation necessary)
- **    (max is 100.)
- **
- ** << 1.0 means document is likely landscape (need to rotate it)
- **    (min is 0.01)
- **
- */
-static double bitmap_orientation(WILLUSBITMAP *bmp)
-
-{
-	int i, ic, wtcalc;
-	double hsum, vsum, rat;
-
-	wtcalc = -1;
-	for (vsum = 0., hsum = 0., ic = 0, i = 20; i <= 85; i += 5, ic++) {
-		double nv, nh;
-		int wth, wtv;
-
-#ifdef DEBUG
-		printf("h %d:\n",i);
-#endif
-		if (ic == 0)
-			wth = -1;
-		else
-			wth = wtcalc;
-		wth = -1;
-		nh = bmp_inflections_horizontal(bmp, 8, i, &wth);
-#ifdef DEBUG
-		{
-			FILE *f;
-			f=fopen("inf.ep","a");
-			fprintf(f,"/ag\n");
-			fclose(f);
-		}
-		printf("v %d:\n",i);
-#endif
-		if (ic == 0)
-			wtv = -1;
-		else
-			wtv = wtcalc;
-		wtv = -1;
-		nv = bmp_inflections_vertical(bmp, 8, i, &wtv);
-		if (ic == 0) {
-			if (wtv > wth)
-				wtcalc = wtv;
-			else
-				wtcalc = wth;
-			continue;
-		}
-// exit(10);
-		hsum += nh * i * i * i;
-		vsum += nv * i * i * i;
-	}
-	if (vsum == 0. && hsum == 0.)
-		rat = 1.0;
-	else if (hsum < vsum && hsum / vsum < .01)
-		rat = 100.;
-	else
-		rat = vsum / hsum;
-	if (rat < .01)
-		rat = .01;
-	// printf("    page %2d:  %8.4f\n",pagenum,rat);
-	// fprintf(out,"\t%8.4f",vsum/hsum);
-	// fprintf(out,"\n");
-	return (rat);
-}
-
-static double bmp_inflections_vertical(WILLUSBITMAP *srcgrey, int ndivisions,
-		int delta, int *wthresh)
-
-{
-	int y0, y1, ny, i, nw, nisum, ni, wt, wtmax;
-	double *g;
-	char *funcname = "bmp_inflections_vertical";
-
-	nw = srcgrey->width / ndivisions;
-	y0 = srcgrey->height / 6;
-	y1 = srcgrey->height - y0;
-	ny = y1 - y0;
-	willus_dmem_alloc_warn(21, (void **) &g, ny * sizeof(double), funcname, 10);
-	wtmax = -1;
-	for (nisum = 0, i = 0; i < 10; i++) {
-		int x0, x1, nx, j;
-
-		x0 = (srcgrey->width - nw) * (i + 2) / 13;
-		x1 = x0 + nw;
-		if (x1 > srcgrey->width)
-			x1 = srcgrey->width;
-		nx = x1 - x0;
-		for (j = y0; j < y1; j++) {
-			int k, rsum;
-			unsigned char *p;
-
-			p = bmp_rowptr_from_top(srcgrey, j) + x0;
-			for (rsum = k = 0; k < nx; k++, p++)
-				rsum += p[0];
-			g[j - y0] = (double) rsum / nx;
-		}
-		wt = (*wthresh);
-		ni = inflection_count(g, ny, delta, &wt);
-		if ((*wthresh) < 0 && ni >= 3 && wt > wtmax)
-			wtmax = wt;
-		if (ni > nisum)
-			nisum = ni;
-	}
-	willus_dmem_free(21, &g, funcname);
-	if ((*wthresh) < 0)
-		(*wthresh) = wtmax;
-	return (nisum);
-}
-
-static double bmp_inflections_horizontal(WILLUSBITMAP *srcgrey, int ndivisions,
-		int delta, int *wthresh)
-
-{
-	int x0, x1, nx, bw, i, nh, nisum, ni, wt, wtmax;
-	double *g;
-	char *funcname = "bmp_inflections_vertical";
-
-	nh = srcgrey->height / ndivisions;
-	x0 = srcgrey->width / 6;
-	x1 = srcgrey->width - x0;
-	nx = x1 - x0;
-	bw = bmp_bytewidth(srcgrey);
-	willus_dmem_alloc_warn(22, (void **) &g, nx * sizeof(double), funcname, 10);
-	wtmax = -1;
-	for (nisum = 0, i = 0; i < 10; i++) {
-		int y0, y1, ny, j;
-
-		y0 = (srcgrey->height - nh) * (i + 2) / 13;
-		y1 = y0 + nh;
-		if (y1 > srcgrey->height)
-			y1 = srcgrey->height;
-		ny = y1 - y0;
-		for (j = x0; j < x1; j++) {
-			int k, rsum;
-			unsigned char *p;
-
-			p = bmp_rowptr_from_top(srcgrey, y0) + j;
-			for (rsum = k = 0; k < ny; k++, p += bw)
-				rsum += p[0];
-			g[j - x0] = (double) rsum / ny;
-		}
-		wt = (*wthresh);
-		ni = inflection_count(g, nx, delta, &wt);
-		if ((*wthresh) < 0 && ni >= 3 && wt > wtmax)
-			wtmax = wt;
-		if (ni > nisum)
-			nisum = ni;
-	}
-	willus_dmem_free(22, &g, funcname);
-	if ((*wthresh) < 0)
-		(*wthresh) = wtmax;
-	return (nisum);
-}
-
-static int inflection_count(double *x, int n, int delta, int *wthresh)
-
-{
-	int i, i0, ni, ww, c, ct, wt, mode;
-	double meandi, meandisq, f1, f2, stdev;
-	double *xs;
-	static int hist[256];
-	static char *funcname = "inflection_count";
-
-	/* Find threshold white value that peaks must exceed */
-	if ((*wthresh) < 0) {
-		for (i = 0; i < 256; i++)
-			hist[i] = 0;
-		for (i = 0; i < n; i++) {
-			i0 = floor(x[i]);
-			if (i0 > 255)
-				i0 = 255;
-			hist[i0]++;
-		}
-		ct = n * .15;
-		for (c = 0, i = 255; i >= 0; i--) {
-			c += hist[i];
-			if (c > ct)
-				break;
-		}
-		wt = i - 10;
-		if (wt < 192)
-			wt = 192;
-#ifdef DEBUG
-		printf("wt=%d\n",wt);
-#endif
-		(*wthresh) = wt;
-	} else
-		wt = (*wthresh);
-	ww = n / 150;
-	if (ww < 1)
-		ww = 1;
-	willus_dmem_alloc_warn(23, (void **) &xs, sizeof(double) * n, funcname, 10);
-	for (i = 0; i < n - ww; i++) {
-		int j;
-		for (xs[i] = 0., j = 0; j < ww; j++, xs[i] += x[i + j])
-			;
-		xs[i] /= ww;
-	}
-	meandi = meandisq = 0.;
-	if (xs[0] <= wt - delta)
-		mode = 1;
-	else if (xs[0] >= wt)
-		mode = -1;
-	else
-		mode = 0;
-	for (i0 = 0, ni = 0, i = 1; i < n - ww; i++) {
-		if (mode == 1 && xs[i] >= wt) {
-			if (i0 > 0) {
-				meandi += i - i0;
-				meandisq += (i - i0) * (i - i0);
-				ni++;
-			}
-			i0 = i;
-			mode = -1;
-			continue;
-		}
-		if (xs[i] <= wt - delta)
-			mode = 1;
-	}
-	stdev = 1.0; /* Avoid compiler warning */
-	if (ni > 0) {
-		meandi /= ni;
-		meandisq /= ni;
-		stdev = sqrt(fabs(meandi * meandi - meandisq));
-	}
-	f1 = meandi / n;
-	if (f1 > .15)
-		f1 = .15;
-	if (ni > 2) {
-		if (stdev / meandi < .05)
-			f2 = 20.;
-		else
-			f2 = meandi / stdev;
-	} else
-		f2 = 1.;
-#ifdef DEBUG
-	printf("    ni=%3d, f1=%8.4f, f2=%8.4f, f1*f2*ni=%8.4f\n",ni,f1,f2,f1*f2*ni);
-	{
-		static int count=0;
-		FILE *f;
-		int i;
-		f=fopen("inf.ep",count==0?"w":"a");
-		count++;
-		fprintf(f,"/sa l \"%d\" 1\n",ni);
-		for (i=0;i<n-ww;i++)
-		fprintf(f,"%g\n",xs[i]);
-		fprintf(f,"//nc\n");
-		fclose(f);
-	}
-#endif /* DEBUG */
-	willus_dmem_free(23, &xs, funcname);
-	return (f1 * f2 * ni);
-}
-
-static void pdfboxes_init(PDFBOXES *boxes)
-
-{
-	boxes->n = boxes->na = 0;
-	boxes->box = NULL;
-}
-
-static void pdfboxes_free(PDFBOXES *boxes)
-
-{
-	static char *funcname = "pdfboxes_free";
-	willus_dmem_free(24, (double **) &boxes->box, funcname);
-}
-
-#ifdef COMMENT
-static void pdfboxes_add_box(PDFBOXES *boxes,PDFBOX *box)
-
-{
-	static char *funcname="pdfboxes_add_box";
-
-	if (boxes->n>=boxes->na)
-	{
-		int newsize;
-
-		newsize = boxes->na < 1024 ? 2048 : boxes->na*2;
-		/* Just calls willus_mem_alloc if oldsize==0 */
-		willus_mem_realloc_robust_warn((void **)&boxes->box,newsize*sizeof(PDFBOX),
-				boxes->na*sizeof(PDFBOX),funcname,10);
-		boxes->na=newsize;
-	}
-	boxes->box[boxes->n++]=(*box);
-}
-
-static void pdfboxes_delete(PDFBOXES *boxes,int n)
-
-{
-	if (n>0 && n<boxes->n)
-	{
-		int i;
-		for (i=0;i<boxes->n-n;i++)
-		boxes->box[i]=boxes->box[i+n];
-	}
-	boxes->n -= n;
-	if (boxes->n < 0)
-	boxes->n = 0;
-}
-#endif
-
-/*
  ** Track gaps between words so that we can tell when one is out of family.
  ** lcheight = height of a lowercase letter.
  */
@@ -6226,7 +5715,7 @@ static void sorti(int *x, int n)
         ptr+=3; \
         }
 
-static void bmp_init(WILLUSBITMAP *bmap)
+void bmp_init(WILLUSBITMAP *bmap)
 
 {
 	bmap->data = NULL;
@@ -6244,7 +5733,7 @@ static int bmp_bytewidth_win32(WILLUSBITMAP *bmp)
  ** The width, height, and bpp parameters of the WILLUSBITMAP structure
  ** should be set before calling this function.
  */
-static int bmp_alloc(WILLUSBITMAP *bmap)
+int bmp_alloc(WILLUSBITMAP *bmap)
 
 {
 	int size;
@@ -6269,7 +5758,7 @@ static int bmp_alloc(WILLUSBITMAP *bmap)
 	return (1);
 }
 
-static void bmp_free(WILLUSBITMAP *bmap)
+void bmp_free(WILLUSBITMAP *bmap)
 
     {
     if (bmap->data!=NULL)
@@ -6334,7 +5823,7 @@ static int bmp_copy(WILLUSBITMAP *dest, WILLUSBITMAP *src)
 	return (1);
 }
 
-static int bmp_bytewidth(WILLUSBITMAP *bmp) {
+int bmp_bytewidth(WILLUSBITMAP *bmp) {
 	return (bmp->bpp == 24 ? bmp->width * 3 : bmp->width);
 }
 
@@ -6343,7 +5832,7 @@ static int bmp_bytewidth(WILLUSBITMAP *bmp) {
  ** row==bmp->height-1 ==> bottom row of bitmap
  ** (regardless of bitmap type)
  */
-static unsigned char *bmp_rowptr_from_top(WILLUSBITMAP *bmp, int row)
+unsigned char *bmp_rowptr_from_top(WILLUSBITMAP *bmp, int row)
 
 {
 	if (bmp->type == WILLUSBITMAP_TYPE_WIN32)
@@ -7267,76 +6756,6 @@ static int bmp_rotate_right_angle(WILLUSBITMAP *bmp, int degrees)
 	if (d == 3)
 		return (bmp_rotate_270(bmp));
 	return (1);
-}
-
-/* bmpmupdf.c */
-static int bmpmupdf_pixmap_to_bmp(WILLUSBITMAP *bmp, fz_context *ctx,
-		fz_pixmap *pixmap)
-
-{
-	unsigned char *p;
-	int ncomp, i, row, col;
-
-	bmp->width = fz_pixmap_width(ctx, pixmap);
-	bmp->height = fz_pixmap_height(ctx, pixmap);
-	ncomp = fz_pixmap_components(ctx, pixmap);
-	/* Has to be 8-bit or RGB */
-	if (ncomp != 2 && ncomp != 4)
-		return (-1);
-	bmp->bpp = (ncomp == 2) ? 8 : 24;
-	bmp_alloc(bmp);
-	if (ncomp == 2)
-		for (i = 0; i < 256; i++)
-			bmp->red[i] = bmp->green[i] = bmp->blue[i] = i;
-	p = fz_pixmap_samples(ctx, pixmap);
-	if (ncomp == 1)
-		for (row = 0; row < bmp->height; row++) {
-			unsigned char *dest;
-			dest = bmp_rowptr_from_top(bmp, row);
-			memcpy(dest, p, bmp->width);
-			p += bmp->width;
-		}
-	else if (ncomp == 2)
-		for (row = 0; row < bmp->height; row++) {
-			unsigned char *dest;
-			dest = bmp_rowptr_from_top(bmp, row);
-			for (col = 0; col < bmp->width; col++, dest++, p += 2)
-				dest[0] = p[0];
-		}
-	else
-		for (row = 0; row < bmp->height; row++) {
-			unsigned char *dest;
-			dest = bmp_rowptr_from_top(bmp, row);
-			for (col = 0; col < bmp->width;
-					col++, dest += ncomp - 1, p += ncomp)
-				memcpy(dest, p, ncomp - 1);
-		}
-	return (0);
-}
-
-static void handle(int wait, ddjvu_context_t *ctx)
-    {
-    const ddjvu_message_t *msg;
-
-    if (!ctx)
-        return;
-    if (wait)
-        msg = ddjvu_message_wait(ctx);
-    while ((msg = ddjvu_message_peek(ctx)))
-        {
-        switch(msg->m_any.tag)
-            {
-            case DDJVU_ERROR:
-                fprintf(stderr,"ddjvu: %s\n", msg->m_error.message);
-                if (msg->m_error.filename)
-                    fprintf(stderr,"ddjvu: '%s:%d'\n",
-                      msg->m_error.filename, msg->m_error.lineno);
-            exit(10);
-            default:
-            break;
-            }
-        }
-    ddjvu_message_pop(ctx);
 }
 
 /* wmupdf.c */

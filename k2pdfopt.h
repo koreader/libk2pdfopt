@@ -23,10 +23,13 @@
 #ifndef _K2PDFOPT_H
 #define _K2PDFOPT_H
 
-#include <fitz/fitz-internal.h>
-#include <libdjvu/ddjvuapi.h>
-
 typedef unsigned char  uint8_t;
+
+typedef struct {
+	float x0, y0;
+	float x1, y1;
+} BBox;
+
 typedef struct KOPTContext {
 	int trim;
 	int wrap;
@@ -41,6 +44,8 @@ typedef struct KOPTContext {
 	int page_height;
 	int straighten;
 	int justification;
+	int read_max_width;
+	int read_max_height;
 
 	double zoom;
 	double margin;
@@ -49,13 +54,33 @@ typedef struct KOPTContext {
 	double defect_size;
 	double line_spacing;
 	double word_spacing;
+	double shrink_factor;
 
 	uint8_t *data;
-	fz_rect bbox;
+	BBox bbox;
 } KOPTContext;
 
-void k2pdfopt_mupdf_reflow(KOPTContext *kc, fz_document *doc, fz_page *page, fz_context *ctx);
-void k2pdfopt_djvu_reflow(KOPTContext *kc, ddjvu_page_t *page, ddjvu_context_t *ctx, ddjvu_render_mode_t mode, ddjvu_format_t *fmt);
+typedef struct {
+	int red[256];
+	int green[256];
+	int blue[256];
+	unsigned char *data; /* Top to bottom in native type, bottom to */
+	/* top in Win32 type.                      */
+	int width; /* Width of image in pixels */
+	int height; /* Height of image in pixels */
+	int bpp; /* Bits per pixel (only 8 or 24 allowed) */
+	int size_allocated;
+	int type; /* See defines above for WILLUSBITMAP_TYPE_... */
+} WILLUSBITMAP;
+
+/* bmp utilities */
+void bmp_init(WILLUSBITMAP *bmap);
+int bmp_alloc(WILLUSBITMAP *bmap);
+void bmp_free(WILLUSBITMAP *bmap);
+int bmp_bytewidth(WILLUSBITMAP *bmp);
+unsigned char *bmp_rowptr_from_top(WILLUSBITMAP *bmp, int row);
+
+void k2pdfopt_reflow_bmp(KOPTContext *kctx, WILLUSBITMAP *bmp);
 
 #endif
 
