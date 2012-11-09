@@ -253,7 +253,7 @@ static int column_fitted = 0;
 static double lm_org, bm_org, tm_org, rm_org, dpi_org;
 static double contrast_max = 2.0;
 static int show_marked_source = 0;
-static int use_crop_boxes = 1;
+static int use_crop_boxes = 0;
 static int preserve_indentation = 1;
 static double defect_size_pts = 1.0;
 static double max_vertical_gap_inches = 0.25;
@@ -2063,8 +2063,7 @@ static void bmpregion_add(BMPREGION *region, BREAKINFO *breakinfo,
 
 			if (srcbox->crop_width_pts > 0. && srcbox->crop_height_pts > 0.) {
 				wpdfboxes_add_box(&pageinfo->boxes, wpdfbox);
-				/* !dirty hack! but this will make full justify work when setting mar to 0 */
-				//have_pagebox = 1;
+				have_pagebox = 1;
 			}
 		}
 #endif /* HAVE_MUPDF */
