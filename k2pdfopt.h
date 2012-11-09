@@ -51,6 +51,7 @@ typedef struct KOPTContext {
 	double word_spacing;
 
 	uint8_t *data;
+	fz_rect bbox;
 } KOPTContext;
 
 void k2pdfopt_mupdf_reflow(KOPTContext *kc, fz_document *doc, fz_page *page, fz_context *ctx);

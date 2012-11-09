@@ -547,7 +547,7 @@ static void k2pdfopt_reflow_bmp(MASTERINFO *masterinfo, WILLUSBITMAP *src) {
 }
 
 static void k2pdfopt_init(KOPTContext *kctx) {
-	dst_userwidth  = kctx->dev_width; // dst_width is adjusted in adjust_params_init
+	dst_userwidth  = kctx->dev_width;
 	dst_userheight = kctx->dev_height;
 	vertical_line_spacing = kctx->line_spacing;
 	word_spacing = kctx->word_spacing;
@@ -601,16 +601,21 @@ void k2pdfopt_mupdf_reflow(KOPTContext *kctx, fz_document *doc, fz_page *page, f
 	fz_bbox bbox;
 	WILLUSBITMAP _src, *src;
 
+	pix = NULL;
+	fz_var(pix);
+
 	k2pdfopt_init(kctx);
+
+	bounds.x0 = kctx->bbox.x0;
+	bounds.y0 = kctx->bbox.y0;
+	bounds.x1 = kctx->bbox.x1;
+	bounds.y1 = kctx->bbox.y1;
 
 	double dpp,zoom;
 	zoom = kctx->zoom;
 	double dpi = 250*zoom*src_dpi/300;
 	do {
 		dpp = dpi / 72.;
-		pix = NULL;
-		fz_var(pix);
-		bounds = fz_bound_page(doc, page);
 		ctm = fz_scale(dpp, dpp);
 		//    ctm=fz_concat(ctm,fz_rotate(rotation));
 		bounds2 = fz_transform_rect(ctm, bounds);
@@ -668,35 +673,49 @@ void k2pdfopt_djvu_reflow(KOPTContext *kctx, ddjvu_page_t *page, ddjvu_context_t
 
 	k2pdfopt_init(kctx);
 
-	int i, iw, ih, idpi, status;
+	int px, py, pw, ph, rx, ry, rw, rh, idpi, status;
 	double zoom = kctx->zoom;
 	double dpi = 250*zoom;
 
 	while (!ddjvu_page_decoding_done(page))
 			handle(1, ctx);
 
-	iw = ddjvu_page_get_width(page);
-	ih = ddjvu_page_get_height(page);
+	printf("koptcontext bbox:%f,%f,%f,%f\n",kctx->bbox.x0,kctx->bbox.y0,kctx->bbox.x1,kctx->bbox.y1);
+
+	px = 0;
+	py = 0;
+	pw = ddjvu_page_get_width(page);
+	ph = ddjvu_page_get_height(page);
 	idpi = ddjvu_page_get_resolution(page);
-	prect.x = prect.y = 0;
+	prect.x = px;
+	prect.y = py;
+
+	rx = (int)kctx->bbox.x0;
+	ry = (int)kctx->bbox.y0;
+	rw = (int)(kctx->bbox.x1 - kctx->bbox.x0);
+	rh = (int)(kctx->bbox.y1 - kctx->bbox.y0);
+
 	do {
-		prect.w = iw * dpi / idpi;
-		prect.h = ih * dpi / idpi;
-		printf("reading page:%d,%d,%d,%d dpi:%.0f\n",prect.x,prect.y,prect.w,prect.h,dpi);
+		prect.w = pw * dpi / idpi;
+		prect.h = ph * dpi / idpi;
+		rrect.x = rx * dpi / idpi;
+		rrect.y = ry * dpi / idpi;
+		rrect.w = rw * dpi / idpi;
+		rrect.h = rh * dpi / idpi;
+		printf("rendering page:%d,%d,%d,%d dpi:%.0f idpi:%.0d\n",rrect.x,rrect.y,rrect.w,rrect.h,dpi,idpi);
 		kctx->zoom = zoom;
 		zoom *= shrink_factor;
 		dpi *= shrink_factor;
-	} while (prect.w > max_page_width_pix | prect.h > max_page_height_pix);
-	rrect = prect;
+	} while (rrect.w > max_page_width_pix | rrect.h > max_page_height_pix);
 
 	src = &_src;
 	masterinfo = &_masterinfo;
 	bmp_init(src);
 
-	src->width = prect.w = iw * dpi / idpi;
-	src->height = prect.h = ih * dpi / idpi;
+	src->width = rrect.w;
+	src->height = rrect.h;
 	src->bpp = 8;
-	rrect = prect;
+
 	bmp_alloc(src);
 	if (src->bpp == 8) {
 		int ii;
@@ -2243,9 +2262,11 @@ static void bmpregion_add(BMPREGION *region, BREAKINFO *breakinfo,
 				srcbox->crop_width_pts = w;
 				srcbox->crop_height_pts = h;
 			}
+
 			if (srcbox->crop_width_pts > 0. && srcbox->crop_height_pts > 0.) {
 				wpdfboxes_add_box(&pageinfo->boxes, wpdfbox);
-				have_pagebox = 1;
+				/* !dirty hack! but this will make full justify work when setting mar to 0 */
+				//have_pagebox = 1;
 			}
 		}
 #endif /* HAVE_MUPDF */
@@ -2379,7 +2400,6 @@ static void bmp_src_to_dst(MASTERINFO *masterinfo, WILLUSBITMAP *src,
 	/* Cannot fully justify if using crop boxes */
 	if (pageinfo != NULL)
 		go_full = 0;
-
 	/* Put fully justified text into src1 bitmap */
 	if (go_full) {
 		src1 = &_src1;
