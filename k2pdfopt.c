@@ -4856,7 +4856,7 @@ static void get_white_margins(BMPREGION *region)
 	int n;
 	double defval;
 
-	defval = 0.25;
+	defval = 0.0;
 	if (mar_left < 0.)
 		mar_left = defval;
 	n = (int) (0.5 + mar_left * src_dpi);
