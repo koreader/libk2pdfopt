@@ -30,6 +30,19 @@ typedef struct {
 	float x1, y1;
 } BBox;
 
+typedef struct {
+	int red[256];
+	int green[256];
+	int blue[256];
+	unsigned char *data; /* Top to bottom in native type, bottom to */
+	/* top in Win32 type.                      */
+	int width; /* Width of image in pixels */
+	int height; /* Height of image in pixels */
+	int bpp; /* Bits per pixel (only 8 or 24 allowed) */
+	int size_allocated;
+	int type; /* See defines above for WILLUSBITMAP_TYPE_... */
+} WILLUSBITMAP;
+
 typedef struct KOPTContext {
 	int trim;
 	int wrap;
@@ -56,22 +69,12 @@ typedef struct KOPTContext {
 	double word_spacing;
 	double shrink_factor;
 
-	uint8_t *data;
+	int precache;
 	BBox bbox;
-} KOPTContext;
+	uint8_t *data;
+	WILLUSBITMAP *src;
 
-typedef struct {
-	int red[256];
-	int green[256];
-	int blue[256];
-	unsigned char *data; /* Top to bottom in native type, bottom to */
-	/* top in Win32 type.                      */
-	int width; /* Width of image in pixels */
-	int height; /* Height of image in pixels */
-	int bpp; /* Bits per pixel (only 8 or 24 allowed) */
-	int size_allocated;
-	int type; /* See defines above for WILLUSBITMAP_TYPE_... */
-} WILLUSBITMAP;
+} KOPTContext;
 
 /* bmp utilities */
 void bmp_init(WILLUSBITMAP *bmap);
@@ -80,7 +83,7 @@ void bmp_free(WILLUSBITMAP *bmap);
 int bmp_bytewidth(WILLUSBITMAP *bmp);
 unsigned char *bmp_rowptr_from_top(WILLUSBITMAP *bmp, int row);
 
-void k2pdfopt_reflow_bmp(KOPTContext *kctx, WILLUSBITMAP *bmp);
+void k2pdfopt_reflow_bmp(KOPTContext *kctx);
 
 #endif
 

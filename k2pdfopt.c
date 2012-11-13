@@ -403,13 +403,15 @@ static void k2pdfopt_init(KOPTContext *kctx);
 static MASTERINFO _masterinfo, *masterinfo;
 static int master_bmp_inited = 0;
 
-void k2pdfopt_reflow_bmp(KOPTContext *kctx, WILLUSBITMAP *src) {
+void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 	WPDFPAGEINFO _pageinfo, *pageinfo;
 	WILLUSBITMAP _srcgrey, *srcgrey;
+	WILLUSBITMAP *src;
 	int i, white, dpi;
 	double area_ratio;
 
 	k2pdfopt_init(kctx);
+	src = kctx->src;
 
 	if (use_crop_boxes) {
 		pageinfo = &_pageinfo;
@@ -480,6 +482,7 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx, WILLUSBITMAP *src) {
 	/* Check to see if master bitmap might need more room */
 	bmpregion_source_page_add(&region, masterinfo, 1, pageinfo, (int) (0.25 * src_dpi + .5));
 
+	bmp_free(src);
 	bmp_free(srcgrey);
 	if (pageinfo != NULL)
 		wpdfboxes_free(&pageinfo->boxes);
@@ -490,6 +493,7 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx, WILLUSBITMAP *src) {
 	kctx->page_width = masterinfo->bmp.width;
 	kctx->page_height = masterinfo->rows;
 	kctx->data = masterinfo->bmp.data;
+	kctx->precache = 0;
 }
 
 static void k2pdfopt_init(KOPTContext *kctx) {
@@ -553,7 +557,7 @@ int avprintf(FILE *f, char *fmt, va_list args)
 	{
 		if (!ansi_on) {
 			status = vsprintf(ansi_buffer, fmt, args);
-			ansi_parse(f, ansi_buffer);
+			//ansi_parse(f, ansi_buffer);
 		} else
 			status = vfprintf(f, fmt, args);
 	}
@@ -702,8 +706,6 @@ static void bmpregion_source_page_add(BMPREGION *region, MASTERINFO *masterinfo,
 			bmpregion_vertically_break(srcregion, masterinfo, text_wrap,
 					fit_columns ? -2.0 : -1.0, colcount, rowcount, pageinfo, 0,
 					2 * level);
-			if (masterinfo->fit_to_page == -2)
-				publish_master(masterinfo, pageinfo, 1);
 		}
 		willus_dmem_free(2, (double **) &rowcount, funcname);
 		willus_dmem_free(1, (double **) &colcount, funcname);
