@@ -150,6 +150,10 @@ typedef double  real;
 #define WILLUS_X86
 #endif
 
+#if (!defined(WILLUS_ARM) && defined(__arm__))
+#define WILLUS_ARM
+#endif
+
 #if (!defined(WILLUS_BIGENDIAN) && !defined(WILLUS_X86))
 #define WILLUS_BIGENDIAN
 #endif
@@ -174,7 +178,7 @@ typedef double  real;
 #endif
 
 /* Check whether sincos built-in */
-#if (defined(WILLUS_X863264) && !defined(__TINYC__) && __GNUC__ >= 4 && __GNUC_MINOR__ > 4)
+#if ((defined(WILLUS_X863264) || defined(WILLUS_ARM)) && !defined(__TINYC__) && __GNUC__ >= 4 && __GNUC_MINOR__ > 4)
 void sincos(double th,double *s,double *c);
 #else
 #define sincos(th,x,y) { (*(x))=sin(th); (*(y))=cos(th); }

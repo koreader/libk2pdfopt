@@ -71,6 +71,7 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 	/* Process single source page */
 	//initgap = (0) ? 0 : (int)(0.25*k2settings->src_dpi+.5);
 	bmpregion_source_page_add(&region, k2settings, masterinfo, 1, 0);
+	wrapbmp_flush(masterinfo,k2settings,0,0);
 
 	bmp_free(src);
 	bmp_free(srcgrey);
