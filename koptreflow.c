@@ -32,18 +32,16 @@
 static void k2pdfopt_settings_init_from_koptcontext(
 		K2PDFOPT_SETTINGS *k2settings, KOPTContext *kctx);
 
-static MASTERINFO _masterinfo, *masterinfo;
-static int master_bmp_inited = 0;
-
 void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 	static K2PDFOPT_SETTINGS _k2settings, *k2settings;
 	static MASTERINFO _masterinfo, *masterinfo;
-	WPDFPAGEINFO _pageinfo, *pageinfo;
+	static int master_bmp_inited = 0;
 	WILLUSBITMAP _srcgrey, *srcgrey;
 	WILLUSBITMAP *src;
 	BMPREGION region;
 	int initgap;
 
+	src = kctx->src;
 	srcgrey = &_srcgrey;
 	bmp_init(srcgrey);
 
@@ -61,15 +59,10 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 	bmp_init(&masterinfo->bmp);
 	wrapbmp_free(&masterinfo->wrapbmp);
 	wrapbmp_init(&masterinfo->wrapbmp, k2settings->dst_color);
-
-	src = kctx->src;
-	if (k2settings->src_rot != 0)
-		bmp_rotate_right_angle(src, k2settings->src_rot);
 	/* Init new source bitmap */
 	masterinfo_new_source_page_init(masterinfo, k2settings, src, srcgrey, NULL,
-			&region, 0., NULL, NULL, 1, NULL);
+			&region, k2settings->src_rot, NULL, NULL, 1, NULL);
 	/* Process single source page */
-	//initgap = (0) ? 0 : (int)(0.25*k2settings->src_dpi+.5);
 	bmpregion_source_page_add(&region, k2settings, masterinfo, 1, 0);
 	wrapbmp_flush(masterinfo,k2settings,0,0);
 
