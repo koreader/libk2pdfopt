@@ -300,7 +300,6 @@ void sincos(double th,double *s,double *c);
 
 void   ansi_set      (int on);
 int    aprintf       (char *fmt,...);
-int    dprintf       (char *filename,char *fmt,...);
 void   wlp_save_status    (void);
 void   wlp_restore_status (void);
 void   wlp_set_stdout     (int sout,int serr,char *filename,int close_after,
