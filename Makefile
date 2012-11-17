@@ -1,10 +1,15 @@
 MAJVER=  1
 MINVER=  6
-RELVER=  0
+RELVER=  2
 
-K2PDFOPT_SRC := $(wildcard *.c)
+MOD_INC = include_mod
+WILLUSLIB_DIR = willuslib
+K2PDFOPTLIB_DIR = k2pdfoptlib
+WILLUSLIB_SRC = $(filter-out $(WILLUSLIB_DIR)/ocrtess.c, $(wildcard $(WILLUSLIB_DIR)/*.c))
+K2PDFOPTLIB_SRC = $(wildcard $(K2PDFOPTLIB_DIR)/*.c)
+KOPTREFLOW_SRC = koptreflow.c
 
-OBJS:=$(K2PDFOPT_SRC:%.c=%.o)
+OBJS:=$(KOPTREFLOW_SRC:%.c=%.o) $(K2PDFOPTLIB_SRC:%.c=%.o) $(WILLUSLIB_SRC:%.c=%.o)
 K2PDFOPT_O= $(OBJS)
 K2PDFOPT_DYNO= $(OBJS:.o=_dyn.o)
 
@@ -31,8 +36,8 @@ K2PDFOPT_SO= $(TARGET_SONAME)
 ##############################################################################
 
 %.o: %.c
-	$(TARGET_CC) $(CFLAGS) -c -o $@ $<
-	$(TARGET_DYNCC) $(CFLAGS) -c -o $(@:.o=_dyn.o) $<
+	$(TARGET_CC) $(CFLAGS) -c -I$(MOD_INC) -I$(WILLUSLIB_DIR) -I$(K2PDFOPTLIB_DIR) -o $@ $<
+	$(TARGET_DYNCC) $(CFLAGS) -c -I$(MOD_INC) -I$(WILLUSLIB_DIR) -I$(K2PDFOPTLIB_DIR) -o $(@:.o=_dyn.o) $<
 	
 ##############################################################################
 # Target file rules.
@@ -47,7 +52,8 @@ $(K2PDFOPT_SO): $(K2PDFOPT_O)
 all: $(TARGET)
 
 clean:
-	rm -rf *.o
+	cd $(WILLUSLIB_DIR) && rm -rf *.o
+	cd $(K2PDFOPTLIB_DIR) && rm -rf *.o
 	rm -rf *.a
 	rm -rf *.so*
 

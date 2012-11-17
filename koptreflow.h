@@ -20,8 +20,10 @@
  **
  */
 
-#ifndef _K2PDFOPT_H
-#define _K2PDFOPT_H
+#ifndef _KOPTREADER_H
+#define _KOPTREADER_H
+
+#include "k2pdfopt.h"
 
 typedef unsigned char  uint8_t;
 
@@ -29,19 +31,6 @@ typedef struct {
 	float x0, y0;
 	float x1, y1;
 } BBox;
-
-typedef struct {
-	int red[256];
-	int green[256];
-	int blue[256];
-	unsigned char *data; /* Top to bottom in native type, bottom to */
-	/* top in Win32 type.                      */
-	int width; /* Width of image in pixels */
-	int height; /* Height of image in pixels */
-	int bpp; /* Bits per pixel (only 8 or 24 allowed) */
-	int size_allocated;
-	int type; /* See defines above for WILLUSBITMAP_TYPE_... */
-} WILLUSBITMAP;
 
 typedef struct KOPTContext {
 	int trim;
@@ -75,13 +64,6 @@ typedef struct KOPTContext {
 	WILLUSBITMAP *src;
 
 } KOPTContext;
-
-/* bmp utilities */
-void bmp_init(WILLUSBITMAP *bmap);
-int bmp_alloc(WILLUSBITMAP *bmap);
-void bmp_free(WILLUSBITMAP *bmap);
-int bmp_bytewidth(WILLUSBITMAP *bmp);
-unsigned char *bmp_rowptr_from_top(WILLUSBITMAP *bmp, int row);
 
 void k2pdfopt_reflow_bmp(KOPTContext *kctx);
 
