@@ -54,6 +54,7 @@ all: $(TARGET)
 clean:
 	cd $(WILLUSLIB_DIR) && rm -rf *.o
 	cd $(K2PDFOPTLIB_DIR) && rm -rf *.o
+	rm -rf *.o
 	rm -rf *.a
 	rm -rf *.so*
 
