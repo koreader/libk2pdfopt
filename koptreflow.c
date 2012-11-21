@@ -57,6 +57,8 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 	}
 	bmp_free(&masterinfo->bmp);
 	bmp_init(&masterinfo->bmp);
+	masterinfo->bmp.width = 0;
+	masterinfo->bmp.height = 0;
 	wrapbmp_free(&masterinfo->wrapbmp);
 	wrapbmp_init(&masterinfo->wrapbmp, k2settings->dst_color);
 	/* Init new source bitmap */
