@@ -40,6 +40,7 @@ typedef struct KOPTContext {
 	int columns;
 	int offset_x;
 	int offset_y;
+	int dev_dpi;
 	int dev_width;
 	int dev_height;
 	int page_width;

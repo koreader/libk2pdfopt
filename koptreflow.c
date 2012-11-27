@@ -107,6 +107,7 @@ static void k2pdfopt_settings_init_from_koptcontext(
 	/* Apply context */
 	k2settings->dst_userwidth = kctx->dev_width;
 	k2settings->dst_userheight = kctx->dev_height;
+	k2settings->dst_dpi = kctx->dev_dpi;
 	k2settings->vertical_line_spacing = kctx->line_spacing;
 	k2settings->word_spacing = kctx->word_spacing;
 	k2settings->text_wrap = kctx->wrap;
