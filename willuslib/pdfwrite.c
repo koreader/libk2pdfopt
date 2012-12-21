@@ -43,6 +43,23 @@
 
 typedef struct
     {
+    int cid;    /* cid = 0xAAABB where 0xAAA is the font # and 0xBB is the CID */
+    int unicode;
+    } WILLUSCHARMAP;
+
+/*
+** Array of mapping from character ID's to unicode values.
+** Populated for each new page.
+*/
+typedef struct
+    {
+    WILLUSCHARMAP *cmap;
+    int n;
+    int na;
+    } WILLUSCHARMAPLIST;
+
+typedef struct
+    {
     double abovebase;
     double belowbase;
     double x0;
@@ -50,107 +67,240 @@ typedef struct
     double nextchar;
     } WILLUSCHARINFO;
 
-static WILLUSCHARINFO Helvetica[96] =
+
+static WILLUSCHARINFO Helvetica[224] =
     {
-    /*   */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27811},
-    /* ! */ { 0.72967,-0.00040, 0.12381, 0.08446, 0.27811},
-    /* " */ { 0.71010,-0.46495, 0.05170, 0.25339, 0.35536},
-    /* # */ { 0.69774, 0.01917, 0.01359, 0.52841, 0.55622},
-    /* $ */ { 0.77087, 0.12526, 0.03213, 0.48618, 0.55622},
-    /* % */ { 0.71010, 0.01917, 0.02801, 0.83124, 0.88893},
-    /* & */ { 0.71010, 0.02226, 0.05170, 0.58609, 0.66747},
-    /* ' */ { 0.72967,-0.49791, 0.06406, 0.09476, 0.22249},
-    /* ( */ { 0.72967, 0.21179, 0.07230, 0.21940, 0.33373},
-    /* ) */ { 0.72967, 0.21179, 0.03728, 0.21940, 0.33373},
-    /* * */ { 0.72967,-0.44126, 0.03934, 0.30386, 0.38936},
-    /* + */ { 0.47422, 0.00887, 0.04964, 0.48515, 0.58403},
-    /* , */ { 0.10443, 0.14587, 0.08672, 0.10609, 0.27811},
-    /* - */ { 0.31250,-0.24040, 0.04552, 0.23897, 0.33373},
-    /* . */ { 0.10443,-0.00040, 0.08672, 0.10506, 0.27811},
-    /* / */ { 0.72967, 0.01917,-0.00804, 0.29253, 0.27811},
-    /* 0 */ { 0.71010, 0.02226, 0.04243, 0.46558, 0.55622},
-    /* 1 */ { 0.71010,-0.00040, 0.10114, 0.24618, 0.55622},
-    /* 2 */ { 0.71010,-0.00040, 0.03316, 0.47794, 0.55622},
-    /* 3 */ { 0.71010, 0.02226, 0.03110, 0.47588, 0.55622},
-    /* 4 */ { 0.71010,-0.00040, 0.02698, 0.49339, 0.55622},
-    /* 5 */ { 0.71010, 0.02226, 0.03419, 0.47897, 0.55622},
-    /* 6 */ { 0.71010, 0.02226, 0.04243, 0.47073, 0.55622},
-    /* 7 */ { 0.71010,-0.00040, 0.04552, 0.47485, 0.55622},
-    /* 8 */ { 0.71010, 0.02226, 0.03625, 0.47691, 0.55622},
-    /* 9 */ { 0.71010, 0.02226, 0.03728, 0.47176, 0.55622},
-    /* : */ { 0.52469,-0.00040, 0.10938, 0.10506, 0.27811},
-    /* ; */ { 0.52469, 0.14587, 0.10938, 0.10609, 0.27811},
-    /* < */ { 0.47422, 0.00784, 0.04449, 0.49030, 0.58403},
-    /* = */ { 0.35371,-0.11165, 0.04964, 0.48515, 0.58403},
-    /* > */ { 0.47422, 0.00784, 0.04964, 0.49030, 0.58403},
-    /* ? */ { 0.74203,-0.00040, 0.07642, 0.43262, 0.55622},
-    /* @ */ { 0.74203, 0.14175, 0.03316, 0.91880, 1.01562},
-    /* A */ { 0.72967,-0.00040, 0.01668, 0.63657, 0.66747},
-    /* B */ { 0.72967,-0.00040, 0.07848, 0.54489, 0.66747},
-    /* C */ { 0.74203, 0.02226, 0.04758, 0.63039, 0.72206},
-    /* D */ { 0.72967,-0.00040, 0.08878, 0.57888, 0.72206},
-    /* E */ { 0.72967,-0.00040, 0.08981, 0.52326, 0.66747},
-    /* F */ { 0.72967,-0.00040, 0.08981, 0.48927, 0.61082},
-    /* G */ { 0.74203, 0.02226, 0.04346, 0.66644, 0.77871},
-    /* H */ { 0.72967,-0.00040, 0.08260, 0.56137, 0.72206},
-    /* I */ { 0.72967,-0.00040, 0.09908, 0.09579, 0.27811},
-    /* J */ { 0.72967, 0.02226, 0.01668, 0.40996, 0.50060},
-    /* K */ { 0.72967,-0.00040, 0.07848, 0.57991, 0.66747},
-    /* L */ { 0.72967,-0.00040, 0.07951, 0.45425, 0.55622},
-    /* M */ { 0.72967,-0.00040, 0.07436, 0.68704, 0.83330},
-    /* N */ { 0.72967,-0.00040, 0.07539, 0.57064, 0.72206},
-    /* O */ { 0.74203, 0.02226, 0.03728, 0.70558, 0.77871},
-    /* P */ { 0.72967,-0.00040, 0.09084, 0.52635, 0.66747},
-    /* Q */ { 0.74203, 0.05831, 0.03728, 0.70558, 0.77871},
-    /* R */ { 0.72967,-0.00040, 0.09290, 0.58609, 0.72206},
-    /* S */ { 0.74203, 0.02226, 0.04758, 0.57373, 0.66747},
-    /* T */ { 0.72967,-0.00040, 0.02080, 0.57270, 0.61082},
-    /* U */ { 0.72967, 0.02226, 0.08466, 0.56034, 0.72206},
-    /* V */ { 0.72967,-0.00040, 0.02904, 0.61597, 0.66747},
-    /* W */ { 0.72967,-0.00040, 0.02183, 0.90747, 0.94455},
-    /* X */ { 0.72967,-0.00040, 0.02183, 0.62730, 0.66747},
-    /* Y */ { 0.72967,-0.00040, 0.01256, 0.64893, 0.66747},
-    /* Z */ { 0.72967,-0.00040, 0.02698, 0.55622, 0.61082},
-    /* [ */ { 0.72967, 0.21179, 0.06303, 0.18747, 0.27811},
-    /* \ */ { 0.72967, 0.01917,-0.00804, 0.29253, 0.27811},
-    /* ] */ { 0.72967, 0.21179, 0.02286, 0.18644, 0.27811},
-    /* ^ */ { 0.71010,-0.33001, 0.04346, 0.38215, 0.46970},
-    /* _ */ {-0.12526, 0.17574,-0.02246, 0.60052, 0.55622},
-    /* ` */ { 0.71010,-0.47731, 0.06406, 0.09476, 0.22249},
-    /* a */ { 0.54014, 0.02226, 0.04140, 0.49442, 0.55622},
-    /* b */ { 0.72967, 0.02226, 0.05376, 0.46970, 0.55622},
-    /* c */ { 0.54014, 0.02226, 0.03007, 0.44704, 0.50060},
-    /* d */ { 0.72967, 0.02226, 0.02595, 0.46970, 0.55622},
-    /* e */ { 0.54014, 0.02226, 0.03934, 0.47382, 0.55622},
-    /* f */ { 0.73276,-0.00040, 0.01771, 0.24103, 0.27811},
-    /* g */ { 0.54014, 0.21694, 0.02801, 0.46146, 0.55622},
-    /* h */ { 0.72967,-0.00040, 0.06921, 0.41717, 0.55622},
-    /* i */ { 0.72967,-0.00040, 0.06509, 0.08549, 0.22249},
-    /* j */ { 0.72967, 0.21694,-0.01834, 0.17202, 0.22249},
-    /* k */ { 0.72967,-0.00040, 0.05788, 0.44498, 0.50060},
-    /* l */ { 0.72967,-0.00040, 0.06715, 0.08549, 0.22249},
-    /* m */ { 0.54014,-0.00040, 0.06921, 0.69322, 0.83330},
-    /* n */ { 0.54014,-0.00040, 0.06921, 0.41820, 0.55622},
-    /* o */ { 0.54014, 0.02226, 0.03522, 0.47485, 0.55622},
-    /* p */ { 0.54014, 0.21694, 0.05376, 0.46970, 0.55622},
-    /* q */ { 0.54014, 0.21694, 0.02595, 0.46970, 0.55622},
-    /* r */ { 0.54014,-0.00040, 0.06818, 0.25339, 0.33373},
-    /* s */ { 0.54014, 0.02226, 0.03316, 0.42644, 0.50060},
-    /* t */ { 0.66890, 0.02226, 0.01359, 0.24103, 0.27811},
-    /* u */ { 0.52469, 0.02226, 0.06406, 0.41820, 0.55622},
-    /* v */ { 0.52469,-0.00040, 0.00947, 0.47691, 0.50060},
-    /* w */ { 0.52469,-0.00040, 0.00535, 0.70352, 0.72206},
-    /* x */ { 0.52469,-0.00040, 0.01668, 0.45631, 0.50060},
-    /* y */ { 0.52469, 0.21694, 0.01977, 0.45837, 0.50060},
-    /* z */ { 0.52469,-0.00040, 0.03007, 0.42747, 0.50060},
-    /* { */ { 0.72967, 0.21179, 0.04243, 0.23382, 0.33476},
-    /* | */ { 0.72967, 0.21179, 0.09908, 0.06180, 0.26060},
-    /* } */ { 0.72967, 0.21179, 0.02801, 0.23485, 0.33476},
-    /* ~ */ { 0.43920,-0.26924, 0.07436, 0.43365, 0.58403},
-    /*  */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27811}
+    /*    */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* !  */ { 0.72944,-0.00080, 0.12352, 0.08496, 0.27792},
+    /* "  */ { 0.70928,-0.46448, 0.05152, 0.25344, 0.35568},
+    /* #  */ { 0.69776, 0.01936, 0.01264, 0.52992, 0.55584},
+    /* $  */ { 0.77120, 0.12448, 0.03136, 0.48672, 0.55584},
+    /* %  */ { 0.70928, 0.01936, 0.02848, 0.83088, 0.88992},
+    /* &  */ { 0.70928, 0.02224, 0.05152, 0.58608, 0.66672},
+    /* '  */ { 0.72944,-0.49760, 0.06448, 0.09360, 0.22176},
+    /* (  */ { 0.72944, 0.21088, 0.07168, 0.22032, 0.33264},
+    /* )  */ { 0.72944, 0.21088, 0.03712, 0.21888, 0.33264},
+    /* *  */ { 0.72944,-0.44144, 0.03856, 0.30528, 0.38880},
+    /* +  */ { 0.47456, 0.00928, 0.04864, 0.48528, 0.58464},
+    /* ,  */ { 0.10448, 0.14608, 0.08608, 0.10656, 0.27792},
+    /* -  */ { 0.31328,-0.24128, 0.04576, 0.23904, 0.33264},
+    /* .  */ { 0.10448,-0.00080, 0.08608, 0.10512, 0.27792},
+    /* /  */ { 0.72944, 0.01936,-0.00896, 0.29376, 0.27792},
+    /* 0  */ { 0.70928, 0.02224, 0.04288, 0.46512, 0.55584},
+    /* 1  */ { 0.70928,-0.00080, 0.10192, 0.24624, 0.55584},
+    /* 2  */ { 0.70928,-0.00080, 0.03280, 0.47952, 0.55584},
+    /* 3  */ { 0.70928, 0.02224, 0.03136, 0.47520, 0.55584},
+    /* 4  */ { 0.70928,-0.00080, 0.02704, 0.49392, 0.55584},
+    /* 5  */ { 0.70928, 0.02224, 0.03424, 0.47952, 0.55584},
+    /* 6  */ { 0.70928, 0.02224, 0.04288, 0.47088, 0.55584},
+    /* 7  */ { 0.70928,-0.00080, 0.04576, 0.47520, 0.55584},
+    /* 8  */ { 0.70928, 0.02224, 0.03568, 0.47808, 0.55584},
+    /* 9  */ { 0.70928, 0.02224, 0.03712, 0.47232, 0.55584},
+    /* :  */ { 0.52496,-0.00080, 0.10912, 0.10512, 0.27792},
+    /* ;  */ { 0.52496, 0.14608, 0.10912, 0.10656, 0.27792},
+    /* <  */ { 0.47456, 0.00784, 0.04432, 0.48960, 0.58464},
+    /* =  */ { 0.35360,-0.11168, 0.04864, 0.48528, 0.58464},
+    /* >  */ { 0.47456, 0.00784, 0.04864, 0.49104, 0.58464},
+    /* ?  */ { 0.74240,-0.00080, 0.07600, 0.43344, 0.55584},
+    /* @  */ { 0.74240, 0.14176, 0.03280, 0.91872, 1.01520},
+    /* A  */ { 0.72944,-0.00080, 0.01696, 0.63648, 0.66672},
+    /* B  */ { 0.72944,-0.00080, 0.07888, 0.54432, 0.66672},
+    /* C  */ { 0.74240, 0.02224, 0.04720, 0.63072, 0.72288},
+    /* D  */ { 0.72944,-0.00080, 0.08896, 0.57888, 0.72288},
+    /* E  */ { 0.72944,-0.00080, 0.08896, 0.52416, 0.66672},
+    /* F  */ { 0.72944,-0.00080, 0.08896, 0.49104, 0.61056},
+    /* G  */ { 0.74240, 0.02224, 0.04288, 0.66672, 0.77760},
+    /* H  */ { 0.72944,-0.00080, 0.08176, 0.56304, 0.72288},
+    /* I  */ { 0.72944,-0.00080, 0.09904, 0.09504, 0.27792},
+    /* J  */ { 0.72944, 0.02224, 0.01696, 0.40896, 0.49968},
+    /* K  */ { 0.72944,-0.00080, 0.07888, 0.58032, 0.66672},
+    /* L  */ { 0.72944,-0.00080, 0.07888, 0.45504, 0.55584},
+    /* M  */ { 0.72944,-0.00080, 0.07456, 0.68688, 0.83376},
+    /* N  */ { 0.72944,-0.00080, 0.07600, 0.57024, 0.72288},
+    /* O  */ { 0.74240, 0.02224, 0.03712, 0.70560, 0.77760},
+    /* P  */ { 0.72944,-0.00080, 0.09040, 0.52704, 0.66672},
+    /* Q  */ { 0.74240, 0.05824, 0.03712, 0.70560, 0.77760},
+    /* R  */ { 0.72944,-0.00080, 0.09184, 0.58752, 0.72288},
+    /* S  */ { 0.74240, 0.02224, 0.04720, 0.57456, 0.66672},
+    /* T  */ { 0.72944,-0.00080, 0.01984, 0.57312, 0.61056},
+    /* U  */ { 0.72944, 0.02224, 0.08464, 0.56160, 0.72288},
+    /* V  */ { 0.72944,-0.00080, 0.02992, 0.61632, 0.66672},
+    /* W  */ { 0.72944,-0.00080, 0.02128, 0.90864, 0.94464},
+    /* X  */ { 0.72944,-0.00080, 0.02128, 0.62784, 0.66672},
+    /* Y  */ { 0.72944,-0.00080, 0.01264, 0.64944, 0.66672},
+    /* Z  */ { 0.72944,-0.00080, 0.02704, 0.55728, 0.61056},
+    /* [  */ { 0.72944, 0.21088, 0.06304, 0.18720, 0.27792},
+    /* \  */ { 0.72944, 0.01936,-0.00896, 0.29376, 0.27792},
+    /* ]  */ { 0.72944, 0.21088, 0.02272, 0.18720, 0.27792},
+    /* ^  */ { 0.70928,-0.32912, 0.04288, 0.38304, 0.46944},
+    /* _  */ {-0.12592, 0.17488,-0.02336, 0.60192, 0.55584},
+    /* `  */ { 0.70928,-0.47744, 0.06448, 0.09360, 0.22176},
+    /* a  */ { 0.53936, 0.02224, 0.04144, 0.49392, 0.55584},
+    /* b  */ { 0.72944, 0.02224, 0.05296, 0.47088, 0.55584},
+    /* c  */ { 0.53936, 0.02224, 0.02992, 0.44784, 0.49968},
+    /* d  */ { 0.72944, 0.02224, 0.02560, 0.46944, 0.55584},
+    /* e  */ { 0.53936, 0.02224, 0.03856, 0.47520, 0.55584},
+    /* f  */ { 0.73232,-0.00080, 0.01696, 0.24192, 0.27792},
+    /* g  */ { 0.53936, 0.21664, 0.02848, 0.46080, 0.55584},
+    /* h  */ { 0.72944,-0.00080, 0.06880, 0.41760, 0.55584},
+    /* i  */ { 0.72944,-0.00080, 0.06592, 0.08496, 0.22176},
+    /* j  */ { 0.72944, 0.21664,-0.01904, 0.17280, 0.22176},
+    /* k  */ { 0.72944,-0.00080, 0.05728, 0.44496, 0.49968},
+    /* l  */ { 0.72944,-0.00080, 0.06736, 0.08496, 0.22176},
+    /* m  */ { 0.53936,-0.00080, 0.06880, 0.69408, 0.83376},
+    /* n  */ { 0.53936,-0.00080, 0.06880, 0.41904, 0.55584},
+    /* o  */ { 0.53936, 0.02224, 0.03568, 0.47520, 0.55584},
+    /* p  */ { 0.53936, 0.21664, 0.05296, 0.47088, 0.55584},
+    /* q  */ { 0.53936, 0.21664, 0.02560, 0.46944, 0.55584},
+    /* r  */ { 0.53936,-0.00080, 0.06880, 0.25344, 0.33264},
+    /* s  */ { 0.53936, 0.02224, 0.03280, 0.42624, 0.49968},
+    /* t  */ { 0.66896, 0.02224, 0.01264, 0.24192, 0.27792},
+    /* u  */ { 0.52496, 0.02224, 0.06448, 0.41760, 0.55584},
+    /* v  */ { 0.52496,-0.00080, 0.00976, 0.47664, 0.49968},
+    /* w  */ { 0.52496,-0.00080, 0.00544, 0.70272, 0.72288},
+    /* x  */ { 0.52496,-0.00080, 0.01696, 0.45648, 0.49968},
+    /* y  */ { 0.52496, 0.21664, 0.01984, 0.45936, 0.49968},
+    /* z  */ { 0.52496,-0.00080, 0.02992, 0.42768, 0.49968},
+    /* {  */ { 0.72944, 0.21088, 0.04288, 0.23328, 0.33408},
+    /* |  */ { 0.72944, 0.21088, 0.09904, 0.06192, 0.26064},
+    /* }  */ { 0.72944, 0.21088, 0.02848, 0.23472, 0.33408},
+    /* ~  */ { 0.43856,-0.26864, 0.07456, 0.43344, 0.58464},
+    /* 7F */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 80 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 81 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 82 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 83 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 84 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 85 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 86 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 87 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 88 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 89 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 8A */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 8B */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 8C */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 8D */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 8E */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 8F */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 90 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 91 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 92 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 93 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 94 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 95 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 96 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 97 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 98 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 99 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 9A */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 9B */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 9C */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 9D */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 9E */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* 9F */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* A0 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* A1 */ { 0.52496, 0.20368, 0.12064, 0.08496, 0.33264},
+    /* A2 */ { 0.62864, 0.11872, 0.05152, 0.45936, 0.55584},
+    /* A3 */ { 0.72944, 0.02224, 0.02560, 0.50976, 0.55584},
+    /* A4 */ { 0.67904, 0.01936,-0.17456, 0.43344, 0.16704},
+    /* A5 */ { 0.70928,-0.00080, 0.00976, 0.53568, 0.55584},
+    /* A6 */ { 0.73808, 0.21088, 0.00976, 0.53280, 0.55584},
+    /* A7 */ { 0.72944, 0.21232, 0.04288, 0.46368, 0.55584},
+    /* A8 */ { 0.55232,-0.13328, 0.06592, 0.42336, 0.55584},
+    /* A9 */ { 0.70928,-0.46448, 0.04720, 0.09504, 0.19152},
+    /* AA */ { 0.70928,-0.47744, 0.04720, 0.25200, 0.33264},
+    /* AB */ { 0.43856,-0.10736, 0.09760, 0.35856, 0.55584},
+    /* AC */ { 0.43856,-0.10736, 0.09040, 0.15264, 0.33264},
+    /* AD */ { 0.43856,-0.10736, 0.08464, 0.15552, 0.33264},
+    /* AE */ { 0.73232,-0.00080, 0.01120, 0.42480, 0.49968},
+    /* AF */ { 0.73232,-0.00080, 0.01696, 0.41328, 0.49968},
+    /* B0 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* B1 */ { 0.31328,-0.24128,-0.00608, 0.56736, 0.55584},
+    /* B2 */ { 0.70928, 0.17632, 0.03712, 0.47664, 0.55584},
+    /* B3 */ { 0.70928, 0.17632, 0.03712, 0.47664, 0.55584},
+    /* B4 */ { 0.42704,-0.30320, 0.08608, 0.12528, 0.27792},
+    /* B5 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* B6 */ { 0.72944, 0.17632, 0.04720, 0.47520, 0.53712},
+    /* B7 */ { 0.47024,-0.22112, 0.04864, 0.25200, 0.34992},
+    /* B8 */ { 0.10448, 0.12736, 0.06304, 0.09504, 0.22176},
+    /* B9 */ { 0.10448, 0.12736, 0.04576, 0.25488, 0.33264},
+    /* BA */ { 0.70928,-0.47744, 0.04864, 0.25344, 0.33264},
+    /* BB */ { 0.43856,-0.10736, 0.09760, 0.35424, 0.55584},
+    /* BC */ { 0.10448,-0.00080, 0.11488, 0.77040, 1.00080},
+    /* BD */ { 0.73808, 0.02080, 0.00832, 0.98496, 1.00080},
+    /* BE */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* BF */ { 0.52496, 0.21664, 0.09472, 0.43344, 0.61056},
+    /* C0 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* C1 */ { 0.74096,-0.59264, 0.02128, 0.21024, 0.33264},
+    /* C2 */ { 0.74096,-0.59264, 0.09184, 0.21024, 0.33264},
+    /* C3 */ { 0.74240,-0.59120, 0.01984, 0.28800, 0.33264},
+    /* C4 */ { 0.71792,-0.61424, 0.00400, 0.31536, 0.33264},
+    /* C5 */ { 0.70208,-0.63152, 0.02704, 0.27504, 0.33264},
+    /* C6 */ { 0.73232,-0.59840, 0.01408, 0.30240, 0.33264},
+    /* C7 */ { 0.71648,-0.61280, 0.11488, 0.10512, 0.33264},
+    /* C8 */ { 0.71504,-0.61280, 0.02992, 0.26640, 0.33264},
+    /* C9 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* CA */ { 0.75536,-0.57968, 0.07888, 0.17712, 0.33264},
+    /* CB */ { 0.00080, 0.21376, 0.03856, 0.24912, 0.33264},
+    /* CC */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* CD */ { 0.74096,-0.59120,-0.03632, 0.38448, 0.33264},
+    /* CE */ { 0.00080, 0.20368, 0.05584, 0.21024, 0.33264},
+    /* CF */ { 0.74240,-0.59120, 0.01840, 0.28800, 0.33264},
+    /* D0 */ { 0.31328,-0.24128,-0.01040, 1.01232, 1.00080},
+    /* D1 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* D2 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* D3 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* D4 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* D5 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* D6 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* D7 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* D8 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* D9 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* DA */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* DB */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* DC */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* DD */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* DE */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* DF */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* E0 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* E1 */ { 0.72944,-0.00080, 0.00976, 0.94032, 1.00080},
+    /* E2 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* E3 */ { 0.74240,-0.30320, 0.03568, 0.29808, 0.37008},
+    /* E4 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* E5 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* E6 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* E7 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* E8 */ { 0.72944,-0.00080,-0.00032, 0.55296, 0.55584},
+    /* E9 */ { 0.75536, 0.02224, 0.02992, 0.71424, 0.77760},
+    /* EA */ { 0.74240, 0.01936, 0.04288, 0.91728, 1.00080},
+    /* EB */ { 0.74240,-0.30320, 0.03856, 0.28656, 0.36576},
+    /* EC */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* ED */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* EE */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* EF */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* F0 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* F1 */ { 0.53936, 0.02224, 0.03280, 0.81216, 0.88992},
+    /* F2 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* F3 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* F4 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* F5 */ { 0.52496,-0.00080, 0.09328, 0.08496, 0.27792},
+    /* F6 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* F7 */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* F8 */ { 0.72944,-0.00080,-0.00032, 0.21312, 0.22176},
+    /* F9 */ { 0.53936, 0.02944, 0.01696, 0.51264, 0.61056},
+    /* FA */ { 0.53936, 0.02224, 0.03856, 0.86112, 0.94464},
+    /* FB */ { 0.72944, 0.01936, 0.12496, 0.44208, 0.61056},
+    /* FC */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* FD */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* FE */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
+    /* FF */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792}
     };
 
+static int lastfont=-1;
+static double lastfontsize=-1;
+
 static void pdffile_start(PDFFILE *pdf,int pages_at_end);
+static void pdffile_unicode_map(PDFFILE *pdf,WILLUSCHARMAPLIST *cmaplist,int nf);
 static void thumbnail_create(WILLUSBITMAP *thumb,WILLUSBITMAP *bmp);
 static void pdffile_bmp_stream(PDFFILE *pdf,WILLUSBITMAP *bmp,int quality,int halfsize,int thumb);
 static void bmp_flate_decode(WILLUSBITMAP *bmp,void *fptr,int halfsize);
@@ -165,12 +315,21 @@ static int getbufline(char *buf,int maxlen,char *opbuf,int *i0,int bufsize);
 #endif
 static void insert_length(FILE *f,long pos,int len);
 static void ocrwords_to_pdf_stream(OCRWORDS *ocrwords,FILE *f,double dpi,
-                                   double page_height_pts,int text_render_mode);
-static double ocrwords_median_size(OCRWORDS *ocrwords,double dpi);
-static void ocrword_width_and_maxheight(OCRWORD *word,double *width,double *maxheight);
+                                   double page_height_pts,int text_render_mode,
+                                   WILLUSCHARMAPLIST *cmaplist);
+static double ocrwords_median_size(OCRWORDS *ocrwords,double dpi,WILLUSCHARMAPLIST *cmaplist);
+static void ocrword_width_and_maxheight(OCRWORD *word,double *width,double *maxheight,
+                                        WILLUSCHARMAPLIST *cmaplist);
 static double size_round_off(double size,double median_size,double log_size_increment);
 static void ocrword_to_pdf_stream(OCRWORD *word,FILE *f,double dpi,
-                                  double page_height_pts,double median_size_pts);
+                                  double page_height_pts,double median_size_pts,
+                                  WILLUSCHARMAPLIST *cmaplist);
+static void willuscharmaplist_init(WILLUSCHARMAPLIST *list);
+static void willuscharmaplist_add_charmap(WILLUSCHARMAPLIST *list,int unichar);
+static int  willuscharmaplist_maxcid(WILLUSCHARMAPLIST *list);
+static int  willuscharmaplist_cid_index(WILLUSCHARMAPLIST *list,int unichar);
+static void willuscharmaplist_populate(WILLUSCHARMAPLIST *cmaplist,OCRWORDS *ocrwords);
+static void willuscharmaplist_populate_string(WILLUSCHARMAPLIST *cmaplist,char *s);
 
 FILE *pdffile_init(PDFFILE *pdf,char *filename,int pages_at_end)
 
@@ -279,8 +438,11 @@ void pdffile_add_bitmap_with_ocrwords(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,
 
     {
     double pw,ph;
-    int ptr1,ptr2,ptrlen,showbitmap;
+    int ptr1,ptr2,ptrlen,showbitmap,nf;
+    WILLUSCHARMAPLIST *cmaplist,_cmaplist;
 
+    lastfont=-1;
+    lastfontsize=-1;
     showbitmap = (visibility_flags&1);
 
     pw=bmp->width*72./dpi;
@@ -299,21 +461,51 @@ void pdffile_add_bitmap_with_ocrwords(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,
                    "/Resources\n    <<\n",
                    pdf->pae>0 ? "2" : "      ");
     if (ocrwords!=NULL)
-        fprintf(pdf->f,"    /Font << /F3 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >> >>\n");
+        {
+        int maxid,ifont;
+        cmaplist=&_cmaplist;
+        willuscharmaplist_init(cmaplist);
+        /*
+        ** Map all unicode chars to fonts
+        */
+        willuscharmaplist_populate(cmaplist,ocrwords);
+        maxid=willuscharmaplist_maxcid(cmaplist);
+        nf=(maxid>>8)&0xfff;
+// nf++;
+        /*
+        ** Declare the fonts (all Helvetica, but w/different unicode mappings)
+        */
+        fprintf(pdf->f,"    /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
+        for (ifont=1;ifont<=nf;ifont++)
+            fprintf(pdf->f,"\n             /F%d << /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding /ToUnicode %d 0 R >>",ifont+1,pdf->n+ifont);
+        fprintf(pdf->f," >>\n");
+        }
+    else
+        nf=0;
     if (showbitmap)
         fprintf(pdf->f,"    /XObject << /Im%d %d 0 R >>\n"
                    "    /ProcSet [ /PDF /Text /ImageC ]\n",
-                   pdf->imc,pdf->n+2);
+                   pdf->imc,pdf->n+nf+2);
     fprintf(pdf->f,"    >>\n"
                    "/MediaBox [0 0 %.1f %.1f]\n"
                    "/CropBox [0 0 %.1f %.1f]\n"
                    "/Contents %d 0 R\n",
                    pw,ph,pw,ph,
-                   pdf->n+1); /* Contents stream */
+                   pdf->n+nf+1); /* Contents stream */
     if (showbitmap)
-        fprintf(pdf->f,"/Thumb %d 0 R\n",pdf->n+3);
+        fprintf(pdf->f,"/Thumb %d 0 R\n",pdf->n+nf+3);
     fprintf(pdf->f,">>\n"
                    "endobj\n");
+
+    /*
+    ** Write the unicode mappings for each font to the PDF file
+    */
+    if (ocrwords!=NULL)
+        {
+        int i;
+        for (i=0;i<nf;i++)
+            pdffile_unicode_map(pdf,cmaplist,i+1);
+        }
 
     /* Execution stream:  draw bitmap and OCR words */
     pdffile_new_object(pdf,0);
@@ -329,7 +521,7 @@ void pdffile_add_bitmap_with_ocrwords(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,
     if (showbitmap)
         fprintf(pdf->f,"q\n%.1f 0 0 %.1f 0 0 cm\n/Im%d Do\nQ\n",pw,ph,pdf->imc);
     if (ocrwords!=NULL)
-        ocrwords_to_pdf_stream(ocrwords,pdf->f,dpi,ph,(visibility_flags&2)?0:3);
+        ocrwords_to_pdf_stream(ocrwords,pdf->f,dpi,ph,(visibility_flags&2)?0:3,cmaplist);
     if (visibility_flags&4)
         ocrwords_box(ocrwords,bmp);
     fflush(pdf->f);
@@ -345,6 +537,75 @@ void pdffile_add_bitmap_with_ocrwords(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,
         /* Stream the thumbnail */
         pdffile_bmp_stream(pdf,bmp,quality,halfsize,1);
         }
+    }
+
+
+static void pdffile_unicode_map(PDFFILE *pdf,WILLUSCHARMAPLIST *cmaplist,int nf)
+
+    {
+    int i,c;
+    int *uni;
+    static char *funcname="pdffile_unicode_map";
+
+// if(nf>1)nf--;
+    willus_mem_alloc_warn((void **)&uni,sizeof(int)*256,funcname,10);
+    for (i=0;i<256;i++)
+        uni[i]=-1;
+    pdffile_new_object(pdf,0);
+    for (i=c=0;i<cmaplist->n;i++)
+        {
+        if (((cmaplist->cmap[i].cid>>8)&0xfff)==nf)
+            {
+            uni[cmaplist->cmap[i].cid&0xff]=cmaplist->cmap[i].unicode;
+            c++;
+            }
+        }
+    if (c>0)
+        {
+        int ptr1,ptr2,ptrlen;
+
+        fprintf(pdf->f,"<< /Length ");
+        fflush(pdf->f);
+        fseek(pdf->f,0L,1);
+        ptrlen=ftell(pdf->f);
+        fprintf(pdf->f,"         >>\n"
+                       "stream\n");
+        fflush(pdf->f);
+        fseek(pdf->f,0L,1);
+        ptr1=ftell(pdf->f);
+        fprintf(pdf->f,"/CIDInit /ProcSet findresource begin\n"
+                       "12 dict begin\n"
+                       "begincmap\n"
+                       "/CIDSystemInfo\n"
+                       "<< /Registry (UC%03d)\n"
+                       "/Ordering (T42UV)\n"
+                       "/Supplement 0\n"
+                       ">> def\n"
+                       "/CMapName /UC%03d def\n"
+                       "/CMapType 2 def\n"
+                       "1 begincodespacerange\n"
+                       "<00> <FF>\n"
+                       "endcodespacerange\n"
+                       "%d beginbfchar\n",nf,nf,c);
+        for (i=0;i<256;i++)
+            if (uni[i]>=0)
+                fprintf(pdf->f,"<%02x> <%04x>\n",i,uni[i]);
+        fprintf(pdf->f,"endbfchar\n"
+                       "endcmap\n"
+                       "CMapName currentdict /CMap defineresource pop\n"
+                       "end\n"
+                       "end\n"
+                       "endstream\n");
+        fflush(pdf->f);
+        fseek(pdf->f,0L,1);
+        ptr2=ftell(pdf->f);
+        fprintf(pdf->f,"endstream\n"
+                       "endobj\n");
+        insert_length(pdf->f,ptrlen,ptr2-ptr1);
+        }
+    else
+        fprintf(pdf->f,"endobj\n");
+    willus_mem_free((double **)&uni,funcname);
     }
 
 
@@ -974,21 +1235,22 @@ void ocrwords_box(OCRWORDS *ocrwords,WILLUSBITMAP *bmp)
 
 
 static void ocrwords_to_pdf_stream(OCRWORDS *ocrwords,FILE *f,double dpi,
-                                   double page_height_pts,int text_render_mode)
+                                   double page_height_pts,int text_render_mode,
+                                   WILLUSCHARMAPLIST *cmaplist)
 
     {
     int i;
     double median_size;
 
     fprintf(f,"BT\n%d Tr\n",text_render_mode);
-    median_size=ocrwords_median_size(ocrwords,dpi);
+    median_size=ocrwords_median_size(ocrwords,dpi,cmaplist);
     for (i=0;i<ocrwords->n;i++)
-        ocrword_to_pdf_stream(&ocrwords->word[i],f,dpi,page_height_pts,median_size);
+        ocrword_to_pdf_stream(&ocrwords->word[i],f,dpi,page_height_pts,median_size,cmaplist);
     fprintf(f,"ET\n");
     }
 
 
-static double ocrwords_median_size(OCRWORDS *ocrwords,double dpi)
+static double ocrwords_median_size(OCRWORDS *ocrwords,double dpi,WILLUSCHARMAPLIST *cmaplist)
 
     {
     static char *funcname="ocrwords_to_histogram";
@@ -1002,7 +1264,7 @@ static double ocrwords_median_size(OCRWORDS *ocrwords,double dpi)
     for (i=0;i<ocrwords->n;i++)
         {
         double w,h;
-        ocrword_width_and_maxheight(&ocrwords->word[i],&w,&h);
+        ocrword_width_and_maxheight(&ocrwords->word[i],&w,&h,cmaplist);
         fontsize_hist[i] = (72.*ocrwords->word[i].maxheight/dpi) / h;
         }
     sortd(fontsize_hist,ocrwords->n);
@@ -1014,18 +1276,35 @@ static double ocrwords_median_size(OCRWORDS *ocrwords,double dpi)
     }
 
 
-static void ocrword_width_and_maxheight(OCRWORD *word,double *width,double *maxheight)
+static void ocrword_width_and_maxheight(OCRWORD *word,double *width,double *maxheight,
+                                        WILLUSCHARMAPLIST *cmaplist)
 
     {
-    int i;
+    int i,n;
+    int *d;
+    static char *funcname="ocrword_width_and_maxheight";
 
+    n=strlen(word->text)+2;
+    willus_mem_alloc_warn((void **)&d,sizeof(int)*n,funcname,10);
+    n=utf8_to_unicode(d,word->text,n-1);
     (*width)=0.;
     (*maxheight)=0.;
-    for (i=0;word->text[i]!='\0';i++)
+    for (i=0;i<n;i++)
         {
-        int c;
-        c=word->text[i]-32;
-        if (c<0 || c>=96)
+        int c,cid,index;
+
+        if (d[i]<256)
+            cid=d[i];
+        else
+            {
+            index=willuscharmaplist_cid_index(cmaplist,d[i]);
+            if (index<0 || index>=cmaplist->n || cmaplist->cmap[index].unicode!=d[i])
+                cid=32;
+            else
+                cid=cmaplist->cmap[index].cid&0xff;
+            }
+        c=cid-32;
+        if (c<0 || c>=224)
             c=0; 
         if (word->text[i+1]=='\0')
             (*width) += Helvetica[c].width;
@@ -1034,6 +1313,7 @@ static void ocrword_width_and_maxheight(OCRWORD *word,double *width,double *maxh
         if (Helvetica[c].abovebase > (*maxheight))
             (*maxheight)=Helvetica[c].abovebase;
         }
+    willus_mem_free((double **)&d,funcname);
     }
 
 
@@ -1051,15 +1331,21 @@ static double size_round_off(double size,double median_size,double log_size_incr
 
 
 static void ocrword_to_pdf_stream(OCRWORD *word,FILE *f,double dpi,
-                                  double page_height_pts,double median_size_pts)
+                                  double page_height_pts,double median_size_pts,
+                                  WILLUSCHARMAPLIST *cmaplist)
 
     {
-    int i,wordw;
-    double fontsize_width,fontsize_height,ybase;
+    int cc,i,n,wordw;
+    double fontsize_width,fontsize_height,ybase,x0,y0;
     double width_per_point,height_per_point,arat;
     char rotbuf[48];
+    int *d;
+    static char *funcname="ocrword_to_pdf_stream";
 
-    ocrword_width_and_maxheight(word,&width_per_point,&height_per_point);
+    n=strlen(word->text)+2;
+    willus_mem_alloc_warn((void **)&d,sizeof(int)*n,funcname,10);
+    n=utf8_to_unicode(d,word->text,n-1);
+    ocrword_width_and_maxheight(word,&width_per_point,&height_per_point,cmaplist);
     if (word->w/10. < word->lcheight)
         wordw = 0.9*word->w;
     else
@@ -1082,17 +1368,196 @@ static void ocrword_to_pdf_stream(OCRWORD *word,FILE *f,double dpi,
         costh=cos(theta);
         sprintf(rotbuf,"%.3f %.3f %.3f %.3f",costh*arat,sinth*arat,-sinth,costh);
         }
-    fprintf(f,"/F3 %.2f Tf\n"
-              "%s %.2f %.2f Tm\n"
-              "<",
-              fontsize_height,rotbuf,72.*word->c/dpi,ybase);
-    for (i=0;word->text[i]!='\0';i++)
+    cc=0;
+    x0=72.*word->c/dpi;
+    y0=ybase;
+    /*
+    ** Go through word letter by letter and select correct font for each
+    ** letter so that unicode copy / paste works.
+    */
+    for (i=0;i<n;i++)
         {
-        int c;
-        c=word->text[i]-32;
-        if (c<0 || c>=96)
-            c=0; 
-        fprintf(f,"%02X",c+32);
+        int cid,index,fn;
+
+        if (d[i]<256)
+            {
+            fn=1;
+            cid=d[i];
+            }
+        else
+            {
+            index=willuscharmaplist_cid_index(cmaplist,d[i]);
+            if (index<0 || index>=cmaplist->n || cmaplist->cmap[index].unicode!=d[i])
+                {
+                cid=32;
+                fn=1;
+                }
+            else
+                {
+                cid=cmaplist->cmap[index].cid&0xff;
+                fn=1+((cmaplist->cmap[index].cid>>8)&0xfff);
+                }
+            }
+        if (cid<32 || cid>255)
+            cid=32;
+        if (fn!=lastfont || fabs(fontsize_height-lastfontsize)>.01)
+            {
+            if (cc>0)
+                {
+                fprintf(f,"> Tj\n");
+                cc=0;
+                }
+            fprintf(f,"/F%d %.2f Tf\n",fn,fontsize_height);
+            lastfontsize=fontsize_height;
+            lastfont=fn;
+            }
+        if (i==0)
+            fprintf(f,"%s %.2f %.2f Tm\n",rotbuf,x0,y0);
+        fprintf(f,"%s%02X",cc==0?"<":"",cid);
+        cc++;
+        x0 += fontsize_height*arat*Helvetica[cid-32].nextchar;
         }
-    fprintf(f,"> Tj\n");
+    if (cc>0)
+        fprintf(f,"> Tj\n");
+    }
+
+
+static void willuscharmaplist_init(WILLUSCHARMAPLIST *list)
+
+    {
+    list->n=list->na=0;
+    list->cmap=NULL;
+    }
+
+
+static void willuscharmaplist_add_charmap(WILLUSCHARMAPLIST *list,int unichar)
+
+    {
+    static char *funcname="willuscharmaplist_add_charmap";
+    int i,cid;
+
+    i=willuscharmaplist_cid_index(list,unichar);
+    if (i>=0 && i<list->n && list->cmap[i].unicode==unichar)
+        return;
+    if (list->n >= list->na)
+        {
+        int newsize;
+        newsize = list->na < 512 ? 1024 : list->na*2;
+        willus_mem_realloc_robust_warn((void **)&list->cmap,sizeof(WILLUSCHARMAP)*newsize,
+                                   sizeof(WILLUSCHARMAP)*list->na,funcname,10);
+        list->na=newsize;
+        }
+    if (i<list->n)
+        memmove(&list->cmap[i+1],&list->cmap[i],(list->n-i)*sizeof(WILLUSCHARMAP));
+    cid=willuscharmaplist_maxcid(list)+1;
+    if (cid<=0x120)
+        cid=0x121;
+    /* Issue with Adobe copy/paste--only do one dummy char in first font then skip */
+    /* to next font. */
+    if (list->n==1)
+        cid=0x221;
+    while (1)
+        {
+        if ((cid&0xff)<0x21)
+            cid=(cid&0xfff00)|0x21;
+/*
+if ((cid&0xff)<0x41)
+cid=(cid&0xfff00)|0x41;
+if ((cid&0xff)>0x57)
+cid=((cid+0x100)&0xfff00)|0x41;
+*/
+        /* Choose a letter that isn't too thin or too far above/below the baseline */
+        if (Helvetica[(cid&0xff)-32].abovebase < .47
+             || Helvetica[(cid&0xff)-32].abovebase > 1.0
+             || Helvetica[(cid&0xff)-32].belowbase < -.001
+             || Helvetica[(cid&0xff)-32].belowbase > 0.2
+             || Helvetica[(cid&0xff)-32].width < 0.4)
+            {
+            cid++;
+            continue;
+            }
+        break;
+        }
+    list->cmap[i].cid = cid;
+    list->cmap[i].unicode=unichar;
+    list->n++;
+    }
+
+
+static int willuscharmaplist_maxcid(WILLUSCHARMAPLIST *list)
+
+    {
+    int i,max;
+
+    for (i=max=0;i<list->n;i++)
+        if (list->cmap[i].cid > max)
+            max=list->cmap[i].cid;
+    return(max);
+    }
+
+
+/*
+** Must be sorted by unicode value!
+*/
+static int willuscharmaplist_cid_index(WILLUSCHARMAPLIST *list,int unichar)
+
+    {
+    int i1,i2;
+
+    if (list->n<=0)
+        return(0);
+    if (unichar <= list->cmap[0].unicode)
+        return(0);
+    if (unichar > list->cmap[list->n-1].unicode)
+        return(list->n);
+    if (unichar == list->cmap[list->n-1].unicode)
+        return(list->n-1);
+    i1=0;
+    i2=list->n-1;
+    while (i2-i1>1)
+        {
+        int i;
+        i=(i1+i2)/2;
+        if (unichar==list->cmap[i].unicode)
+            return(i);
+        if (unichar>list->cmap[i].unicode)
+            i1=i;
+        else
+            i2=i;
+        }
+    return(i2);
+    }
+
+
+/*
+** Map all unicode characters on the page to character ID's (cids).
+** Use multiple fonts (multiple copies of Helvetica with different
+** unicode mappings) if necessary.
+*/
+static void willuscharmaplist_populate(WILLUSCHARMAPLIST *cmaplist,OCRWORDS *ocrwords)
+
+    {
+    int i;
+
+    /* Add one dummy char--issue with Adobe */
+    willuscharmaplist_add_charmap(cmaplist,0xffff);
+    for (i=0;i<ocrwords->n;i++)
+        willuscharmaplist_populate_string(cmaplist,ocrwords->word[i].text);
+    }
+
+
+static void willuscharmaplist_populate_string(WILLUSCHARMAPLIST *cmaplist,char *s)
+
+    {
+    int *d;
+    int i,n;
+    static char *funcname="willuscharmaplist_populate_string";
+
+    n=strlen(s)+2;
+    willus_mem_alloc_warn((void **)&d,sizeof(int)*n,funcname,10);
+    n=utf8_to_unicode(d,s,n-1);
+    for (i=0;i<n;i++)
+        if (d[i]>=256)
+            willuscharmaplist_add_charmap(cmaplist,d[i]);
+    willus_mem_free((double **)&d,funcname);
     }

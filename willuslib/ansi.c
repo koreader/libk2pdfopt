@@ -51,7 +51,6 @@
 
 static int ansi_on=1;
 static char ansi_buffer[MAXSIZE];
-static char dprintfile[MAXFILENAMELEN];
 
 static void ansi_code(FILE *f,int *args,int nargs,int code);
 static void ansi_parse(FILE *f,char *s);
@@ -85,6 +84,8 @@ int aprintf(char *fmt,...)
     va_end(args);
     return(status);
     }
+
+
 
 static int wlp_to_stdout=1;
 static int wlp_to_stderr=0;

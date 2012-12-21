@@ -29,9 +29,10 @@
 ** 16 = hyphens
 ** 32 = OCR
 ** 64 = crop boxes
+** 128 = column divider
 **
 */
-// #define WILLUSDEBUGX 64
+// #define WILLUSDEBUGX 32
 // #define WILLUSDEBUG
 
 #include <stdio.h>
@@ -40,7 +41,6 @@
 #include <ctype.h>
 #include <stdarg.h>
 #include <math.h>
-//#include <constant.h>
 #include <willus.h>
 
 /* Uncomment below if compiling for Kindle PDF Viewer */
@@ -148,6 +148,9 @@ typedef struct
     /* OCR */
 #ifdef HAVE_OCR_LIB
     int dst_ocr;
+#ifdef HAVE_TESSERACT_LIB
+    char dst_ocr_lang[16];
+#endif
     int dst_ocr_visibility_flags;
     double ocr_max_height_inches;
     OCRWORDS dst_ocrwords;
@@ -407,11 +410,13 @@ int  get_ttyrows(void);
 
 /* bmpregion.c */
 int  bmpregion_row_black_count(BMPREGION *region,int r0);
+int  bmpregion_col_black_count(BMPREGION *region,int c0);
 #if (defined(WILLUSDEBUGX) || defined(WILLUSDEBUG))
 void bmpregion_write(BMPREGION *region,char *filename);
 #endif
 void bmpregion_row_histogram(BMPREGION *region);
-int  bmpregion_is_clear(BMPREGION *region,int *row_is_clear,double gt_in);
+int  bmpregion_is_clear(BMPREGION *region,int *row_black_count,int *col_black_count,
+                        int *pixel_count_array,int rpc,double gt_in);
 void bmpregion_trim_to_crop_margins(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings);
 int  bmpregion_column_height_and_gap_test(BMPREGION *column,BMPREGION *region,
                                         K2PDFOPT_SETTINGS *k2settings,

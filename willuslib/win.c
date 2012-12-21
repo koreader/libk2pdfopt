@@ -390,7 +390,6 @@ int process_done_ex(int procnum,int *exitcode)
     i=procnum<0 ? (gpii+MAXPROCESSES-1)%MAXPROCESSES : procnum%MAXPROCESSES;
     status=GetExitCodeProcess(gpi[i].hProcess,&altstatus);
     (*exitcode)=altstatus;
-// dprintf(NULL,"    procnum=%d, status=%d, exitcode=%d\n",procnum,status,(*exitcode));
     return(!status || (*exitcode)!=259);
     }
 
@@ -2203,7 +2202,6 @@ int win_getppid(int pid)
                 ppid=pe.th32ParentProcessID;
 break;
                 }
-            // dprintf(NULL,"%d: '%s'\n",pe.th32ProcessID,procname(pe.th32ProcessID));
             } while (Process32Next(h,&pe));
         }
     CloseHandle(h);

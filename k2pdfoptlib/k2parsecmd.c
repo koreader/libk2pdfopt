@@ -418,6 +418,16 @@ int parse_cmd_args(K2PDFOPT_SETTINGS *k2settings,STRBUF *env,STRBUF *cmdline,
                 k2settings->mark_corners=(cl->cmdarg[3]=='-') ? 0 : 1;
             continue;
             }
+        if (!stricmp(cl->cmdarg,"-ocrlang") || !stricmp(cl->cmdarg,"-l"))
+            {
+            if (cmdlineinput_next(cl)==NULL)
+                break;
+#ifdef HAVE_TESSERACT_LIB
+            strncpy(k2settings->dst_ocr_lang,cl->cmdarg,15);
+            k2settings->dst_ocr_lang[15]='\0';
+#endif
+            continue;
+            }
         if (!stricmp(cl->cmdarg,"-ocrvis"))
             {
             if (cmdlineinput_next(cl)==NULL)

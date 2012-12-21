@@ -224,6 +224,9 @@ static char *k2pdfopt_options=
 "-jpg [<quality>]  Use JPEG compression in PDF file with quality level\n"
 "                  <quality> (def=90).  A lower quality value will make your\n"
 "                  file smaller.  See also -png.\n"
+#ifdef HAVE_TESSERACT_LIB
+"-l <lang>         See -ocrlang.\n"
+#endif
 "-ls[-]            Set output to be in landscape [portrait] mode.  The\n"
 "                  default is portrait.\n"
 "-m[b|l|r|t] <in>  Ignore <in> inches around the [bottom|left|right|top]\n"
@@ -328,6 +331,15 @@ static char *k2pdfopt_options=
 "-ocrhmax <in>     Set max height for an OCR'd word in inches.  Any graphic\n"
 "                  exceeding this height will not be processed with the OCR\n"
 "                  engine.  Default = 1.5.  See -ocr.\n"
+#ifdef HAVE_TESSERACT_LIB
+"-ocrlang <lang>   Select the Tesseract OCR Engine language.  This is the\n"
+"                  root name of the training data, e.g. -lang eng for English,\n"
+"                  -ocrlang fra for French, -ocrlang chi_sim for simplified\n"
+"                  Chinese.  You can also use -l.  The default language is\n"
+"                  whatever is in your Tesseract trained data folder.  If you\n"
+"                  have more than one .traineddata file in that folder, the\n"
+"                  one with the most recent time stamp is used.\n"
+#endif
 "-ocrvis <s|t|b>   Set OCR visibility flags.  Put 's' to show the source doc,\n"
 "                  't' to show the OCR text, and/or 'b' to put a box around\n"
 "                  each word.  Default is -ocrvis s.  To show both the source\n"

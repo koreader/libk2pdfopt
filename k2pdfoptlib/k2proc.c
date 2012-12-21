@@ -706,6 +706,9 @@ static int bmpregion_find_multicolumn_divider(BMPREGION *region,
     BMPREGION _newregion,*newregion,column[2];
     BREAKINFO *breakinfo,_breakinfo;
     int *rowmin,*rowmax;
+    int *black_pixel_count_by_column;
+    int *pixel_count_array;
+    int rows_per_column;
     static char *funcname="bmpregion_find_multicolumn_divider";
 
     if (k2settings->debug)
@@ -739,8 +742,55 @@ static int bmpregion_find_multicolumn_divider(BMPREGION *region,
         fflush(stdout);
         }
     breakinfo_sort_by_row_position(breakinfo);
-    willus_dmem_alloc_warn(5,(void **)&rowmin,(region->c2+10)*2*sizeof(int),funcname,10);
+    willus_dmem_alloc_warn(5,(void **)&rowmin,(region->c2+10)*3*sizeof(int),funcname,10);
     rowmax=&rowmin[region->c2+10];
+    black_pixel_count_by_column=&rowmax[region->c2+10];
+    rows_per_column=0;
+
+    /*
+    ** If enough memory cache pixel counts into large 2-D array for fast calcs
+    */
+    pixel_count_array=NULL;
+    rows_per_column=0;
+    if (willus_mem_alloc((double **)&pixel_count_array,sizeof(int)*(region->c2+2)*(region->r2+2),
+                          funcname))
+        {
+        int bw;
+
+        rows_per_column=region->r2+2;
+        memset(pixel_count_array,0,sizeof(int)*(region->c2+2)+(region->r2+2));
+        bw=bmp_bytewidth(region->bmp8);
+        for (i=0;i<=region->c2+1;i++)
+            {
+            unsigned char *p;
+            int *cp;
+            int j;
+
+            if (i>=region->bmp8->width)
+                continue;
+            cp=&pixel_count_array[i*rows_per_column];
+            p=bmp_rowptr_from_top(region->bmp8,0)+i;
+            cp[0] = (p[0]<region->bgcolor) ? 1 : 0;
+            for (p+=bw,cp++,j=1;j<region->r2+2;j++,p+=bw,cp++)
+                if (p[0]<region->bgcolor)
+                    (*cp)=cp[-1]+1;
+                else
+                    (*cp)=cp[-1];
+            }
+        }
+        
+    /*
+    ** Populate black pixel count by column
+    */
+    for (i=0;i<region->c1;i++)
+        black_pixel_count_by_column[i]=1;
+    for (i=region->c1;i<=region->c2;i++)
+        black_pixel_count_by_column[i]=bmpregion_col_black_count(region,i);
+    for (i=region->c2+1;i<region->c2+2;i++)
+        black_pixel_count_by_column[i]=1;
+    /*
+    ** Init rowmin[], rowmax[] arrays
+    */
     for (i=0;i<region->c2+2;i++)
         {
         rowmin[i]=region->r2+2;
@@ -758,32 +808,90 @@ static int bmpregion_find_multicolumn_divider(BMPREGION *region,
                       && breakinfo->textrow[itop].r1<region->r2+1-min_height_pixels;itop++)
         {
         int ibottom;
+#if (WILLUSDEBUGX & 128)
+printf("itop=%d/%d\n",itop,breakinfo->n);
+#endif
 
         for (ibottom=breakinfo->n-1;ibottom>=itop 
               && breakinfo->textrow[ibottom].r2-breakinfo->textrow[itop].r1 >= min_height_pixels;
               ibottom--)
             {
+            int ileft,iright;
+
+#if (WILLUSDEBUGX & 128)
+int qec,lec,colmin,colmax;
+#endif
             /*
             ** Look for vertical shaft of clear space that clearly demarcates
             ** two columns
             */
+#if (WILLUSDEBUGX & 128)
+qec=lec=0;
+colmin=99999;
+colmax=0;
+printf("    ibot=%d/%d (dm=%d)\n",ibottom,breakinfo->n,dm);
+#endif
+            /*
+            ** ileft and iright keep track of column shafts we've already checked
+            */
+            ileft=region->c1+middle;
+            iright=region->c1+middle;
             for (i=0;i<dm;i++)
                 {
                 int foundgap,ii,c1,c2,iiopt,status;
 
                 newregion->c1=region->c1+middle-i;
+#if (WILLUSDEBUGX & 128)
+if (newregion->c1<colmin)
+colmin=newregion->c1;
+if (newregion->c1>colmax)
+colmax=newregion->c1;
+#endif
+// printf("        c1=%d (%d - %d)\n",newregion->c1,region->c1,region->c2);
                 /* If we've effectively already checked this shaft, move on */
-                if (itop >= rowmin[newregion->c1] && ibottom <= rowmax[newregion->c1])
+                if (newregion->c1>ileft 
+                        || (itop >= rowmin[newregion->c1] && ibottom <= rowmax[newregion->c1]))
+#if (WILLUSDEBUGX & 128)
+{
+qec++;
+#endif
                     continue;
+#if (WILLUSDEBUGX & 128)
+}
+lec++;
+#endif
+                ileft=newregion->c1;
                 newregion->c2=newregion->c1+min_col_gap_pixels-1;
                 newregion->r1=breakinfo->textrow[itop].r1;
                 newregion->r2=breakinfo->textrow[ibottom].r2;
-                foundgap=bmpregion_is_clear(newregion,row_black_count,k2settings->gtc_in);
+                foundgap=bmpregion_is_clear(newregion,row_black_count,black_pixel_count_by_column,
+                                             pixel_count_array,rows_per_column,k2settings->gtc_in);
                 if (!foundgap && i>0)
                     {
                     newregion->c1=region->c1+middle+i;
+#if (WILLUSDEBUGX & 128)
+if (newregion->c1<colmin)
+colmin=newregion->c1;
+if (newregion->c1>colmax)
+colmax=newregion->c1;
+#endif
+                    if (newregion->c1<iright
+                            || (itop >= rowmin[newregion->c1] && ibottom <= rowmax[newregion->c1]))
+#if (WILLUSDEBUGX & 128)
+{
+qec++;
+#endif
+                        continue;
+#if (WILLUSDEBUGX & 128)
+}
+lec++;
+#endif
+                    iright=newregion->c1;
                     newregion->c2=newregion->c1+min_col_gap_pixels-1;
-                    foundgap=bmpregion_is_clear(newregion,row_black_count,k2settings->gtc_in);
+                    foundgap=bmpregion_is_clear(newregion,row_black_count,
+                                           black_pixel_count_by_column,
+                                           pixel_count_array,rows_per_column,
+                                           k2settings->gtc_in);
                     }
                 if (!foundgap)
                     continue;
@@ -795,7 +903,10 @@ static int bmpregion_find_multicolumn_divider(BMPREGION *region,
                     int newgap;
                     newregion->c1=c1+ii;
                     newregion->c2=c2+ii;
-                    newgap=bmpregion_is_clear(newregion,row_black_count,k2settings->gtc_in);
+                    newgap=bmpregion_is_clear(newregion,row_black_count,
+                                             black_pixel_count_by_column,
+                                             pixel_count_array,rows_per_column,
+                                             k2settings->gtc_in);
                     if (newgap>0 && newgap<foundgap)
                         {
                         iiopt=ii;
@@ -815,6 +926,11 @@ static int bmpregion_find_multicolumn_divider(BMPREGION *region,
                                        breakinfo->textrow[ibottom].r2,
                                        divider_column,
                                        colcount,rowcount);
+                /* After trimming the two columns, adjust ileft and iright */
+                if (column[0].c2+1 < ileft)
+                    ileft = column[0].c2+1;
+                if (column[1].c1-min_col_gap_pixels > iright)
+                    iright = column[1].c1-min_col_gap_pixels;
                 /* If fails column height or gap test, mark as bad */
                 if (status)
                     {
@@ -869,6 +985,9 @@ printf("Returning %d divider column = %d - %d\n",region->r2-region->r1+1,newregi
                     return(colheight);
                     }
                 }
+#if (WILLUSDEBUGX & 128)
+printf("        cols %d - %d, qec = %d, lec = %d\n",colmin,colmax,qec,lec);
+#endif
             }
         }
     if (k2settings->verbose)
@@ -879,6 +998,7 @@ printf("Returning %d divider column = %d - %d\n",region->r2-region->r1+1,newregi
     pageregion[(*npr)].c1 = -1-pageregion[(*npr)].c1;
     (*npr)=(*npr)+1;
     /* (*divider_column)=region->c2+1; */
+    willus_mem_free((double **)&pixel_count_array,funcname);
     willus_dmem_free(5,(double **)&rowmin,funcname);
     breakinfo_free(101,breakinfo);
 /*

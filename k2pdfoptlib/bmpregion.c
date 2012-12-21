@@ -41,6 +41,22 @@ int bmpregion_row_black_count(BMPREGION *region,int r0)
     }
 
 
+int bmpregion_col_black_count(BMPREGION *region,int c0)
+
+    {
+    unsigned char *p;
+    int i,nr,c,bw;
+
+    bw=bmp_bytewidth(region->bmp8);
+    p=bmp_rowptr_from_top(region->bmp8,region->r1)+c0;
+    nr=region->r2-region->r1+1;
+    for (c=i=0;i<nr;i++,p+=bw)
+        if (p[0]<region->bgcolor)
+            c++;
+    return(c);
+    }
+
+
 #if (defined(WILLUSDEBUGX) || defined(WILLUSDEBUG))
 void bmpregion_write(BMPREGION *region,char *filename)
 
@@ -115,21 +131,84 @@ void bmpregion_row_histogram(BMPREGION *region)
 /*
 ** Return 0 if there are dark pixels in the region.  NZ otherwise.
 */
-int bmpregion_is_clear(BMPREGION *region,int *row_black_count,double gt_in)
+int bmpregion_is_clear(BMPREGION *region,int *row_black_count,int *col_black_count,
+                       int *col_pix_count,int rpc,double gt_in)
 
     {
-    int r,c,nc,pt;
+    int nr,nc,r,c,pt,mindim;
 
+    pt=(int)(gt_in*region->dpi*(region->c2-region->c1+1)+.5);
+    if (pt<0)
+        pt=0;
+    /*
+    ** Fast way to count dark pixels, but requires big array
+    */
+    if (col_pix_count!=NULL && rpc>0)
+        {
+        int i;
+        if (region->r1>0)
+            for (c=0,i=region->c1;i<=region->c2;i++)
+                {
+                c += col_pix_count[i*rpc+region->r2] - col_pix_count[i*rpc+(region->r1-1)];
+                if (c>pt)
+                    return(0);
+                }
+        else
+            for (c=0,i=region->c1;i<=region->c2;i++)
+                {
+                c += col_pix_count[i*rpc+region->r2];
+                if (c>pt)
+                    return(0);
+                }
+        return(pt<=0 ? 1 : 1+(int)10*c/pt);
+        }
+        
     /*
     ** row_black_count[] doesn't necessarily match up to this particular region's columns.
     ** So if row_black_count[] == 0, the row is clear, otherwise it has to be counted.
     ** because the columns are a subset.
     */
-    /* nr=region->r2-region->r1+1; */
+    nr=region->r2-region->r1+1;
     nc=region->c2-region->c1+1;
-    pt=(int)(gt_in*region->dpi*nc+.5);
-    if (pt<0)
-        pt=0;
+    mindim = nr>nc ? nc : nr;
+    if (mindim > 5)
+        {
+        int i,bcc,brc;
+
+        /*
+        ** Determine most efficient way to see if the shaft is clear
+        */
+        for (bcc=0,i=region->c1;i<=region->c2;i++)
+            if (col_black_count[i]==0)
+                bcc++;
+        for (brc=0,i=region->r1;i<=region->r2;i++)
+            if (row_black_count[i]==0)
+                brc++;
+
+        /*
+        ** Count dark pixels by columns
+        */
+        if (bcc*(region->r2-region->r1+1) > 2*brc*(region->c2-region->c1+1))
+            {
+            int col;
+
+            for (c=0,col=region->c1;col<=region->c2;col++)
+                {
+                if (col<0 || col>=region->bmp8->width)
+                    continue;
+                if (col_black_count[col]==0)
+                    continue;
+                c+=bmpregion_col_black_count(region,col);
+                if (c>pt)
+                    return(0);
+                }
+            return(pt<=0 ? 1 : 1+(int)10*c/pt);
+            }
+        }
+
+    /*
+    ** Count dark pixels by rows
+    */
     for (c=0,r=region->r1;r<=region->r2;r++)
         {
         if (r<0 || r>=region->bmp8->height)

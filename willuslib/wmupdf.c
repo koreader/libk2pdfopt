@@ -485,22 +485,47 @@ static void dict_put_string(fz_context *ctx,pdf_obj *dict,char *key,char *string
     }
 
 
+/*
+** Look at CropBox and MediaBox entries to determine visible page origin.
+*/
 static void wmupdf_page_x0y0(pdf_obj *srcpage,double *x0,double *y0)
 
     {
-    pdf_obj *cropbox,*obj;
+    int i;
 
-    (*x0)=0.;
-    (*y0)=0.;
-    cropbox=pdf_dict_gets(srcpage,"CropBox");
-    if (cropbox==NULL)
-        return;
-    obj=pdf_array_get(cropbox,0);
-    if (obj!=NULL)
-        (*x0)=pdf_to_real(obj);
-    obj=pdf_array_get(cropbox,1);
-    if (obj!=NULL)
-        (*y0)=pdf_to_real(obj);
+    (*x0)=-1e10;
+    (*y0)=-1e10;
+    for (i=0;i<2;i++)
+        {
+        static char *boxname[] = {"MediaBox","CropBox"};
+        pdf_obj *box;
+
+        box=pdf_dict_gets(srcpage,boxname[i]);
+        if (box!=NULL)
+            {
+            int j;
+
+            for (j=0;j<2;j++)
+                {
+                double *p;
+                pdf_obj *obj;
+
+                p=(j==0) ? x0 : y0;
+                obj=pdf_array_get(box,j);
+                if (obj!=NULL)
+                    {
+                    double x;
+                    x=pdf_to_real(obj);
+                    if (x > (*p))
+                        (*p)=x;
+                    }
+                }
+            }
+        }
+    if ((*x0) < -9e9)
+        (*x0) = 0.;
+    if ((*y0) < -9e9)
+        (*y0) = 0.;
     }
 
 
@@ -746,7 +771,7 @@ printf("xfmatrix = [  %9.6f   %9.6f   %9.6f  ]\n"
         matrix_mul(m,m1);
         matrix_zero_round(m);
         matrix_rotate(cpm,box->srcrot_deg);
-        matrix_translate(m1,box->x0+srcx0,box->y0+srcx0);
+        matrix_translate(m1,box->x0+srcx0,box->y0+srcy0);
         matrix_mul(cpm,m1);
 /*
 printf("Clip matrix:\n");

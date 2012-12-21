@@ -29,6 +29,8 @@
 #include "willus.h"
 
 
+static void lang_default(char *langdef);
+static int has_cube_data(char *lang);
 static void endian_flip(char *x,int n);
 
 /*
@@ -37,7 +39,85 @@ static void endian_flip(char *x,int n);
 int ocrtess_init(char *datadir,char *lang,int ocr_type,FILE *out)
 
     {
-    return(tess_capi_init(datadir,lang,ocr_type,out));
+    char langdef[16];
+
+    if (lang==NULL || lang[0]=='\0')
+        lang_default(langdef);
+    else
+        {
+        strncpy(langdef,lang,15);
+        langdef[15]='\0';
+        }
+    if (ocr_type==3 && !has_cube_data(langdef))
+        ocr_type=0;
+    return(tess_capi_init(datadir,langdef,ocr_type,out));
+    }
+
+
+static void lang_default(char *langdef)
+
+    {
+    char *p;
+    char tessdir[512];
+    char wildcard[512];
+    int j;
+    FILELIST *fl,_fl;
+
+    strcpy(langdef,"eng");
+    p=getenv("TESSDATA_PREFIX");
+    if (p==NULL)
+        return;
+    wfile_fullname(tessdir,p,"tessdata");
+    wfile_reslash(tessdir);
+    wfile_fullname(wildcard,tessdir,"*.traineddata");
+    fl=&_fl;
+    filelist_init(fl);
+    filelist_fill_from_disk_1(fl,wildcard,0,0);
+    filelist_sort_by_date(fl);
+    for (j=fl->n-1;j>=0;j--)
+        {
+        char basename[512];
+        int i;
+
+        wfile_basespec(basename,fl->entry[j].name);
+        if (in_string(basename,"-")>0)
+            continue;
+        strncpy(langdef,basename,15);
+        langdef[15]='\0';
+        i=in_string(langdef,".");
+        if (i>0)
+            langdef[i]='\0';
+        break;
+        }
+    filelist_free(fl);
+    }
+
+
+static int has_cube_data(char *lang)
+
+    {
+    char *p;
+    char tessdir[512];
+    char base[32];
+    char wildcard[512];
+    FILELIST *fl,_fl;
+    int n;
+
+    p=getenv("TESSDATA_PREFIX");
+    if (p==NULL)
+        return(0);
+    wfile_fullname(tessdir,p,"tessdata");
+    wfile_reslash(tessdir);
+    strncpy(base,lang==NULL || lang[0]=='\0' ? "*" : lang,15);
+    base[15]='\0';
+    strcat(base,".cube.*");
+    wfile_fullname(wildcard,tessdir,base);
+    fl=&_fl;
+    filelist_init(fl);
+    filelist_fill_from_disk_1(fl,wildcard,0,0);
+    n=fl->n;
+    filelist_free(fl);
+    return(n>0);
     }
 
 

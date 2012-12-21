@@ -54,7 +54,9 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
         {
 #endif
         aprintf(TTEXT_BOLD);
-        k2settings->ocrtess_status=ocrtess_init(NULL,NULL,3,stdout);
+        k2settings->ocrtess_status=ocrtess_init(NULL,
+                          k2settings->dst_ocr_lang[0]=='\0'?NULL:k2settings->dst_ocr_lang,
+                          3,stdout);
         aprintf(TTEXT_NORMAL);
         if (k2settings->ocrtess_status)
             aprintf(TTEXT_WARN "Could not find Tesseract data" TTEXT_NORMAL " (env var = TESSDATA_PREFIX).\nUsing GOCR v0.49.\n\n");
@@ -237,7 +239,15 @@ fflush(stdout);
 #endif
 #if (WILLUSDEBUGX & 32)
 if (wordbuf[0]!='\0')
+{
+char filename[256];
+FILE *f;
+sprintf(filename,"word%04d.txt",counter);
+f=fopen(filename,"wb");
+fprintf(f,"%s\n",wordbuf);
+fclose(f);
 printf("%s\n",wordbuf);
+}
 else
 printf("(OCR failed)\n");
 counter++;

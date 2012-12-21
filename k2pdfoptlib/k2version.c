@@ -1,4 +1,4 @@
-char *k2pdfopt_version = "v1.62";
+char *k2pdfopt_version = "v1.63";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
@@ -17,48 +17,35 @@ char *k2pdfopt_version = "v1.62";
 ** You should have received a copy of the GNU Affero General Public License
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **
-** FUTURE MODIFICATIONS
-**
-**           Wish list  
-**                   - Multithreaded operation
-**                   - Little blurbs in the margins--better way to handle?
-**                   - bryce.pdf (James Bryce Holy Roman Empire)--hanging
-**                     indents like on p. 43 with the date--auto-detect?
-**                   - Options for type of Tesseract OCR (cube works best)?
-**                   - Installer program for Tesseract data
-**                   - Better algorithm for finding whitethresh?
-**                     (contrast adjust)
-**                   - Autostraighten each column (e.g. when PDF is a
-**                     scan of two book pages side by side and each page
-**                     is skewed differently).
-**                   - Figure out how to get bounding boxes for text
-**                     primitives from MuPDF so that cropping could be
-**                     done to these bounding boxes (Markom).
-**                   - Split final output into two pages for viewing on
-**                     side-by-side kindles (Markom)...?
-**                   - Should references w/lots of hanging indents be re-flowed?
-**                   - Make max_fig_gap, max_label_height in
-**                     bmpregion_find_vertical_breaks() adjustable.
-**                   - Keep table of contents intact from original PDF with
-**                     links to appropriate pages.
-**                   - Chapter markers
-**                   - Auto-detect right-to-left fonts to turn on right-to-left
-**                     processing.
-**                   - Better/more options for column flow (Dianner example
-**                     at mobileread.com forum).
-**                   - Detect sections of text that begin with an
-**                     oversized letter that spans multiple rows of text.
-**                   - Copy/Paste-able unicode-16 strings in PDF so that
-**                     foreign characters are supported.
-**                     (how to handle in Helvetica font...)
-**                   - Could have better algorithm for deciding if a single
-**                     row is text or not (compared to a divider line, for
-**                     example)--look for variation in darkness of individual
-**                     pixel columns (see "gap_allowed" region).
-**                   - "u" option sometimes doesn't print enough linefeeds
-**                     (one too few).
-**
 ** VERSION HISTORY
+**
+** v1.63     20 DEC 2012
+**           - Now supports OCR in multiple languages using Tesseract with
+**             Unicode-16 text encoding so that the OCR text can be copy / pasted
+**             into Unicode-aware applications.
+**             To select the language for OCR:  -ocrlang (or -l).
+**             Examples: -ocrlang eng (English)
+**                       -ocrlang fra (French)
+**                       -ocrlang chi_sim (Chinese simplified)
+**             [Note that using the -ocrvis t option will not show the
+**              OCR text correctly for any character above unicode value
+**              255 since I do not use any embedded fonts, but the text
+**              will convert to the correct Unicode values when copy / pasted.]
+**           - Tesseract "cube" files are automatically checked so that the
+**             best OCR detection mode is selected.
+**           - Updated wmupdf.c in willus lib to account for both CropBox
+**             and MediaBox to determine page origin (fixes user-reported
+**             bug in native output mode for pages with non-zero MediaBox
+**             origins).
+**           - Made changes to multicolumn divider finder to improve the
+**             speed.  Includes counting pixels by column rather than row,
+**             making use of trimmed column boundaries, and using a
+**             2-D pixel count array.  Resulting code runs ~ 5 - 15% faster
+**             on average in my regression tests.
+**           - Removed dprintf() and fsincos() from willus lib to prevent
+**             minor compiling problems on some platforms.  Fixed some other
+**             minor issues for kindlepdfviewer.
+**
 ** v1.62     15 NOV 2012
 **           CODE RE-ORGANIZATION
 **           - This was largely motivated by the kindlepdfviewer app which

@@ -1143,3 +1143,36 @@ char *wstrtok(char *s,char *t)
     return(buf2);
     }
 
+
+/*
+** If d!=NULL, it gets populated w/unicode values
+*/
+int utf8_to_unicode(int *d,char *s,int maxlen)
+
+    {
+    int i,c;
+
+    for (i=c=0;c<maxlen && s[i]!='\0';i++)
+        {
+        int x,bits,topbyte;
+
+        for (x=s[i],bits=0;x&0x80;x<<=1,bits++);
+        if (bits==0)
+            {
+            if (d!=NULL)
+                d[c]=s[i];
+            c++;
+            continue;
+            }
+        topbyte=(x&0xff)>>bits;
+        for (x=topbyte,i++,bits--;bits>0;i++,bits--)
+            x=(x<<6)|(s[i]&0x3f);
+        i--;
+        if (d!=NULL)
+            d[c]=x;
+        c++;
+        }
+    return(c);
+    }
+            
+

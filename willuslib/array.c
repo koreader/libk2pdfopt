@@ -705,7 +705,8 @@ static int array_recfft(double *xr,double *xi,int length)
         txi=&txr[length];
         for (i=0;i<length;i++)
             {
-            sincos(2*PI*(double)i/(double)length,&wi[i],&wr[i]);
+            wi[i]=sin(2*PI*(double)i/(double)length);
+            wr[i]=cos(2*PI*(double)i/(double)length);
             wi[i]=-wi[i];
             }
         len=length;
@@ -1106,7 +1107,8 @@ static int arrayf_recfft(float *xr,float *xi,int length)
         for (i=0;i<length;i++)
             {
             double s,c;
-            sincos(2.*PI*i/length,&s,&c);
+            s=sin(2.*PI*i/length);
+            c=cos(2.*PI*i/length);
             wr[i]=(float)c;
             wi[i]=-(float)s;
             }

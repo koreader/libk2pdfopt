@@ -43,6 +43,9 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->src_left_to_right=1;
     k2settings->src_whitethresh=-1;
 #ifdef HAVE_OCR_LIB
+#ifdef HAVE_TESSERACT_LIB
+    k2settings->dst_ocr_lang[0]='\0';
+#endif
     k2settings->dst_ocr=0;
     k2settings->dst_ocr_visibility_flags=1;
     k2settings->ocr_max_height_inches=1.5;
