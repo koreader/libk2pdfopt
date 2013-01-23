@@ -2,7 +2,7 @@
 ** k2file.c      K2pdfopt file handling and main file processing
 **               function (k2pdfopt_proc_one()).
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -486,6 +486,9 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
                   (double)srcgrey->height/k2settings->src_dpi,rotstr);
         fflush(stdout);
 
+        /* Insert gap between source pages if requested */
+        if (pages_done>0 && k2settings->dst_break_pages<-1)
+            masterinfo_add_gap(masterinfo,k2settings,(-1-k2settings->dst_break_pages)/1000.);
         /* Parse the source bitmap for viewable regions */
         bmpregion_source_page_add(&region,k2settings,masterinfo,1,
                                   pages_done==0. ? 0. : (int)(0.25*k2settings->src_dpi+.5));
@@ -499,7 +502,7 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
         if (k2settings->show_marked_source)
             mark_source_page(k2settings,NULL,0,0xf);
         if (k2settings->dst_fit_to_page!=-2)
-            masterinfo_publish(masterinfo,k2settings,k2settings->dst_break_pages);
+            masterinfo_publish(masterinfo,k2settings,k2settings->dst_break_pages>0 ? 1 : 0);
         if (k2settings->show_marked_source)
             publish_marked_page(mpdf,k2settings->dst_color ? marked : src,k2settings->src_dpi);
         printf("%d new pages saved.\n",masterinfo->published_pages-pw);
@@ -538,7 +541,7 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
             filelist_free(fl);
         return(0.);
         }
-    if (!k2settings->dst_break_pages && k2settings->dst_fit_to_page!=-2)
+    if (k2settings->dst_break_pages<=0 && k2settings->dst_fit_to_page!=-2)
         masterinfo_flush(masterinfo,k2settings);
     {
     char cdate[128],author[256],title[256];
@@ -579,7 +582,7 @@ printf("    sr=%5.1f, dr=%5.1f\n\n",box->srcrot_deg,box->dstrot_deg);
 }
 #endif
 #ifdef HAVE_MUPDF_LIB
-        wmupdf_remake_pdf(mupdffilename,dstfile,&masterinfo->pageinfo,stdout);
+        wmupdf_remake_pdf(mupdffilename,dstfile,&masterinfo->pageinfo,1,stdout);
 #endif
         }
     if (k2settings->show_marked_source)

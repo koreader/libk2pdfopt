@@ -1,8 +1,7 @@
 K2pdfopt build help.
 http://willus.com
 Original: 7 September 2012
-Last updated: 20 December 2012 (v1.63)
-[Note that tesseract_mod/tesscapi.c has been updated for v1.63.]
+Last updated: 5 January 2013 (v1.64a)
 
 This "read me" file describes the source code distribution for k2pdfopt.
 
@@ -112,4 +111,4 @@ Build Steps on Linux and OS/X (64-bit)
 --------------------------------------
 1. gcc -Wall -O3 -ffast-math -m64 -o k2pdfopt.o -c k2pdfopt.c
 
-2. g++ -O3 -ffast-math -m64 -o k2pdfopt k2pdfopt.o -static-libgcc -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread
+2. g++ -O3 -ffast-math -m64 -o k2pdfopt k2pdfopt.o -static -static-libgcc -static-libstdc++ -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread

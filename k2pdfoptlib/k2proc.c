@@ -4,7 +4,7 @@
 **             columns, rows of text, and individual words, and laying out the
 **             output pages.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -128,6 +128,15 @@ void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                 if (srcregion->r1<0)
                     srcregion->r1=0;
                 }
+            /* Set device width/height to trimmed size if requested */
+            if (k2settings->dst_userwidth_units==UNITS_TRIMMED
+                  || k2settings->dst_userheight_units==UNITS_TRIMMED)
+                {
+                if (k2settings->src_trim)
+                    bmpregion_trim_margins(srcregion,k2settings,colcount,rowcount,0xf);
+                k2pdfopt_settings_set_margins_and_devsize(k2settings,srcregion,masterinfo,1);
+                }
+            /* Process this part of the grid */
             bmpregion_vertically_break(srcregion,k2settings,masterinfo,
                           k2settings->fit_columns?-2.0:-1.0,colcount,rowcount,0,2*level);
             if (masterinfo->fit_to_page==-2)
@@ -267,6 +276,17 @@ void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                                               level+1,colgap_pixels);
                 else
                     {
+                    /* Check for dynamic adjustment of output page to trimmed source region */
+                    if ((k2settings->vertical_break_threshold<-1.5
+                           || k2settings->dst_fit_to_page==-2)
+                          && (k2settings->dst_userwidth_units==UNITS_TRIMMED
+                              || k2settings->dst_userheight_units==UNITS_TRIMMED))
+                        {
+                        /* Set device width/height to trimmed size if requested */
+                        if (k2settings->src_trim)
+                            bmpregion_trim_margins(newregion,k2settings,colcount,rowcount,0xf);
+                        k2pdfopt_settings_set_margins_and_devsize(k2settings,newregion,masterinfo,1);
+                        }
                     bmpregion_vertically_break(newregion,k2settings,masterinfo,
                                   k2settings->fit_columns?-2.0:-1.0,colcount,rowcount,
                                   colgap_pixels,2*level);
@@ -288,6 +308,17 @@ void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
             newregion->c1 = -1-newregion->c1;
             /* masterinfo_add_gap_src_pixels(masterinfo,k2settings,newregion->r1-r2,"Col level"); */
             colgap_pixels = newregion->r1-r2;
+            /* Check for dynamic adjustment of output page to trimmed source region */
+            if ((k2settings->vertical_break_threshold<-1.5
+                   || k2settings->dst_fit_to_page==-2)
+                  && (k2settings->dst_userwidth_units==UNITS_TRIMMED
+                      || k2settings->dst_userheight_units==UNITS_TRIMMED))
+                {
+                /* Set device width/height to trimmed size if requested */
+                if (k2settings->src_trim)
+                    bmpregion_trim_margins(newregion,k2settings,colcount,rowcount,0xf);
+                k2pdfopt_settings_set_margins_and_devsize(k2settings,newregion,masterinfo,1);
+                }
             bmpregion_vertically_break(newregion,k2settings,masterinfo,
                           (k2settings->fit_columns && (level>1)) ? -2.0:-1.0,
                           colcount,rowcount,colgap_pixels,level);
@@ -978,6 +1009,8 @@ lec++;
                     pageregion[(*npr)]=column[1];
                     (*npr)=(*npr)+1;
                     colheight = breakinfo->textrow[ibottom].r2-region->r1+1;
+                    willus_mem_free((double **)&pixel_count_array,funcname);
+                    willus_dmem_free(5,(double **)&rowmin,funcname);
                     breakinfo_free(101,breakinfo);
 /*
 printf("Returning %d divider column = %d - %d\n",region->r2-region->r1+1,newregion->c1,newregion->c2);

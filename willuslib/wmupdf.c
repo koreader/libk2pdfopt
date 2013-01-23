@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -23,6 +23,10 @@
 #include <stdio.h>
 #include "willus.h"
 
+#ifdef HAVE_Z_LIB
+#include <zlib.h>
+#endif
+
 #ifdef HAVE_MUPDF_LIB
 #include <mupdf.h>
 
@@ -31,9 +35,16 @@ static void wpdfbox_unrotate(WPDFBOX *box,double deg);
 static int wpdfbox_compare(WPDFBOX *b1,WPDFBOX *b2);
 static void info_update(fz_context *ctx,pdf_document *xref,char *producer);
 static void dict_put_string(fz_context *ctx,pdf_obj *dict,char *key,char *string);
-static void wmupdf_page_x0y0(pdf_obj *srcpage,double *x0,double *y0);
+static void wmupdf_page_bbox(pdf_obj *srcpage,double *bbox_array);
 static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINFO *pageinfo,
-                                  FILE *out);
+                                  int use_forms,FILE *out);
+static void wmupdf_convert_pages_to_forms(pdf_document *xref,fz_context *ctx,int *srcpageused);
+static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ctx,int pageno);
+static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,
+                          int *length);
+static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,
+                                 pdf_obj *dict);
+static char *xobject_name(int pageno);
 static pdf_obj *start_new_destpage(fz_context *ctx,double width_pts,double height_pts);
 static void wmupdf_preserve_old_dests(pdf_obj *olddests,fz_context *ctx,pdf_document *xref,
                                       pdf_obj *pages);
@@ -368,8 +379,10 @@ int wmupdf_info_field(char *infile,char *label,char *buf,int maxlen)
 
 /*
 ** Reconstruct PDF file per the information in pageinfo.
+** use_forms==0:  Old-style reconstruction where the pages are not turned into XObject Forms.
+** use_forms==1:  New-style where pages are turned into XObject forms.
 */
-int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,FILE *out)
+int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_forms,FILE *out)
 
     {
     pdf_document *xref;
@@ -409,7 +422,7 @@ int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,FILE *ou
             nprintf(out,"wmupdf_remake_pdf:  Cannot authenticate PDF file %s.\n",infile);
             return(-3);
             }
-        status=wmupdf_pdfdoc_newpages(xref,ctx,pageinfo,out);
+        status=wmupdf_pdfdoc_newpages(xref,ctx,pageinfo,use_forms,out);
         if (status<0)
             {
             pdf_close_document(xref);
@@ -488,13 +501,13 @@ static void dict_put_string(fz_context *ctx,pdf_obj *dict,char *key,char *string
 /*
 ** Look at CropBox and MediaBox entries to determine visible page origin.
 */
-static void wmupdf_page_x0y0(pdf_obj *srcpage,double *x0,double *y0)
+static void wmupdf_page_bbox(pdf_obj *srcpage,double *bbox_array)
 
     {
     int i;
 
-    (*x0)=-1e10;
-    (*y0)=-1e10;
+    bbox_array[0] = bbox_array[1] = -1e10;
+    bbox_array[2] = bbox_array[3] = 1e10;
     for (i=0;i<2;i++)
         {
         static char *boxname[] = {"MediaBox","CropBox"};
@@ -504,45 +517,59 @@ static void wmupdf_page_x0y0(pdf_obj *srcpage,double *x0,double *y0)
         if (box!=NULL)
             {
             int j;
-
-            for (j=0;j<2;j++)
+            for (j=0;j<4;j++)
                 {
-                double *p;
                 pdf_obj *obj;
 
-                p=(j==0) ? x0 : y0;
                 obj=pdf_array_get(box,j);
                 if (obj!=NULL)
                     {
                     double x;
                     x=pdf_to_real(obj);
-                    if (x > (*p))
-                        (*p)=x;
+                    if ((j<2 && x>bbox_array[j]) || (j>=2 && x<bbox_array[j]))
+                        bbox_array[j]=x;
                     }
                 }
             }
         }
-    if ((*x0) < -9e9)
-        (*x0) = 0.;
-    if ((*y0) < -9e9)
-        (*y0) = 0.;
+    if (bbox_array[0] < -9e9)
+        bbox_array[0] = 0.;
+    if (bbox_array[1] < -9e9)
+        bbox_array[1] = 0.;
+    if (bbox_array[2] > 9e9)
+        bbox_array[2] = 612.;
+    if (bbox_array[3] > 9e9)
+        bbox_array[3] = 792.;
     }
 
 
 static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINFO *pageinfo,
-                                  FILE *out)
+                                  int use_forms,FILE *out)
 
     {
+    static char *funcname="wmupdf_pdfdoc_newpages";
 	pdf_obj *root,*oldroot,*pages,*kids,*countobj,*parent,*olddests;
-	pdf_obj *srcpageobj,*srcpageresources,*srcpagecontents;
+	pdf_obj *srcpageobj,*srcpagecontents;
     pdf_obj *destpageobj,*destpagecontents,*destpageresources;
     double srcx0,srcy0;
-    int qref,i,i0,pagecount,srccount,destpageref;
+    int qref,i,i0,pagecount,srccount,destpageref,nbb;
+    int *srcpageused;
+    char *bigbuf;
     double srcpagerot;
 
     srcx0=srcy0=0.;
 	/* Keep only pages/type and (reduced) dest entries to avoid references to unretained pages */
     pagecount = pdf_count_pages(xref);
+    if (use_forms)
+        {
+        willus_mem_alloc_warn((void **)&srcpageused,sizeof(int)*(pagecount+1),funcname,10);
+        /* Mark all source pages as "not done" */
+        for (i=0;i<=pagecount;i++)
+            srcpageused[i]=0;
+        nbb=4096;
+        willus_mem_alloc_warn((void **)&bigbuf,nbb,funcname,10);
+        bigbuf[0]='\0';
+        }
 	oldroot = pdf_dict_gets(xref->trailer,"Root");
     /*
     ** pages points to /Pages object in PDF file.
@@ -617,6 +644,17 @@ printf("    scale=%g\n",box->scale);
 /*
 printf("    ADDING NEW PAGE. (srccount=%d)\n",srccount);
 */
+            if (use_forms)
+                {
+                pdf_obj *dest_stream;
+
+                /* Create new object in document for destination page stream */
+                dest_stream = pdf_new_indirect(ctx,new_stream_object(xref,ctx,bigbuf),
+                                               0,(void *)xref);
+                /* Store this into the destination page contents array */
+                pdf_array_push(destpagecontents,dest_stream);
+                pdf_drop_obj(dest_stream);
+                }
             newpageref=pdf_new_indirect(ctx,destpageref,0,(void *)xref);
             /* Reference parent list of pages */
         	pdf_dict_puts(destpageobj,"Parent",parent);
@@ -651,6 +689,8 @@ printf("    ADDING NEW PAGE. (srccount=%d)\n",srccount);
         if (newsrc)
             {
             srccount++;
+            if (use_forms)
+                srcpageused[box->srcbox.pageno]=1;
 /*
 printf("    NEW SOURCE PAGE (srccount=%d)\n",srccount);
 */
@@ -673,12 +713,22 @@ printf("        (STARTING NEW DEST. PAGE)\n");
 */
                 destpageobj=start_new_destpage(ctx,box->dst_width_pts,box->dst_height_pts);
                 destpageresources=pdf_new_dict(ctx,1);
+                if (use_forms)
+                    pdf_dict_puts(destpageresources,"XObject",pdf_new_dict(ctx,1));
                 destpageref=pdf_create_object(xref);
                 destpagecontents=pdf_new_array(ctx,1);
+                /* Init the destination page stream for forms */
+                if (use_forms)
+                    bigbuf[0]='\0';
                 }
             /* New source page, so get the source page objects */
     		srcpageobj = xref->page_objs[box->srcbox.pageno-1];
-            wmupdf_page_x0y0(srcpageobj,&srcx0,&srcy0);
+            {
+            double v[4];
+            wmupdf_page_bbox(srcpageobj,v);
+            srcx0=v[0];
+            srcy0=v[1];
+            }
 /*
 printf("SRCX0=%g, SRCY0=%g\n",srcx0,srcy0);
 */
@@ -705,12 +755,27 @@ pdf_resolve_indirect(obj);
 }
 }
 */
-            srcpageresources=pdf_dict_gets(srcpageobj,"Resources");
-            /* Merge source page resources into destination page resources */
+            if (use_forms)
+                {
+                pdf_obj *xobjdict;
+                int pageno;
+
+                xobjdict=pdf_dict_gets(destpageresources,"XObject");
+                pageno=box->srcbox.pageno;
+	            pdf_dict_puts(xobjdict,xobject_name(pageno),xref->page_refs[pageno-1]);
+	            pdf_dict_puts(destpageresources,"XObject",xobjdict);
+                }
+            else
+                {
+                pdf_obj *srcpageresources;
+
+                /* Merge source page resources into destination page resources */
+                srcpageresources=pdf_dict_gets(srcpageobj,"Resources");
 /*
 printf("box->dstpage=%d, srcpage=%d (ind.#=%d)\n",box->dstpage,box->srcbox.pageno,pdf_to_num(xref->page_refs[box->srcbox.pageno-1]));
 */
-            wmupdf_dict_merge(ctx,"Resources",destpageresources,srcpageresources);
+                wmupdf_dict_merge(ctx,"Resources",destpageresources,srcpageresources);
+                }
             }
         /*
         ** Process this source box:
@@ -817,31 +882,52 @@ printf("Clip path:\n    %7.2f %7.2f\n    %7.2f,%7.2f\n    %7.2f,%7.2f\n"
                 xclip[0],yclip[0],xclip[1],yclip[1],xclip[2],yclip[2],
                 xclip[3],yclip[3],xclip[0],yclip[0]);
 */
-        sprintf(buf,"q %.5g %.5g %.5g %.5g %.5g %.5g cm %.5g %.5g m %.5g %.5g l %.5g %.5g l %.5g %.5g l %.5g %.5g l W n\n",
+        sprintf(buf,"q %.5g %.5g %.5g %.5g %.5g %.5g cm %.5g %.5g m %.5g %.5g l %.5g %.5g l %.5g %.5g l %.5g %.5g l W n",
                  m[0][0],m[0][1],m[1][0],m[1][1],m[2][0],m[2][1],
                  xclip[0],yclip[0],xclip[1],yclip[1],xclip[2],yclip[2],xclip[3],yclip[3],
                  xclip[0],yclip[0]);
-
-        /* Create new objects in document for tx matrix and restore matrix */
-        s1indirect = pdf_new_indirect(ctx,new_stream_object(xref,ctx,buf),0,(void *)xref);
-        if (qref==0)
-            qref=new_stream_object(xref,ctx,"Q\n");
-        qindirect = pdf_new_indirect(ctx,qref,0,(void *)xref);
-        /* Store this region into the destination page contents array */
-        pdf_array_push(destpagecontents,s1indirect);
-        if (pdf_is_array(srcpagecontents))
+        if (use_forms)
             {
-            int k;
-            for (k=0;k<pdf_array_len(srcpagecontents);k++)
-                pdf_array_push(destpagecontents,pdf_array_get(srcpagecontents,k));
+            /* FORM METHOD */
+            sprintf(&buf[strlen(buf)]," /%s Do Q\n",xobject_name(box->srcbox.pageno));
+            if (strlen(bigbuf)+strlen(buf) > nbb)
+                {
+                int newsize;
+                newsize=nbb*2;
+                willus_mem_realloc_robust_warn((void **)&bigbuf,newsize,nbb,funcname,10);
+                nbb=newsize;
+                }
+            strcat(bigbuf,buf);
             }
         else
-            pdf_array_push(destpagecontents,srcpagecontents);
-        pdf_array_push(destpagecontents,qindirect);
-        pdf_drop_obj(s1indirect);
-        pdf_drop_obj(qindirect);
+            {
+            /* NO-FORMS METHOD */
+            strcat(buf,"\n");
+            /* Create new objects in document for tx matrix and restore matrix */
+            s1indirect = pdf_new_indirect(ctx,new_stream_object(xref,ctx,buf),0,(void *)xref);
+            if (qref==0)
+                qref=new_stream_object(xref,ctx,"Q\n");
+            qindirect = pdf_new_indirect(ctx,qref,0,(void *)xref);
+            /* Store this region into the destination page contents array */
+            pdf_array_push(destpagecontents,s1indirect);
+            if (pdf_is_array(srcpagecontents))
+                {
+                int k;
+                for (k=0;k<pdf_array_len(srcpagecontents);k++)
+                    pdf_array_push(destpagecontents,pdf_array_get(srcpagecontents,k));
+                }
+            else
+                pdf_array_push(destpagecontents,srcpagecontents);
+            pdf_array_push(destpagecontents,qindirect);
+            pdf_drop_obj(s1indirect);
+            pdf_drop_obj(qindirect);
+            }
 		}
 	pdf_drop_obj(parent);
+
+    /* For forms, convert all original source pages to XObject Forms */
+    if (use_forms)
+        wmupdf_convert_pages_to_forms(xref,ctx,srcpageused);
 
 	/* Update page count and kids array */
 	countobj = pdf_new_int(ctx, pdf_array_len(kids));
@@ -853,7 +939,212 @@ printf("Clip path:\n    %7.2f %7.2f\n    %7.2f,%7.2f\n    %7.2f,%7.2f\n"
     /* Also preserve the (partial) Dests name tree */
     if (olddests)
         wmupdf_preserve_old_dests(olddests,ctx,xref,pages);
+    if (use_forms)
+        {
+        /* Free memory */
+        willus_mem_free((double **)&bigbuf,funcname);
+        willus_mem_free((double **)&srcpageused,funcname);
+        }
     return(0);
+    }
+
+
+static void wmupdf_convert_pages_to_forms(pdf_document *xref,fz_context *ctx,int *srcpageused)
+
+    {
+    int i,pagecount;
+
+    pagecount = pdf_count_pages(xref);
+    for (i=0;i<=pagecount;i++)
+        if (srcpageused[i])
+            wmupdf_convert_single_page_to_form(xref,ctx,i);
+    }
+
+
+static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ctx,int pageno)
+
+    {
+    pdf_obj *array,*srcpageobj,*srcpagecontents;
+    int i,len,streamlen,pageref,pagegen,compressed;
+    double bbox_array[4];
+    double matrix[6];
+
+    /* New source page, so get the source page objects */
+    srcpageobj = xref->page_objs[pageno-1];
+    pageref=pdf_to_num(xref->page_refs[pageno-1]);
+    pagegen=pdf_to_gen(xref->page_refs[pageno-1]);
+    wmupdf_page_bbox(srcpageobj,bbox_array);
+    for (i=0;i<6;i++)
+        matrix[i]=0.;
+    matrix[0]=matrix[3]=1.;
+    srcpagecontents=pdf_dict_gets(srcpageobj,"Contents");
+    /* Concatenate all indirect streams from source page directly into it. */
+// printf("Adding streams to source page %d (pageref=%d, pagegen=%d)...\n",pageno,pageref,pagegen);
+    streamlen=0;
+    if (pdf_is_array(srcpagecontents))
+        {
+        int k;
+        for (k=0;k<pdf_array_len(srcpagecontents);k++)
+            {
+            pdf_obj *obj;
+            obj=pdf_array_get(srcpagecontents,k);
+            if (pdf_is_indirect(obj))
+                pdf_resolve_indirect(obj);
+            streamlen=add_to_srcpage_stream(xref,ctx,pageref,pagegen,obj);
+            }
+        }
+    else
+        {
+        if (pdf_is_indirect(srcpagecontents))
+            pdf_resolve_indirect(srcpagecontents);
+        streamlen=add_to_srcpage_stream(xref,ctx,pageref,pagegen,srcpagecontents);
+        }
+    compressed=stream_deflate(xref,ctx,pageref,pagegen,&streamlen);
+    srcpageobj = xref->page_objs[pageno-1];
+    pageref=pdf_to_num(xref->page_refs[pageno-1]);
+    len=pdf_dict_len(srcpageobj);
+    for (i=0;i<len;i++)
+        {
+        pdf_obj *key; /* *value */
+
+        key=pdf_dict_get_key(srcpageobj,i);
+/*
+if (pdf_is_name(key))
+printf("key[%d] = name = %s\n",i,pdf_to_name(key));
+else
+printf("key[%d] = ??\n",i);
+*/
+        /* value=pdf_dict_get_val(srcpageobj,i); */
+        /* Keep same resources */
+        if (!pdf_is_name(key))
+            continue;
+        if (pdf_is_name(key) && !stricmp("Resources",pdf_to_name(key)))
+            continue;
+        /* Drop dictionary entry otherwise */
+// printf("Deleting key %s.\n",pdf_to_name(key));
+        pdf_dict_del(srcpageobj,key);
+        i=-1;
+        len=pdf_dict_len(srcpageobj);
+        }
+	pdf_dict_puts(srcpageobj,"Type",fz_new_name(ctx,"XObject"));
+	pdf_dict_puts(srcpageobj,"Subtype",fz_new_name(ctx,"Form"));
+	pdf_dict_puts(srcpageobj,"FormType",pdf_new_int(ctx,1));
+    if (compressed)
+        pdf_dict_puts(srcpageobj,"Filter",fz_new_name(ctx,"FlateDecode"));
+ 	pdf_dict_puts(srcpageobj,"Length",pdf_new_int(ctx,streamlen));
+    array=pdf_new_array(ctx,4);
+    for (i=0;i<4;i++)
+        pdf_array_push(array,pdf_new_real(ctx,bbox_array[i]));
+    pdf_dict_puts(srcpageobj,"BBox",array);
+    array=pdf_new_array(ctx,6);
+    for (i=0;i<6;i++)
+        pdf_array_push(array,pdf_new_real(ctx,matrix[i]));
+    pdf_dict_puts(srcpageobj,"Matrix",array);
+    /* (It's no longer a "page"--it's a Form-type XObject) */
+    /* I don't think this call should be made since it will call fz_drop_object on srcpageobj */
+    /* pdf_update_object(xref,pageref,srcpageobj); */
+    }
+
+
+static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,
+                          int *length)
+
+    {
+    fz_buffer *strbuf;
+    int n;
+    unsigned char *p;
+#ifdef HAVE_Z_LIB
+    char tempfile[512];
+    gzFile gz;
+    FILE *f;
+    int nw;
+#endif
+
+    strbuf=pdf_load_stream(xref,pageref,pagegen);
+    n=fz_buffer_storage(ctx,strbuf,&p);
+#ifdef HAVE_Z_LIB
+    wfile_abstmpnam(tempfile);
+    gz=gzopen(tempfile,"sab7");
+    gzwrite(gz,p,n);
+    gzclose(gz);
+    nw=wfile_size(tempfile);
+    fz_resize_buffer(ctx,strbuf,nw+1);
+    fz_buffer_storage(ctx,strbuf,&p);
+    f=fopen(tempfile,"rb");
+    if (f==NULL || fread(p,1,nw,f)<nw)
+        aprintf(ANSI_RED "** wmupdf: Error writing compressed stream to PDF file! **\n" ANSI_NORMAL);
+    if (f!=NULL)
+        fclose(f);
+    remove(tempfile);
+    p[nw]='\n';
+    strbuf->len=nw+1;
+    pdf_update_stream(xref,pageref,strbuf);
+    fz_drop_buffer(ctx,strbuf);
+/*
+printf("    After drop, xref->table[%d].stm_buf=%p, refs=%d\n",pageref,xref->table[pageref].stm_buf,
+                                                  xref->table[pageref].stm_buf->refs);
+*/
+    (*length)=nw;
+    return(1);
+#else
+    fz_drop_buffer(ctx,strbuf);
+    (*length)=n;
+    return(0);
+#endif
+    }
+    
+    
+static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,
+                                 pdf_obj *srcdict)
+
+    {
+    fz_buffer *srcbuf;
+    fz_buffer *dstbuf;
+    int dstlen;
+
+// printf("@add_to_srcpage_stream()...pageref=%d\n",pageref);
+    srcbuf=pdf_load_stream(xref,pdf_to_num(srcdict),pdf_to_gen(srcdict));
+    if (srcbuf==NULL)
+        {
+        dstbuf=pdf_load_stream(xref,pageref,pagegen);
+        if (dstbuf==NULL)
+            return(0);
+        dstlen=fz_buffer_storage(ctx,dstbuf,NULL);
+        fz_drop_buffer(ctx,dstbuf);
+        return(dstlen);
+        }
+    if (!pdf_is_stream(xref,pageref,pagegen))
+        dstbuf=fz_new_buffer(ctx,16);
+    else
+        {
+        dstbuf=pdf_load_stream(xref,pageref,pagegen);
+        if (dstbuf==NULL)
+            dstbuf=fz_new_buffer(ctx,16);
+        }
+    /* Concatenate srcbuf to dstbuf:  (Will srcbuf->data be allowed?)  */
+    dstlen=fz_buffer_storage(ctx,dstbuf,NULL);
+/*
+printf("    dstlen before = %d\n",dstlen);
+printf("    srclen = %d\n",fz_buffer_storage(ctx,srcbuf,NULL));
+printf("    srcptr = %p\n",srcbuf->data);
+*/
+    fz_write_buffer(ctx,dstbuf,srcbuf->data,fz_buffer_storage(ctx,srcbuf,NULL));
+    dstlen=fz_buffer_storage(ctx,dstbuf,NULL);
+// printf("    dstlen after = %d\n",dstlen);
+    fz_drop_buffer(ctx,srcbuf);
+    pdf_update_stream(xref,pageref,dstbuf);
+    fz_drop_buffer(ctx,dstbuf);
+    return(dstlen);
+    }
+
+
+static char *xobject_name(int pageno)
+
+    {
+    static char buf[32];
+
+    sprintf(buf,"Xfk2p%d",pageno);
+    return(buf);
     }
 
 

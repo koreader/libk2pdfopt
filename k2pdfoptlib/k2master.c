@@ -1,7 +1,7 @@
 /*
 ** k2master.c    Functions to handle the main (master) k2pdfopt output bitmap.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -29,7 +29,6 @@ static void masterinfo_add_cropbox(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2s
 #endif
 static void bmp_pad_and_mark(WILLUSBITMAP *dst,WILLUSBITMAP *src,K2PDFOPT_SETTINGS *k2settings,
                              int ltotheight,double bmpdpi,void *ocrwords);
-static void masterinfo_add_gap(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,double inches);
 static void bmp_fully_justify(WILLUSBITMAP *jbmp,WILLUSBITMAP *src,
                               K2PDFOPT_SETTINGS *k2settings,int jbmpwidth,
                               int whitethresh,int just,int dpi);
@@ -170,7 +169,7 @@ int masterinfo_new_source_page_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2
     masterinfo->bgcolor=white;
     masterinfo->fit_to_page = k2settings->dst_fit_to_page;
     /* Set destination size (flush output bitmap if it changes) */
-    k2pdfopt_settings_set_margins_and_devsize(k2settings,region,masterinfo);
+    k2pdfopt_settings_set_margins_and_devsize(k2settings,region,masterinfo,0);
     return(1);
     }
 
@@ -923,7 +922,7 @@ static void bmp_pad_and_mark(WILLUSBITMAP *dst,WILLUSBITMAP *src,K2PDFOPT_SETTIN
     }
 
 
-static void masterinfo_add_gap(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,double inches)
+void masterinfo_add_gap(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,double inches)
 
     {
     int n,bw;

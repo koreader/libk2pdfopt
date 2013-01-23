@@ -113,44 +113,7 @@ static int fontrender_get_font_index(char *name)
 
     {
     /* Default font_index (0,1) = Times Roman */
-    static char *font_keywords[] =
-        {
-        "arial","helv","san","",  /* font_index 2,3 */
-        "symbol","greek","",      /* font_index 4,5 */
-        "courier","",             /* font_index 6,7 */
-        ""
-        };
-    int i,font_index,font_index_max;
-
-    for (font_index_max=1,i=0;1;i++)
-        {
-        if (font_keywords[i][0]=='\0')
-            {
-            font_index_max += 2;
-            if (font_keywords[i+1][0]=='\0')
-                break;
-            }
-        }
-    if (is_an_integer(name) && (font_index=atoi(name))>=0 && font_index<=font_index_max)
-        return(font_index);
-    for (i=0,font_index=2;1;i++)
-        {
-        if (font_keywords[i][0]=='\0')
-            {
-            font_index+=2;
-            if (font_keywords[i+1][0]=='\0')
-                {
-                font_index=0;
-                break;
-                }
-            continue;
-            }
-        if (in_string(name,font_keywords[i])>=0)
-            break;
-        }
-    if (in_string(name,"bold")>=0)
-        font_index++;
-    return(font_index);
+    return(0);
     }
 
 
@@ -256,6 +219,10 @@ void fontrender_render_ex(WILLUSBITMAP *bmp,double x,double y_from_bottom,
     static char *funcname="fontrender_render_ex";
 // printf("fontrender_render_ex:  x=%g, y=%g, string='%s'\n",x,y_from_bottom,string);
 
+/*
+if (fabs(rot-90.)<1.)
+dprintf(NULL,"@fontrender_render_ex(x=%g,y=%g,'%s')\n",x,y_from_bottom,string);
+*/
     willus_mem_alloc_warn((void **)&rchar,sizeof(RCHAR)*strlen(string),
                          funcname,10);
     s=(unsigned char *)string;
@@ -300,11 +267,13 @@ wfile_written_info("font.jpg",stdout);
         cwidth/=nct;
     else
         cwidth=0.;
-  
-    /* Apply offsets due to justification so that x,y_from_bottom is */
-    /* positioned at the "lower left" corner of the first char on    */
-    /* the top line.                                                 */
-    dh = yj/2.*hbox;
+ 
+    /* 
+    ** Apply offsets due to justification so that x,y_from_bottom is
+    ** positioned at the "top left" corner of the first char on
+    ** the top line.
+    */
+    dh = (yj/2.)*hbox;
     dw = (-xj/2.)*wbox;
     th = rot*PI/180.;
     sth = sin(th);
@@ -313,7 +282,11 @@ wfile_written_info("font.jpg",stdout);
 render_partial_circle_pts(x/fontrender_pixels_per_point,y_from_bottom/fontrender_pixels_per_point,5.,0.,2.*PI,-1);
 */
     y_from_bottom += dh*cth + dw*sth;
-    x += dw*cth - dh*sth;
+    x += dw*cth - (dh+lheight)*sth;
+/*
+if (fabs(rot-90.)<1.)
+dprintf(NULL,"dh=%g, hbox=%g, (x',y')=(%g,%g)\n",dh,hbox,x,y_from_bottom);
+*/
     if (clear_behind_chars==2)
         {
         double wpad,hpad;
@@ -587,6 +560,7 @@ static void fontrender_renderchar(WILLUSBITMAP *bmp,int *w,
     fontletter->c=c;
     fontletter->rot=rot;
     fontletter->size=fontrender_size;
+    fontletter->font_index=fontrender_font_index;
     bmp_init(&fontletter->bmp);
     charbmp=&_charbmp;
     bmp_init(charbmp);

@@ -1,7 +1,7 @@
 /*
 ** k2cmdparse.c   Parse command-line options for k2pdfopt.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -375,8 +375,25 @@ int parse_cmd_args(K2PDFOPT_SETTINGS *k2settings,STRBUF *env,STRBUF *cmdline,
             }
         if (!stricmp(cl->cmdarg,"-bp") || !stricmp(cl->cmdarg,"-bp-"))
             {
-            if (setvals==1)
-                k2settings->dst_break_pages=(cl->cmdarg[3]=='-') ? 0 : 1;
+            if (cl->cmdarg[3]=='-')
+                {
+                if (setvals==1)
+                    k2settings->dst_break_pages=0;
+                continue;
+                }
+            if (cmdlineinput_next(cl)==NULL)
+                break;
+            if (is_a_number(cl->cmdarg))
+                {
+                if (setvals==1)
+                    k2settings->dst_break_pages= -1 - (int)(atof(cl->cmdarg)*1000.+.5);
+                }
+            else
+                {
+                if (setvals==1)
+                    k2settings->dst_break_pages=1;
+                readnext=0;
+                }
             continue;
             }
         if (!strnicmp(cl->cmdarg,"-fc",3))
@@ -1109,6 +1126,10 @@ static void set_value_with_units(char *s,double *val,int *units)
         (*units)=UNITS_INCHES;
     else if (tolower(s[i])=='c')
         (*units)=UNITS_CM;
+    else if (tolower(s[i])=='s')
+        (*units)=UNITS_SOURCE;
+    else if (tolower(s[i])=='t')
+        (*units)=UNITS_TRIMMED;
     else
         (*units)=UNITS_PIXELS;
     }

@@ -1,8 +1,8 @@
-char *k2pdfopt_version = "v1.63";
+char *k2pdfopt_version = "v1.64a";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -17,7 +17,36 @@ char *k2pdfopt_version = "v1.63";
 ** You should have received a copy of the GNU Affero General Public License
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **
+** FUTURE MODIFICATIONS
+**
 ** VERSION HISTORY
+**
+** v1.64a    5 JAN 2013
+**           - Fixed bug in Native PDF output introduced in v1.64.
+**             (stream_deflate function in wmupdf.c)
+**
+** v1.64     4 JAN 2013 
+**           - Native PDF output changed so that source pages are converted
+**             to XObjects (Form type).  This should be much more robust when
+**             putting contents from multiple source pages onto a single
+**             destination page.
+**           - Added profile for Kindle paperwhite. (-dev kpw)
+**           - The fontdata.c file in willus lib has been reduced to only one
+**             font in order to reduce the size of the k2pdfopt binaries since
+**             k2pdfopt only uses one font for the -sm option.
+**           - The page width and height can now be specified in terms of
+**             the trimmed source page width and height.  Use 't' for the
+**             units, e.g. -w 1t -h 1t.  This would typically be used with
+**             the -mode copy and/or -grid options.
+**           - The -bp option can now take a numeric argument (inches) to
+**             insert a gap (of that many inches) between each source page.
+**           - There is now an interactive menu option for selecting the
+**             OCR language training file (Tesseract OCR only).
+**           - Fixed memory leak in bmpregion_find_multicolumn_divider().
+**           - Fixed default value for -col in usage.
+**           - Clarified -ocrlang usage.
+**           - Compiled Linux versions with -static and -static-libstdc++
+**             to hopefully reduce shared library incompatibilities.
 **
 ** v1.63     20 DEC 2012
 **           - Now supports OCR in multiple languages using Tesseract with
@@ -40,7 +69,7 @@ char *k2pdfopt_version = "v1.63";
 **           - Made changes to multicolumn divider finder to improve the
 **             speed.  Includes counting pixels by column rather than row,
 **             making use of trimmed column boundaries, and using a
-**             2-D pixel count array.  Resulting code runs ~ 5 - 15% faster
+**             2-D pixel count array.  Resulting code runs ~ 5 - 10% faster
 **             on average in my regression tests.
 **           - Removed dprintf() and fsincos() from willus lib to prevent
 **             minor compiling problems on some platforms.  Fixed some other

@@ -845,8 +845,9 @@ int arrayf_find_max_point(float *x0,float *y0,float *x,float *y,int n)
     willus_mem_free((double **)&tx,"array_find_max_point");
 	if (c[2]==0)
 		return(-1);
-	(*x0)= (float)(-c[1]/(2.*c[2])+xoff);
+	(*x0)= (float)(-c[1]/(2.*c[2]));
 	(*y0)= (float)(c[2]*(*x0)*(*x0) + c[1]*(*x0) + c[0] + yoff);
+    (*x0) = (*x0) + xoff;
 	return(0);
 	}
 	

@@ -1,7 +1,7 @@
 /*
 ** k2pdfopt.h   Main include file for k2pdfopt source modules.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -107,6 +107,8 @@
 #define UNITS_PIXELS      0
 #define UNITS_INCHES      1
 #define UNITS_CM          2
+#define UNITS_SOURCE      3
+#define UNITS_TRIMMED     4
 
 #define DEFAULT_WIDTH 560
 #define DEFAULT_HEIGHT 735
@@ -462,7 +464,7 @@ void k2pdfopt_settings_fit_column_to_screen(K2PDFOPT_SETTINGS *k2settings,
                                             double column_width_inches);
 void k2pdfopt_settings_set_region_widths(K2PDFOPT_SETTINGS *k2settings);
 void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
-                         BMPREGION *region,MASTERINFO *masterinfo);
+                         BMPREGION *region,MASTERINFO *masterinfo,int trimmed);
 
 
 /* breakinfo.c */
@@ -514,6 +516,7 @@ void masterinfo_add_bitmap(MASTERINFO *masterinfo,WILLUSBITMAP *src,
                     int justification_flags,int whitethresh,int nocr,int dpi);
 void masterinfo_add_gap_src_pixels(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
                                    int pixels,char *caller);
+void masterinfo_add_gap(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,double inches);
 void masterinfo_remove_top_rows(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int rows);
 int masterinfo_get_next_output_page(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
                                     int flushall,WILLUSBITMAP *bmp,double *bmpdpi,

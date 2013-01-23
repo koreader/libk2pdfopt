@@ -1,7 +1,7 @@
 /*
 ** k2settings.c     Handles k2pdfopt settings (K2PDFOPT_SETTINGS structure)
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -22,7 +22,8 @@
 
 static void k2pdfopt_settings_set_device_margins(K2PDFOPT_SETTINGS *k2settings);
 static void k2pdfopt_settings_set_crop_margins(K2PDFOPT_SETTINGS *k2settings);
-static int devsize_pixels(double user_size,int user_units,double source_size_in,double dst_dpi);
+static int devsize_pixels(double user_size,int user_units,double source_size_in,
+                          double trimmed_size_in,double dst_dpi);
 
 
 void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
@@ -215,7 +216,7 @@ void k2pdfopt_settings_sanity_check(K2PDFOPT_SETTINGS *k2settings)
     ** NULL = first call, before any source page dimensions are known.
     ** Otherwise, bitmap region with source page dimensions set.
     */
-    k2pdfopt_settings_set_margins_and_devsize(k2settings,NULL,NULL);
+    k2pdfopt_settings_set_margins_and_devsize(k2settings,NULL,NULL,0);
     /*
     ** Set source DPI
     */
@@ -323,14 +324,17 @@ static void k2pdfopt_settings_set_device_margins(K2PDFOPT_SETTINGS *k2settings)
 ** Set device width and height in pixels.
 */
 void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
-                                       BMPREGION *region,MASTERINFO *masterinfo)
+                                       BMPREGION *region,MASTERINFO *masterinfo,int trimmed)
 
     {
     static int count=0;
+    static double wu=0.; /* Store untrimmed width, height */
+    static double hu=0.;
     double swidth_in,sheight_in;
-    int new_width,new_height;
+    int new_width,new_height,zeroarea;
     WPDFPAGEINFO *pageinfo;
 
+    zeroarea=0;
     pageinfo=masterinfo!=NULL ? &masterinfo->pageinfo : NULL;
     if (region==NULL)
         {
@@ -342,13 +346,39 @@ void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
     else
         {
         count++;
-        swidth_in = (double)region->bmp->width / region->dpi;
-        sheight_in = (double)region->bmp->height / region->dpi;
+        if (trimmed)
+            {
+            swidth_in = (double)(region->c2-region->c1+1) / region->dpi;
+            if (swidth_in < 1.0)
+                swidth_in = 1.0;
+            sheight_in = (double)(region->r2-region->r1+1) / region->dpi;
+            if (sheight_in < 1.0)
+                sheight_in = 1.0;
+            if (region->c2-region->c1<=0 || region->r2-region->r1<=0)
+                zeroarea=1;
+            }
+        else
+            {
+            swidth_in = (double)region->bmp->width / region->dpi;
+            sheight_in = (double)region->bmp->height / region->dpi;
+            }
+        }
+    if (trimmed)
+        {
+        if (wu<=0.)
+            wu=swidth_in;
+        if (hu<=0.)
+            hu=sheight_in;
+        }
+    else
+        {
+        wu=swidth_in;
+        hu=sheight_in;
         }
     new_width=devsize_pixels(k2settings->dst_userwidth,k2settings->dst_userwidth_units,
-                             swidth_in,k2settings->dst_dpi);
+                             wu,swidth_in,k2settings->dst_dpi);
     new_height=devsize_pixels(k2settings->dst_userheight,k2settings->dst_userheight_units,
-                              sheight_in,k2settings->dst_dpi);
+                              hu,sheight_in,k2settings->dst_dpi);
     if (k2settings->dst_landscape)
         int_swap(new_width,new_height)
     if (count==1 || (count>1 && (new_width!=k2settings->dst_width || new_height!=k2settings->dst_height)))
@@ -377,7 +407,8 @@ void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
         int olddpi;
         olddpi = k2settings->dst_dpi;
         k2settings->dst_dpi = (int)((double)k2settings->dst_width/(MIN_REGION_WIDTH_INCHES+k2settings->dst_marleft+k2settings->dst_marright));
-        aprintf(TTEXT_BOLD2 "Output DPI of %d is too large.  Reduced to %d." TTEXT_NORMAL "\n\n",
+        if (!zeroarea)
+            aprintf(TTEXT_BOLD2 "Output DPI reduced from %d to %d ... " TTEXT_NORMAL,
                 olddpi,k2settings->dst_dpi);
         }
     k2pdfopt_settings_set_region_widths(k2settings);
@@ -401,19 +432,20 @@ static void k2pdfopt_settings_set_crop_margins(K2PDFOPT_SETTINGS *k2settings)
     }
 
 
-static int devsize_pixels(double user_size,int user_units,double source_size_in,double dst_dpi)
+static int devsize_pixels(double user_size,int user_units,double source_size_in,
+                          double trimmed_size_in,double dst_dpi)
 
     {
     
     if (user_size==0.)
         return((int)(source_size_in*dst_dpi+.5));
-    if (user_size<0.)
-        return((int)(source_size_in*(-user_size)*dst_dpi+.5));
+    if (user_size<0. || user_units==UNITS_SOURCE)
+        return((int)(source_size_in*fabs(user_size)*dst_dpi+.5));
+    if (user_units==UNITS_TRIMMED)
+        return((int)(trimmed_size_in*user_size*dst_dpi+.5));
     if (user_units==UNITS_CM)
         return((int)((user_size/2.54)*dst_dpi+.5));
     if (user_units==UNITS_INCHES)
         return((int)(user_size*dst_dpi+.5));
     return((int)(user_size+.5));
     }
-
-

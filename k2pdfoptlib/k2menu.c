@@ -1,7 +1,7 @@
 /*
 ** k2menu.c      Interactive user menu for k2pdfopt.c.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -290,8 +290,24 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
             status=userinput_string("Break output pages at end of each input page",ansyesno,k2settings->dst_break_pages?"y":"n");
             if (status<0)
                 return(status);
-            k2settings->dst_break_pages=!status;
-            strbuf_sprintf(usermenu,"-bp%s",k2settings->dst_break_pages?"":"-");
+            k2settings->dst_break_pages=(status==0) ? 1 : 0;
+            if (!k2settings->dst_break_pages)
+                {
+                double x;
+                x=0.;
+                status=userinput_float("Gap between source pages (inches)",x,&x,1,0.0,100.,NULL);
+                if (status<0)
+                    return(status);
+                if (x>0.)
+                    {
+                    k2settings->dst_break_pages=-1-(int)(1000.*x+.5);
+                    strbuf_sprintf(usermenu,"-bp %g",x);
+                    }
+                else
+                    strbuf_sprintf(usermenu,"-bp-");
+                }
+            else
+                strbuf_sprintf(usermenu,"-bp");
             status=userinput_integer("Fit-to-page value",k2settings->dst_fit_to_page,&k2settings->dst_fit_to_page,
                                  -2,999);
             if (status<0)
@@ -617,7 +633,11 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
 #ifdef HAVE_OCR_LIB
         else if (!stricmp(buf,"oc"))
             {
-            static char *ocropts[]={"Tesseract","Gocr","None",""};
+            static char *ocropts[]={
+#ifdef HAVE_TESSERACT_LIB
+                         "Tesseract",
+#endif
+                         "Gocr","None",""};
 
             status=userinput_string("OCR choice",ocropts,k2settings->dst_ocr=='t'?"t":(k2settings->dst_ocr=='g')?"g":"n");
             if (status<0)
@@ -630,6 +650,58 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
                 }
             else
                 strbuf_sprintf(usermenu,"-ocr %c",k2settings->dst_ocr);
+#ifdef HAVE_TESSERACT_LIB
+            if (k2settings->dst_ocr=='t' && getenv("TESSDATA_PREFIX")!=NULL)
+                {
+                FILELIST *fl,_fl;
+                char tdir1[512];
+                char tdir[512];
+                
+                fl=&_fl;
+                wfile_fullname(tdir1,getenv("TESSDATA_PREFIX"),"tessdata");
+                wfile_fullname(tdir,tdir1,"*.traineddata");
+                filelist_init(fl);
+                filelist_fill_from_disk_1(fl,tdir,0,0);
+                if (fl->n>1)
+                    {
+                    int i;
+                    char base1[512];
+                    char base[512];
+
+                    filelist_sort_by_date(fl);
+                    for (i=1;i<=fl->n;i++)
+                        {
+                        wfile_basespec(base1,fl->entry[fl->n-i].name);
+                        wfile_newext(base,base1,"");
+                        aprintf(TTEXT_BOLD "%2d" TTEXT_NORMAL ". %s\n",i,base);
+                        }
+                    while (1)
+                        {
+                        char buf[16];
+                        aprintf(TTEXT_BOLD2 "Enter language selection (def=1): " TTEXT_NORMAL);
+                        fgets(buf,15,stdin);
+                        clean_line(buf);
+                        if (buf[0]=='\0')
+                            {
+                            i=1;
+                            break;
+                            }
+                        i=atoi(buf);
+                        if (!is_an_integer(buf) || i<1 || i>fl->n)
+                            {
+                            aprintf("\n" TTEXT_WARN " ** Please enter a number in the range 1 - %d. **" TTEXT_NORMAL "\n\n",fl->n);
+                            continue;
+                            }
+                        break;
+                        }
+                    wfile_basespec(base1,fl->entry[fl->n-i].name);
+                    wfile_newext(base,base1,"");
+                    strncpy(k2settings->dst_ocr_lang,base,15);
+                    k2settings->dst_ocr_lang[15]='\0';
+                    strbuf_sprintf(usermenu,"-ocrlang %s",k2settings->dst_ocr_lang);
+                    }
+                }
+#endif
             if (k2settings->dst_ocr)
                 {
                 status=userinput_float("Max OCR word height (in)",k2settings->ocr_max_height_inches,

@@ -1277,7 +1277,7 @@ void wpdfboxes_add_box(WPDFBOXES *boxes,WPDFBOX *box);
 void wpdfboxes_delete(WPDFBOXES *boxes,int n);
 void wpdfpageinfo_sort(WPDFPAGEINFO *pageinfo);
 int  wmupdf_info_field(char *infile,char *label,char *buf,int maxlen);
-int  wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,FILE *out);
+int  wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_forms,FILE *out);
 #endif /* HAVE_MUPDF_LIB */
 
 #ifdef HAVE_DJVU_LIB
