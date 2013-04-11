@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -939,11 +939,22 @@ void wfile_volumeinfo(char *drive,char *volume,char *sn,char *filesys,
     char volname[200];
 #ifdef WIN32
     DWORD  serno,maxlen,flags;
-    char vol[100];
-    vol[0]=drive[0];
-    vol[1]=':';
-    vol[2]='\\';
-    vol[3]='\0';
+    char vol[256];
+
+    if (drive[1]=='\0' || drive[1]==':')
+        {
+        vol[0]=drive[0];
+        vol[1]=':';
+        vol[2]='\\';
+        vol[3]='\0';
+        }
+    else
+        {
+        strncpy(vol,drive,254);
+        vol[254]='\0';
+        if (strlen(vol)>0 && vol[strlen(vol)-1]!='\\')
+            strcat(vol,"\\");
+        }
     if (!GetVolumeInformation(vol,volname,199,&serno,&maxlen,&flags,fs,99))
 #else
     int  serno,maxlen;
@@ -973,11 +984,22 @@ double wfile_freespace(char *volume,double *totalspace)
     {
 #ifdef WIN32
     long    spc,bps,fc,tc;
-    char    vol[100];
-    vol[0]=volume[0];
-    vol[1]=':';
-    vol[2]='\\';
-    vol[3]='\0';
+    char    vol[256];
+
+    if (volume[1]==':' || volume[1]=='\0')
+        {
+        vol[0]=volume[0];
+        vol[1]=':';
+        vol[2]='\\';
+        vol[3]='\0';
+        }
+    else
+        {
+        strncpy(vol,volume,254);
+        vol[254]='\0';
+        if (strlen(vol)>0 && vol[strlen(vol)-1]!='\\')
+            strcat(vol,"\\");
+        }
     GetDiskFreeSpace(vol,(void *)&spc,(void *)&bps,(void *)&fc,(void *)&tc);
     /* fc = free clusters, spc = sectors/cluster, bps = bytes/sector */
     if (totalspace!=NULL)
@@ -1890,6 +1912,28 @@ extern char P_tmpdir[];
     }
 
 
+void wfile_temppath_from_env(char *dir)
+
+    {
+#ifdef WIN32
+    char *p;
+    p=getenv("TEMP");
+    if (p!=NULL)
+        strcpy(dir,p);
+    else
+        {
+        p=getenv("TMP");
+        if (p!=NULL)
+            strcpy(dir,p);
+        else
+            strcpy(dir,".");
+        }
+#else
+    strcpy(dir,"/tmp");
+#endif
+    }
+
+
 /*
 ** If dir==NULL && prefix==NULL, should still give valid temp name.
 ** If dir == NULL, the temporary dir is used.
@@ -1903,11 +1947,9 @@ char *wfile_tempname(char *dir,char *prefix)
     {
     static char tname[MAXFILENAMELEN];
     char  myprefix[MAXFILENAMELEN];
+    char  mydir[MAXFILENAMELEN];
 #ifdef WIN32
     int status;
-#endif
-#ifndef LINUX
-    char  mydir[MAXFILENAMELEN];
 #endif
 
     if (prefix==NULL || prefix[0]=='\0')
@@ -1916,20 +1958,7 @@ char *wfile_tempname(char *dir,char *prefix)
         strcpy(myprefix,prefix);
 #ifdef WIN32
     if (dir==NULL)
-        {
-        char *p;
-        p=getenv("TEMP");
-        if (p!=NULL)
-            strcpy(mydir,p);
-        else
-            {
-            p=getenv("TMP");
-            if (p!=NULL)
-                strcpy(mydir,p);
-            else
-                strcpy(mydir,".");
-            }
-        }
+        wfile_temppath_from_env(mydir);
     else if (dir[0]=='\0')
         strcpy(mydir,".");
     else
@@ -1951,9 +1980,10 @@ char *wfile_tempname(char *dir,char *prefix)
 #ifdef LINUX
     strcat(myprefix,"XXXXXX");
     if (dir==NULL)
-        sprintf(tname,"/tmp/%s",myprefix);
+        wfile_temppath_from_env(mydir);
     else
-        wfile_fullname(tname,dir,myprefix);
+        strcpy(mydir,dir);
+    wfile_fullname(tname,mydir,myprefix);
     /* File is created, so remove it. */
     {
     int fd;

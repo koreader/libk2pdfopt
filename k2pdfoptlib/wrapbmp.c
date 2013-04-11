@@ -119,7 +119,7 @@ void wrapbmp_add(WRAPBMP *wrapbmp,BMPREGION *region,K2PDFOPT_SETTINGS *k2setting
 // static char filename[256];
 
 #ifdef WILLUSDEBUG
-printf("@wrapbmp->add %d x %d (w=%d).\n",region->c2-region->c1+1,region->r2-region->r1+1,wrapbmp->bmp.width);
+k2printf("@wrapbmp->add %d x %d (w=%d).\n",region->c2-region->c1+1,region->r2-region->r1+1,wrapbmp->bmp.width);
 #endif
     /* Figure out if what we're adding ends in a hyphen */
     bmpregion_hyphen_detect(region,k2settings->hyphen_detect,k2settings->src_left_to_right);
@@ -136,8 +136,8 @@ printf("@wrapbmp->add %d x %d (w=%d).\n",region->c2-region->c1+1,region->r2-regi
     wrapbmp->bgcolor=region->bgcolor;
     wrapbmp->just=just_flags;
 /*
-printf("    c1=%d, c2=%d, r1=%d, r2=%d\n",region->c1,region->c2,region->r1,region->r2);
-printf("    gap=%d, line_spacing=%d, rbase=%d, gio=%d\n",gap,line_spacing,rbase,gio);
+k2printf("    c1=%d, c2=%d, r1=%d, r2=%d\n",region->c1,region->c2,region->r1,region->r2);
+k2printf("    gap=%d, line_spacing=%d, rbase=%d, gio=%d\n",gap,line_spacing,rbase,gio);
 */
     bpp=k2settings->dst_color?3:1;
     rh=rbase-region->r1+1;
@@ -192,7 +192,7 @@ bmp_free(bmp);
         wrapbmp->base = rh-1;
         wrapbmp->bmp.height = th;
 #ifdef WILLUSDEBUG
-printf("@wrapbmp->add:  bmpheight set to %d (wls=%d, lrbi=%d)\n",wrapbmp->bmp.height,wrapbmp->line_spacing,k2settings->last_rowbase_internal);
+k2printf("@wrapbmp->add:  bmpheight set to %d (wls=%d, lrbi=%d)\n",wrapbmp->bmp.height,wrapbmp->line_spacing,k2settings->last_rowbase_internal);
 #endif
         wrapbmp->bmp.width=region->c2-region->c1+1;
         bmp_alloc(&wrapbmp->bmp);
@@ -208,8 +208,8 @@ printf("@wrapbmp->add:  bmpheight set to %d (wls=%d, lrbi=%d)\n",wrapbmp->bmp.he
 #ifdef WILLUSDEBUG
 if (wrapbmp->bmp.height<=wrapbmp->base)
 {
-printf("1. SCREEECH!\n");
-printf("wrapbmp = %d x %d, base=%d\n",wrapbmp->bmp.width,wrapbmp->bmp.height,wrapbmp->base);
+k2printf("1. SCREEECH!\n");
+k2printf("wrapbmp = %d x %d, base=%d\n",wrapbmp->bmp.width,wrapbmp->bmp.height,wrapbmp->base);
 exit(10);
 }
 #endif
@@ -246,7 +246,7 @@ exit(10);
     memset(bmp_rowptr_from_top(tmp,0),255,bw*tmp->height);
     bw=bmp_bytewidth(&wrapbmp->bmp);
 /*
-printf("3.  wbh=%d x %d, tmp=%d x %d x %d, new_base=%d, wbbase=%d\n",wrapbmp->bmp.width,wrapbmp->bmp.height,tmp->width,tmp->height,tmp->bpp,new_base,wrapbmp->base);
+k2printf("3.  wbh=%d x %d, tmp=%d x %d x %d, new_base=%d, wbbase=%d\n",wrapbmp->bmp.width,wrapbmp->bmp.height,tmp->width,tmp->height,tmp->bpp,new_base,wrapbmp->base);
 */
     for (i=0;i<wrapbmp->bmp.height;i++)
         {
@@ -259,8 +259,8 @@ printf("3.  wbh=%d x %d, tmp=%d x %d x %d, new_base=%d, wbbase=%d\n",wrapbmp->bm
     bw=bpp*(region->c2-region->c1+1);
     if (region->r1+new_base-rbase<0 || region->r2+new_base-rbase>tmp->height-1)
         {
-        aprintf(ANSI_YELLOW "INTERNAL ERROR--TMP NOT DIMENSIONED PROPERLY.\n");
-        aprintf("(%d-%d), tmp->height=%d\n" ANSI_NORMAL,
+        k2printf(ANSI_YELLOW "INTERNAL ERROR--TMP NOT DIMENSIONED PROPERLY.\n");
+        k2printf("(%d-%d), tmp->height=%d\n" ANSI_NORMAL,
             region->r1+new_base-rbase,
             region->r2+new_base-rbase,tmp->height);
         exit(10);
@@ -297,8 +297,8 @@ printf("3.  wbh=%d x %d, tmp=%d x %d x %d, new_base=%d, wbbase=%d\n",wrapbmp->bm
 #ifdef WILLUSDEBUG
 if (wrapbmp->bmp.height<=wrapbmp->base)
 {
-printf("2. SCREEECH!\n");
-printf("wrapbmp = %d x %d, base=%d\n",wrapbmp->bmp.width,wrapbmp->bmp.height,wrapbmp->base);
+k2printf("2. SCREEECH!\n");
+k2printf("wrapbmp = %d x %d, base=%d\n",wrapbmp->bmp.width,wrapbmp->bmp.height,wrapbmp->base);
 exit(10);
 }
 #endif
@@ -317,7 +317,14 @@ void wrapbmp_flush(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
     WRAPBMP *wrapbmp;
 // char filename[256];
 
+#ifdef WILLUSDEBUG
+k2printf("@wrapbmp->flush()\n");
+#endif
     wrapbmp=&masterinfo->wrapbmp;
+#ifdef WILLUSDEBUG
+k2printf("    wrapbmp=%p\n",wrapbmp);
+k2printf("    wrapbmp->bmp.width=%d\n",wrapbmp->bmp.width);
+#endif
     if (wrapbmp->bmp.width<=0)
         {
         if (use_bgi==1 && wrapbmp->beginning_gap_internal > 0)
@@ -330,7 +337,7 @@ void wrapbmp_flush(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
         return;
         }
 #ifdef WILLUSDEBUG
-printf("@wrapbmp->flush()\n");
+k2printf("    Past width check\n");
 #endif
 /*
 {
@@ -362,7 +369,7 @@ bmp_write(wrapbmp,filename,stdout,100);
     region.bgcolor=wrapbmp->bgcolor;
     region.dpi=k2settings->src_dpi;
 #ifdef WILLUSDEBUG
-printf("Bitmap is %d x %d (baseline=%d)\n",wrapbmp->bmp.width,wrapbmp->bmp.height,wrapbmp->base);
+k2printf("Bitmap is %d x %d (baseline=%d)\n",wrapbmp->bmp.width,wrapbmp->bmp.height,wrapbmp->base);
 #endif
 
     /* Sanity check on row spacing -- don't let it be too large. */
@@ -387,13 +394,13 @@ printf("Bitmap is %d x %d (baseline=%d)\n",wrapbmp->bmp.width,wrapbmp->bmp.heigh
     if (dh>0)
 {
 #ifdef WILLUSDEBUG
-aprintf(ANSI_YELLOW "dh > 0 = %d" ANSI_NORMAL "\n",dh);
-printf("    wrapbmp->line_spacing=%d\n",wrapbmp->line_spacing);
-printf("    nomss = %d\n",nomss);
-printf("    vls = %g\n",k2settings->vertical_line_spacing);
-printf("    lrbi=%d\n",k2settings->last_rowbase_internal);
-printf("    wrapbmp->maxgap=%d\n",wrapbmp->maxgap);
-printf("    wrapbmp->rhmax=%d\n",wrapbmp->rhmax);
+k2printf(ANSI_YELLOW "dh > 0 = %d" ANSI_NORMAL "\n",dh);
+k2printf("    wrapbmp->line_spacing=%d\n",wrapbmp->line_spacing);
+k2printf("    nomss = %d\n",nomss);
+k2printf("    vls = %g\n",k2settings->vertical_line_spacing);
+k2printf("    lrbi=%d\n",k2settings->last_rowbase_internal);
+k2printf("    wrapbmp->maxgap=%d\n",wrapbmp->maxgap);
+k2printf("    wrapbmp->rhmax=%d\n",wrapbmp->rhmax);
 #endif
         region.r1 = dh;
 /*
@@ -431,7 +438,7 @@ exit(10);
             gap = 0;
         }
 #ifdef WILLUSDEBUG
-printf("wf:  gap=%d\n",gap);
+k2printf("wf:  gap=%d\n",gap);
 #endif
     if (gap>0)
         masterinfo_add_gap_src_pixels(masterinfo,k2settings,gap,"wrapbmp");
@@ -477,8 +484,8 @@ static void wrapbmp_hyphen_erase(WRAPBMP *wrapbmp,K2PDFOPT_SETTINGS *k2settings)
     if (wrapbmp->hyphen.ch<0)
         return;
 #if (WILLUSDEBUGX & 16)
-printf("@hyphen_erase, bmp=%d x %d x %d\n",wrapbmp->bmp.width,wrapbmp->bmp.height,wrapbmp->bmp.bpp);
-printf("    ch=%d, c2=%d, r1=%d, r2=%d\n",wrapbmp->hyphen.ch,wrapbmp->hyphen.c2,wrapbmp->hyphen.r1,wrapbmp->hyphen.r2);
+k2printf("@hyphen_erase, bmp=%d x %d x %d\n",wrapbmp->bmp.width,wrapbmp->bmp.height,wrapbmp->bmp.bpp);
+k2printf("    ch=%d, c2=%d, r1=%d, r2=%d\n",wrapbmp->hyphen.ch,wrapbmp->hyphen.c2,wrapbmp->hyphen.r1,wrapbmp->hyphen.r2);
 #endif
     bmp=&_bmp;
     bmp_init(bmp);

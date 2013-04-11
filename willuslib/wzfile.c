@@ -7,7 +7,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -398,6 +398,7 @@ void wzfile_date(char *filename,struct tm *date)
 /*
 ** If filename ends in compressed extension, opens as gzipped file.
 ** Otherwise as regular.
+** Can use "z" in mode to force compressed i/o.
 */
 WZFILE *wzopen(char *filename,char *mode)
 
@@ -409,29 +410,36 @@ WZFILE *wzopen(char *filename,char *mode)
     static char newname[MAXFILENAMELEN];
 #endif
     char mode2[16];
-    int i;
+    char modestd[16];
+    int i,j,compress;
 
-    strncpy(mode2,mode,14);
-    mode2[13]='\0';
+    compress=0;
+    for (i=j=0;i<15 && mode[i]!='\0';i++)
+        if (mode[i]!='z')
+            modestd[j++]=mode[i];
+        else
+            compress=1;
+    modestd[j]='\0';
+    strcpy(mode2,modestd);
     for (i=0;mode2[i]!='\0' && mode2[i]!='b';i++);
     if (mode2[i]!='b')
         strcat(mode2,"b");
 #ifdef HAVE_Z_LIB
-    if (wfile_is_gzfile(filename))
+    if (compress || wfile_is_gzfile(filename))
         {
         p=(void *)gzopen(filename,mode2);
         type=1;
         if (p==NULL)
             {
             wzfile_convert_to_uncompressed_name(newname,filename);
-            p=(void *)fopen(newname,mode);
+            p=(void *)fopen(newname,modestd);
             type=0;
             }
         }
     else
         {
 #endif
-        p=(void *)fopen(filename,mode);
+        p=(void *)fopen(filename,modestd);
         type=0;
 #ifdef HAVE_Z_LIB
         if (p==NULL)

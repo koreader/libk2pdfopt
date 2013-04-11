@@ -20,14 +20,35 @@
 
 #include "k2pdfopt.h"
 
-static DEVPROFILE devprof[5] =
+
+static DEVPROFILE devprof[7] =
     {
     {"Kindle 2","k2",560,735,167,0,1,{0,0,3,4}},
     {"Nook Simple Touch","nookst",552,725,167,0,1,{0,0,0,0}},
     {"Kindle DX","dx",800,1180,167,0,1,{0,0,0,0}},
     {"Kindle Paperwhite","kpw",758,1024,212,0,1,{0,0,3,4}},
+    {"Kobo Touch","kbt",600,730,167,0,1,{0,0,3,4}},
+    {"Kobo Glo","kbg",758,942,213,0,1,{0,0,3,4}},
     {"","",0,0,167,0,1,{0,0,0,0}}
     };
+
+
+int devprofiles_count(void)
+
+    {
+    int i;
+
+    for (i=0;devprof[i].name[0]!='\0';i++);
+    return(i);
+    }
+
+
+char *devprofile_alias(int index)
+
+    {
+    return(devprof[index].name);
+    }
+
 
 void devprofiles_echo(FILE *out)
 
@@ -76,10 +97,10 @@ char *devprofile_select(void)
         int i,n,x;
         static char *q="q";
 
-        aprintf("Select the device:\n");
+        k2printf("Select your e-reader type:\n");
         for (i=0;devprof[i].name[0]!='\0';i++)
-            aprintf("    %s%2d%s. %s (%s)\n",TTEXT_BOLD,i+1,TTEXT_NORMAL,devprof[i].name,devprof[i].alias);
-        aprintf("    %s%2d%s. Other (specify width, height, etc.)\n\n",TTEXT_BOLD,i+1,TTEXT_NORMAL);
+            k2printf("    %s%2d%s. %s (%s)\n",TTEXT_BOLD,i+1,TTEXT_NORMAL,devprof[i].name,devprof[i].alias);
+        k2printf("    %s%2d%s. Other (specify width, height, etc.)\n\n",TTEXT_BOLD,i+1,TTEXT_NORMAL);
         n=userinput_integer("Enter selection",1,&x,1,i+1);
         if (n<0)
             return(q);

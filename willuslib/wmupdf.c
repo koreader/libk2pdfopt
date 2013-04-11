@@ -38,6 +38,8 @@ static void dict_put_string(fz_context *ctx,pdf_obj *dict,char *key,char *string
 static void wmupdf_page_bbox(pdf_obj *srcpage,double *bbox_array);
 static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINFO *pageinfo,
                                   int use_forms,FILE *out);
+static void set_clip_array(double *xclip,double *yclip,double rot_deg,double width,double height);
+static void cat_pdf_double(char *buf,double x);
 static void wmupdf_convert_pages_to_forms(pdf_document *xref,fz_context *ctx,int *srcpageused);
 static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ctx,int pageno);
 static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,
@@ -73,8 +75,8 @@ int wmupdf_numpages(char *filename)
     if (!ctx)
         return(-1);
     fz_try(ctx) { doc=fz_open_document(ctx,filename); }
-    fz_catch(ctx) 
-        { 
+    fz_catch(ctx)
+        {
         fz_free_context(ctx);
         return(-2);
         }
@@ -174,8 +176,8 @@ static void wpdfbox_unrotate(WPDFBOX *box,double deg)
         t=box->src_height_pts;
         box->src_height_pts=box->src_width_pts;
         box->src_width_pts=t;
-        box->srcrot_deg -= 90.;
         }
+    box->srcrot_deg -= nrot*90.;
     }
 
 
@@ -548,8 +550,8 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
 
     {
     static char *funcname="wmupdf_pdfdoc_newpages";
-	pdf_obj *root,*oldroot,*pages,*kids,*countobj,*parent,*olddests;
-	pdf_obj *srcpageobj,*srcpagecontents;
+    pdf_obj *root,*oldroot,*pages,*kids,*countobj,*parent,*olddests;
+    pdf_obj *srcpageobj,*srcpagecontents;
     pdf_obj *destpageobj,*destpagecontents,*destpageresources;
     double srcx0,srcy0;
     int qref,i,i0,pagecount,srccount,destpageref,nbb;
@@ -557,8 +559,11 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
     char *bigbuf;
     double srcpagerot;
 
+    /* Avoid compiler warning */
+    destpageref = 0;
+    destpageobj = NULL;
     srcx0=srcy0=0.;
-	/* Keep only pages/type and (reduced) dest entries to avoid references to unretained pages */
+    /* Keep only pages/type and (reduced) dest entries to avoid references to unretained pages */
     pagecount = pdf_count_pages(xref);
     if (use_forms)
         {
@@ -570,29 +575,29 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
         willus_mem_alloc_warn((void **)&bigbuf,nbb,funcname,10);
         bigbuf[0]='\0';
         }
-	oldroot = pdf_dict_gets(xref->trailer,"Root");
+    oldroot = pdf_dict_gets(xref->trailer,"Root");
     /*
     ** pages points to /Pages object in PDF file.
     ** Has:  /Type /Pages, /Count <numpages>, /Kids [ obj obj obj obj ]
     */
-	pages = pdf_dict_gets(oldroot,"Pages");
-	olddests = pdf_load_name_tree(xref,"Dests");
+    pages = pdf_dict_gets(oldroot,"Pages");
+    olddests = pdf_load_name_tree(xref,"Dests");
 
     /*
     ** Create new root object with only /Pages and /Type (and reduced dest entries)
     ** to avoid references to unretained pages.
     */
-	root = pdf_new_dict(ctx,4);
-	pdf_dict_puts(root,"Type",pdf_dict_gets(oldroot,"Type"));
-	pdf_dict_puts(root,"Pages",pages);
-	pdf_update_object(xref,pdf_to_num(oldroot),root);
-  	pdf_drop_obj(root);
+    root = pdf_new_dict(ctx,4);
+    pdf_dict_puts(root,"Type",pdf_dict_gets(oldroot,"Type"));
+    pdf_dict_puts(root,"Pages",pages);
+    pdf_update_object(xref,pdf_to_num(oldroot),root);
+    pdf_drop_obj(root);
 
     /* Parent indirectly references the /Pages object in the file */
     /* (Each new page we create has to point to this.)            */
-	parent = pdf_new_indirect(ctx, pdf_to_num(pages), pdf_to_gen(pages), xref);
-	/* Create a new kids array with only the pages we want to keep */
-	kids = pdf_new_array(ctx, 1);
+    parent = pdf_new_indirect(ctx, pdf_to_num(pages), pdf_to_gen(pages), xref);
+    /* Create a new kids array with only the pages we want to keep */
+    kids = pdf_new_array(ctx, 1);
 
 
     qref=0;
@@ -611,14 +616,14 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
         pageinfo->boxes.n -= i;
         }
     /* Walk through PFDBOXES array */
-	for (i=srccount=i0=0;i<=pageinfo->boxes.n;i++)
-    	{
+    for (i=srccount=i0=0;i<=pageinfo->boxes.n;i++)
+        {
         WPDFBOX *box;
         int j,k,newsrc;
-        char buf[512];
+        static char buf[512];
         pdf_obj *s1indirect,*qindirect,*rotobj;
-        double cpm[3][3],m[3][3],m1[3][3];
-        double xclip[4],yclip[4];
+        static double cpm[3][3],m[3][3],m1[3][3];
+        static double xclip[4],yclip[4];
 
 /*
 printf("box[%d]\n",i);
@@ -634,7 +639,7 @@ printf("    scale=%g\n",box->scale);
 }
 */
         /* Check to see if we are done with an output page */
-        if (srccount>0 && (i==pageinfo->boxes.n 
+        if (srccount>0 && (i==pageinfo->boxes.n
                || (i>0 && pageinfo->boxes.box[i].dstpage!=pageinfo->boxes.box[i-1].dstpage)))
             {
             pdf_obj *newpageref;
@@ -657,11 +662,11 @@ printf("    ADDING NEW PAGE. (srccount=%d)\n",srccount);
                 }
             newpageref=pdf_new_indirect(ctx,destpageref,0,(void *)xref);
             /* Reference parent list of pages */
-        	pdf_dict_puts(destpageobj,"Parent",parent);
+            pdf_dict_puts(destpageobj,"Parent",parent);
             pdf_dict_puts(destpageobj,"Contents",destpagecontents);
             pdf_dict_puts(destpageobj,"Resources",destpageresources);
-    		/* Store page object in document's kids array */
-    		pdf_array_push(kids,newpageref);
+            /* Store page object in document's kids array */
+            pdf_array_push(kids,newpageref);
             /* Update document with new page */
             pdf_update_object(xref,destpageref,destpageobj);
             /* Clean up */
@@ -681,13 +686,17 @@ printf("    ADDING NEW PAGE. (srccount=%d)\n",srccount);
             continue;
         /* Is this a source page we haven't processed yet (for this destination page)? */
         for (newsrc=1,j=i0;j<i;j++)
+            {
             if (pageinfo->boxes.box[j].srcbox.pageno==box->srcbox.pageno)
                 {
                 newsrc=0;
                 break;
                 }
+            }
         if (newsrc)
             {
+            double v[4];
+
             srccount++;
             if (use_forms)
                 srcpageused[box->srcbox.pageno]=1;
@@ -722,13 +731,10 @@ printf("        (STARTING NEW DEST. PAGE)\n");
                     bigbuf[0]='\0';
                 }
             /* New source page, so get the source page objects */
-    		srcpageobj = xref->page_objs[box->srcbox.pageno-1];
-            {
-            double v[4];
+            srcpageobj = xref->page_objs[box->srcbox.pageno-1];
             wmupdf_page_bbox(srcpageobj,v);
             srcx0=v[0];
             srcy0=v[1];
-            }
 /*
 printf("SRCX0=%g, SRCY0=%g\n",srcx0,srcy0);
 */
@@ -762,8 +768,8 @@ pdf_resolve_indirect(obj);
 
                 xobjdict=pdf_dict_gets(destpageresources,"XObject");
                 pageno=box->srcbox.pageno;
-	            pdf_dict_puts(xobjdict,xobject_name(pageno),xref->page_refs[pageno-1]);
-	            pdf_dict_puts(destpageresources,"XObject",xobjdict);
+                pdf_dict_puts(xobjdict,xobject_name(pageno),xref->page_refs[pageno-1]);
+                pdf_dict_puts(destpageresources,"XObject",xobjdict);
                 }
             else
                 {
@@ -787,18 +793,18 @@ printf("box->dstpage=%d, srcpage=%d (ind.#=%d)\n",box->dstpage,box->srcbox.pagen
         ** How the tranformation matrix works:
         ** - Translations shall be specified as [ 1 0 0 1 tx ty ], where tx and ty
         **   shall be the distances to translate the origin of the coordinate system
-        **   in the horizontal and vertical dimensions, respectively. 
+        **   in the horizontal and vertical dimensions, respectively.
         **
         ** - Scaling shall be obtained by [ sx 0 0 sy 0 0 ]. This scales the coordinates
         **   so that 1 unit in the horizontal and vertical dimensions of the new coordinate
         **   system is the same size as sx and sy units, respectively, in the previous
-        **   coordinate system. 
+        **   coordinate system.
         **
         ** - Rotations shall be produced by [ cos q sin q -sin q cos q 0 0 ], which has the
-        **   effect of rotating the coordinate system axes by an angle q counter-clockwise. 
+        **   effect of rotating the coordinate system axes by an angle q counter-clockwise.
         **
         ** - Skew shall be specified by [ 1 tan a tan b 1 0 0 ], which skews the x axis by
-        **   an angle a and the y axis by an angle b. 
+        **   an angle a and the y axis by an angle b.
         **
         */
         wpdfbox_determine_original_source_position(box);
@@ -809,7 +815,7 @@ printf("box->x0=%g, box->y0=%g\n",box->x0,box->y0);
 printf("box->w=%g, box->h=%g\n",box->w,box->h);
 printf("box->pw=%g, box->ph=%g\n",box->src_width_pts,box->src_height_pts);
 */
-        if (fabs(srcpagerot)>1e-4)
+        if (fabs(srcpagerot) > 1.0e-4)
             wpdfbox_unrotate(box,srcpagerot);
 /*
 printf("box->srcrot=%g\n",box->srcrot_deg);
@@ -847,33 +853,9 @@ printf("xfmatrix = [  %9.6f   %9.6f   %9.6f  ]\n"
         cpm[1][0],cpm[1][1],cpm[1][2],
         cpm[2][0],cpm[2][1],cpm[2][2]);
 */
-        {
-        double w,h;
-        double drot;
-        int nrot;
-        drot=fmod(box->srcrot_deg,360.);
-        if (drot < 0.)
-            drot += 360.;
-        nrot=(int)((drot+45.)/90.);
-        if (nrot&1)
-            {
-            w=box->h;
-            h=box->w;
-            }
-        else
-            {
-            w=box->w;
-            h=box->h;
-            }
-        xclip[0]=0.;
-        yclip[0]=0.;
-        xclip[1]=w;
-        yclip[1]=0.;
-        xclip[2]=w;
-        yclip[2]=h;
-        xclip[3]=0.;
-        yclip[3]=h;
-        }
+
+
+        set_clip_array(xclip,yclip,box->srcrot_deg,box->w,box->h);
         for (k=0;k<4;k++)
             matrix_xymul(cpm,&xclip[k],&yclip[k]);
 /*
@@ -882,10 +864,20 @@ printf("Clip path:\n    %7.2f %7.2f\n    %7.2f,%7.2f\n    %7.2f,%7.2f\n"
                 xclip[0],yclip[0],xclip[1],yclip[1],xclip[2],yclip[2],
                 xclip[3],yclip[3],xclip[0],yclip[0]);
 */
-        sprintf(buf,"q %.5g %.5g %.5g %.5g %.5g %.5g cm %.5g %.5g m %.5g %.5g l %.5g %.5g l %.5g %.5g l %.5g %.5g l W n",
-                 m[0][0],m[0][1],m[1][0],m[1][1],m[2][0],m[2][1],
-                 xclip[0],yclip[0],xclip[1],yclip[1],xclip[2],yclip[2],xclip[3],yclip[3],
-                 xclip[0],yclip[0]);
+        strcpy(buf,"q");
+        for (k=0;k<=2;k++)
+            {
+            cat_pdf_double(buf,m[k][0]);
+            cat_pdf_double(buf,m[k][1]);
+            }
+        strcat(buf," cm");
+        for (k=0;k<=4;k++)
+            {
+            cat_pdf_double(buf,xclip[k&3]);
+            cat_pdf_double(buf,yclip[k&3]);
+            strcat(buf,k==0 ? " m" : " l");
+            }
+        strcat(buf," W n");
         if (use_forms)
             {
             /* FORM METHOD */
@@ -922,19 +914,19 @@ printf("Clip path:\n    %7.2f %7.2f\n    %7.2f,%7.2f\n    %7.2f,%7.2f\n"
             pdf_drop_obj(s1indirect);
             pdf_drop_obj(qindirect);
             }
-		}
-	pdf_drop_obj(parent);
+        }
+    pdf_drop_obj(parent);
 
     /* For forms, convert all original source pages to XObject Forms */
     if (use_forms)
         wmupdf_convert_pages_to_forms(xref,ctx,srcpageused);
 
-	/* Update page count and kids array */
-	countobj = pdf_new_int(ctx, pdf_array_len(kids));
-	pdf_dict_puts(pages, "Count", countobj);
-	pdf_drop_obj(countobj);
-	pdf_dict_puts(pages, "Kids", kids);
-	pdf_drop_obj(kids);
+    /* Update page count and kids array */
+    countobj = pdf_new_int(ctx, pdf_array_len(kids));
+    pdf_dict_puts(pages, "Count", countobj);
+    pdf_drop_obj(countobj);
+    pdf_dict_puts(pages, "Kids", kids);
+    pdf_drop_obj(kids);
 
     /* Also preserve the (partial) Dests name tree */
     if (olddests)
@@ -946,6 +938,73 @@ printf("Clip path:\n    %7.2f %7.2f\n    %7.2f,%7.2f\n    %7.2f,%7.2f\n"
         willus_mem_free((double **)&srcpageused,funcname);
         }
     return(0);
+    }
+
+
+static void set_clip_array(double *xclip,double *yclip,double rot_deg,double width,double height)
+
+    {
+    double w,h;
+    double drot;
+    int nrot;
+
+    drot=fmod(rot_deg,360.);
+    if (drot < 0.)
+        drot += 360.;
+    nrot=(int)((drot+45.)/90.);
+    if (nrot&1)
+        {
+        w=height;
+        h=width;
+        }
+    else
+        {
+        w=width;
+        h=height;
+        }
+    xclip[0]=0.;
+    yclip[0]=0.;
+    xclip[1]=w;
+    yclip[1]=0.;
+    xclip[2]=w;
+    yclip[2]=h;
+    xclip[3]=0.;
+    yclip[3]=h;
+    }
+
+/*
+** Try to print the shortest possible version of the number, but don't use
+** scientific notation (not allowed in PDF).
+*/
+static void cat_pdf_double(char *buf,double x)
+
+    {
+    char fmt[8];
+    int j,ix,neg;
+    double m;
+
+    if (x<0)
+        {
+        neg=1;
+        x = -x;
+        }
+    else
+        neg=0;
+    if (x > 999999.)
+        x = 999999.;
+    for (j=0,m=1.;j<5;j++,m*=10.)
+        {
+        ix=(int)(m*x+.5);
+        if (fabs(x-ix/m) < 1e-6)
+            break;
+        }
+    if (j==0)
+        {
+        sprintf(&buf[strlen(buf)]," %d",neg && ix>0 ? -ix : ix);
+        return;
+        }
+    sprintf(fmt," %%.%df",j);
+    sprintf(&buf[strlen(buf)],fmt,neg ? -x : x);
     }
 
 
@@ -1026,12 +1085,12 @@ printf("key[%d] = ??\n",i);
         i=-1;
         len=pdf_dict_len(srcpageobj);
         }
-	pdf_dict_puts(srcpageobj,"Type",fz_new_name(ctx,"XObject"));
-	pdf_dict_puts(srcpageobj,"Subtype",fz_new_name(ctx,"Form"));
-	pdf_dict_puts(srcpageobj,"FormType",pdf_new_int(ctx,1));
+    pdf_dict_puts(srcpageobj,"Type",pdf_new_name(ctx,"XObject"));
+    pdf_dict_puts(srcpageobj,"Subtype",pdf_new_name(ctx,"Form"));
+    pdf_dict_puts(srcpageobj,"FormType",pdf_new_int(ctx,1));
     if (compressed)
-        pdf_dict_puts(srcpageobj,"Filter",fz_new_name(ctx,"FlateDecode"));
- 	pdf_dict_puts(srcpageobj,"Length",pdf_new_int(ctx,streamlen));
+        pdf_dict_puts(srcpageobj,"Filter",pdf_new_name(ctx,"FlateDecode"));
+    pdf_dict_puts(srcpageobj,"Length",pdf_new_int(ctx,streamlen));
     array=pdf_new_array(ctx,4);
     for (i=0;i<4;i++)
         pdf_array_push(array,pdf_new_real(ctx,bbox_array[i]));
@@ -1092,8 +1151,8 @@ printf("    After drop, xref->table[%d].stm_buf=%p, refs=%d\n",pageref,xref->tab
     return(0);
 #endif
     }
-    
-    
+
+
 static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,
                                  pdf_obj *srcdict)
 
@@ -1155,7 +1214,7 @@ static pdf_obj *start_new_destpage(fz_context *ctx,double width_pts,double heigh
     pdf_obj *mbox;
 
     pageobj=pdf_new_dict(ctx,2);
-	pdf_dict_puts(pageobj,"Type",fz_new_name(ctx,"Page"));
+    pdf_dict_puts(pageobj,"Type",pdf_new_name(ctx,"Page"));
     mbox=pdf_new_array(ctx,4);
     pdf_array_push(mbox,pdf_new_real(ctx,0.));
     pdf_array_push(mbox,pdf_new_real(ctx,0.));
@@ -1297,7 +1356,7 @@ static void wmupdf_dict_merge_keyval(fz_context *ctx,pdf_obj *dstdict,pdf_obj *k
         }
     /* Last resort:  overwrite with new value */
     pdf_dict_put(dstdict,key,value);
-   
+
     /* This does NOT work--you can't just convert the value into an array of values */
     /* PDF will become non-conformant. */
     /*

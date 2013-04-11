@@ -21,14 +21,14 @@
 
 #include "k2pdfopt.h"
 
-static void   k2pdfopt_proc_arg(K2PDFOPT_SETTINGS *k2settings,char *arg);
+static void   k2pdfopt_proc_arg(K2PDFOPT_SETTINGS *k2settings,char *arg,int process,int *filecount);
 static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,double rot_deg);
 static int    filename_comp(char *name1,char *name2);
 static void   filename_substitute(char *dst,char *fmt,char *src,int count,char *defext0);
 static int    overwrite_fail(char *outname,double overwrite_minsize_mb);
 
 
-void k2pdfopt_proc_wildarg(K2PDFOPT_SETTINGS *k2settings,char *arg)
+void k2pdfopt_proc_wildarg(K2PDFOPT_SETTINGS *k2settings,char *arg,int process,int *filecount)
 
     {
     int i;
@@ -42,22 +42,22 @@ void k2pdfopt_proc_wildarg(K2PDFOPT_SETTINGS *k2settings,char *arg)
         filelist_fill_from_disk_1(fl,arg,0,0);
         if (fl->n==0)
             {
-            aprintf(TTEXT_WARN "\n** File or folder %s could not be opened.\n\n" TTEXT_NORMAL,arg);
+            k2printf(TTEXT_WARN "\n** File or folder %s could not be opened. **\n\n" TTEXT_NORMAL,arg);
             return;
             }
         for (i=0;i<fl->n;i++)
             {
             char fullname[512];
             wfile_fullname(fullname,fl->dir,fl->entry[i].name);
-            k2pdfopt_proc_arg(k2settings,fullname);
+            k2pdfopt_proc_arg(k2settings,fullname,process,filecount);
             }
         }
     else
-        k2pdfopt_proc_arg(k2settings,arg);
+        k2pdfopt_proc_arg(k2settings,arg,process,filecount);
     }
 
 
-static void k2pdfopt_proc_arg(K2PDFOPT_SETTINGS *k2settings,char *arg)
+static void k2pdfopt_proc_arg(K2PDFOPT_SETTINGS *k2settings,char *arg,int process,int *filecount)
 
     {
     char filename[256];
@@ -67,55 +67,56 @@ static void k2pdfopt_proc_arg(K2PDFOPT_SETTINGS *k2settings,char *arg)
     strcpy(filename,arg);
     if (wfile_status(filename)==0)
         {
-        aprintf(TTEXT_WARN "\n** File or folder %s could not be opened.\n\n" TTEXT_NORMAL,filename);
+        k2printf(TTEXT_WARN "\n** File or folder %s could not be opened. **\n\n" TTEXT_NORMAL,filename);
         return;
         }
     /* If folder, first process all PDF/DJVU/PS files in the folder */
     if (wfile_status(filename)==2)
         {
-        // static char *iolist[]={"*.png","*.jpg",""};
         static char *eolist[]={""};
         static char *pdflist[]={"*.pdf","*.djvu","*.djv","*.ps","*.eps",""};
         FILELIST *fl,_fl;
 
         fl=&_fl;
         filelist_init(fl);
-        /*
-        filelist_fill_from_disk(fl,filename,iolist,eolist,0,0);
-        if (fl->n==0)
+        filelist_fill_from_disk(fl,filename,pdflist,eolist,0,0);
+        if (fl->n>0)
             {
-        */
-            filelist_fill_from_disk(fl,filename,pdflist,eolist,0,0);
-            if (fl->n>0)
+            for (i=0;i<fl->n;i++)
                 {
-                for (i=0;i<fl->n;i++)
-                    {
-                    char fullname[512];
+                char fullname[512];
 
-                    wfile_fullname(fullname,filename,fl->entry[i].name);
-                    if (fabs(k2settings->src_rot-SRCROT_AUTO)<.5 || fabs(k2settings->src_rot-SRCROT_AUTOEP)<.5)
+                wfile_fullname(fullname,filename,fl->entry[i].name);
+                if (fabs(k2settings->src_rot-SRCROT_AUTO)<.5 || fabs(k2settings->src_rot-SRCROT_AUTOEP)<.5)
+                    {
+                    if (process)
                         rot=k2pdfopt_proc_one(k2settings,fullname,SRCROT_AUTO);
                     else
-                        rot=k2settings->src_rot;
-                    k2pdfopt_proc_one(k2settings,fullname,rot);
+                        rot=0.;
                     }
+                else
+                    rot=k2settings->src_rot;
+                if (process)
+                    k2pdfopt_proc_one(k2settings,fullname,rot);
+                if (filecount!=NULL)
+                    (*filecount)=(*filecount)+1;
                 }
-        /*
-            else
-                aprintf(TTEXT_WARN "\n** No files in folder %s.\n\n" TTEXT_NORMAL,filename);
-        */
-            filelist_free(fl);
-        /*
-            return;
             }
         filelist_free(fl);
-        */
         }
     if (fabs(k2settings->src_rot-SRCROT_AUTO)<.5 || fabs(k2settings->src_rot-SRCROT_AUTOEP)<.5)
-        rot=k2pdfopt_proc_one(k2settings,filename,SRCROT_AUTO);
+        {
+        if (process)
+            rot=k2pdfopt_proc_one(k2settings,filename,SRCROT_AUTO);
+        else
+            rot=0.;
+        }
     else
         rot=k2settings->src_rot;
-    k2pdfopt_proc_one(k2settings,filename,rot);
+    if (process)
+        k2pdfopt_proc_one(k2settings,filename,rot);
+    if (filecount!=NULL)
+        (*filecount)=(*filecount)+1;
     }
 
 
@@ -125,9 +126,10 @@ static void k2pdfopt_proc_arg(K2PDFOPT_SETTINGS *k2settings,char *arg)
 **
 ** Otherwise, the source file is processed.
 */
-static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,double rot_deg)
+static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings0,char *filename,double rot_deg)
 
     {
+    static K2PDFOPT_SETTINGS _k2settings,*k2settings;
     static MASTERINFO _masterinfo,*masterinfo;
     static PDFFILE _mpdf,*mpdf;
     char dstfile[256];
@@ -149,9 +151,11 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
     static char *mupdferr_trygs=TTEXT_WARN "\a\n ** ERROR reading from " TTEXT_BOLD2 "%s" TTEXT_WARN "using MuPDF.  Trying Ghostscript...\n\n" TTEXT_NORMAL;
 #endif
 
+    k2settings=&_k2settings;
+    k2pdfopt_settings_copy(k2settings,k2settings0);
     mpdf=&_mpdf;
-    masterinfo=&_masterinfo;
-    masterinfo_init(masterinfo,k2settings);
+    /* Must be called once per conversion to init margins / devsize / output size */
+    k2pdfopt_settings_sanity_check(k2settings);
     k2pdfopt_settings_new_source_document_init(k2settings);
     errcnt=0;
     pixwarn=0;
@@ -170,12 +174,12 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
     folder=(wfile_status(filename)==2);
     /*
     if (folder && !second_time_through)
-        aprintf("Processing " TTEXT_INPUT "BITMAP FOLDER %s" TTEXT_NORMAL "...\n",
+        k2printf("Processing " TTEXT_INPUT "BITMAP FOLDER %s" TTEXT_NORMAL "...\n",
                filename);
     */
     /*
     else
-        aprintf("Processing " TTEXT_BOLD2 "PDF FILE %s" TTEXT_NORMAL "...\n",
+        k2printf("Processing " TTEXT_BOLD2 "PDF FILE %s" TTEXT_NORMAL "...\n",
                filename);
     */
     fl=&_fl;
@@ -188,19 +192,18 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
 
         wfile_basespec(basename,filename);
         if (!second_time_through)
-            aprintf("Searching folder " TTEXT_BOLD2 "%s" TTEXT_NORMAL " ... ",basename);
+            k2printf("Searching folder " TTEXT_BOLD2 "%s" TTEXT_NORMAL " ... ",basename);
         fflush(stdout);
         filelist_fill_from_disk(fl,filename,iolist,eolist,0,0);
         if (fl->n<=0)
             {
             if (!second_time_through)
-                aprintf(TTEXT_WARN "\n** No bitmaps found in folder %s.\n\n" 
+                k2printf(TTEXT_WARN "\n** No bitmaps found in folder %s.\n\n" 
                         TTEXT_NORMAL,filename);
-            masterinfo_free(masterinfo,k2settings);
             return(0.);
             }
         if (!second_time_through)
-            printf("%d bitmaps found in %s.\n",(int)fl->n,filename);
+            k2printf("%d bitmaps found in %s.\n",(int)fl->n,filename);
         filelist_sort_by_name(fl);
         }
     src=&_src;
@@ -209,60 +212,10 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
     bmp_init(src);
     bmp_init(srcgrey);
     bmp_init(marked);
-    /*
-    masterinfo->bmp.width=dst_width;
-    area_ratio = 8.5*11.0*dst_dpi*dst_dpi / (dst_width*dst_height);
-    masterinfo->bmp.height=dst_height*area_ratio*1.5;
-    if (!or_detect)
-        {
-        bmp_alloc(&masterinfo->bmp);
-        bmp_fill(&masterinfo->bmp,255,255,255);
-        }
-    masterinfo->rows=0;
-    */
     pw=0;
-    if (!or_detect)
-        {
-        static int dstfilecount=0;
-
-        wfile_newext(dstfile,filename,"");
-        dstfilecount++;
-        filename_substitute(dstfile,k2settings->dst_opname_format,filename,dstfilecount,"pdf");
-        if (!filename_comp(dstfile,filename))
-            {
-            aprintf(TTEXT_WARN "\n\aSource file and ouput file have the same name!" TTEXT_NORMAL "\n\n");
-            printf("    Source file = '%s'\n",filename);
-            printf("    Output file = '%s'\n",dstfile);
-            printf("    Output file name format string = '%s'\n",k2settings->dst_opname_format);
-            printf("\nOperation aborted.\n");
-            k2sys_exit(k2settings,50);
-            }
-        if ((status=overwrite_fail(dstfile,k2settings->overwrite_minsize_mb))!=0)
-            {
-            masterinfo_free(masterinfo,k2settings);
-            if (folder)
-                filelist_free(fl);
-            if (status<0)
-                k2sys_exit(k2settings,20);
-            return(0.);
-            }
-        if (pdffile_init(&masterinfo->outfile,dstfile,1)==NULL)
-            {
-            aprintf(TTEXT_WARN "\n\aCannot open PDF file %s for output!" TTEXT_NORMAL "\n\n",dstfile);
-            k2sys_exit(k2settings,30);
-            }
-        if (k2settings->use_crop_boxes)
-            pdffile_close(&masterinfo->outfile);
-        if (k2settings->show_marked_source)
-            {
-            filename_substitute(markedfile,"%s_marked",filename,0,"pdf");
-            if (pdffile_init(mpdf,markedfile,1)==NULL)
-                {
-                aprintf(TTEXT_WARN "\n\aCannot open PDF file %s for marked output!" TTEXT_NORMAL "\n\n",markedfile);
-                k2sys_exit(k2settings,40);
-                }
-            }
-        }
+    /*
+    ** Determine source type
+    */
     if (folder)
         src_type = SRC_TYPE_BITMAPFOLDER;
     else if (!stricmp(wfile_ext(filename),"pdf"))
@@ -277,19 +230,73 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
         src_type = SRC_TYPE_PS;
     else
         src_type = SRC_TYPE_OTHER;
-    if (src_type==SRC_TYPE_PS)
-        k2settings->usegs=1;
 #ifndef HAVE_DJVU_LIB
     if (src_type==SRC_TYPE_DJVU)
         {
         if (!or_detect)
-            aprintf(TTEXT_WARN
+            k2printf(TTEXT_WARN
                     "\a\n\n** DjVuLibre not compiled into this version of k2pdfopt. **\n\n"
                           "** Cannot process file %s. **\n\n" TTEXT_NORMAL,filename);
-        masterinfo_free(masterinfo,k2settings);
         return(0.);
         }
 #endif
+    if (src_type==SRC_TYPE_PS)
+        k2settings->usegs=1;
+    /*
+    ** Turn off native PDF output if source is not PDF
+    */
+    if (src_type!=SRC_TYPE_PDF)
+        {
+        if (k2settings->use_crop_boxes && !or_detect)
+            k2printf(TTEXT_WARN
+                     "\n** Native PDF output mode turned off on file %s. **\n"
+                     "** (It is not a PDF file.) **\n\n",filename);
+        k2settings->use_crop_boxes=0;
+        }
+    masterinfo=&_masterinfo;
+    masterinfo_init(masterinfo,k2settings);
+    if (!or_detect)
+        {
+        static int dstfilecount=0;
+
+        wfile_newext(dstfile,filename,"");
+        dstfilecount++;
+        filename_substitute(dstfile,k2settings->dst_opname_format,filename,dstfilecount,"pdf");
+        if (!filename_comp(dstfile,filename))
+            {
+            k2printf(TTEXT_WARN "\n\aSource file and ouput file have the same name!" TTEXT_NORMAL "\n\n");
+            k2printf("    Source file = '%s'\n",filename);
+            k2printf("    Output file = '%s'\n",dstfile);
+            k2printf("    Output file name format string = '%s'\n",k2settings->dst_opname_format);
+            k2printf("\nOperation aborted.\n");
+            k2sys_exit(k2settings,50);
+            }
+        if ((status=overwrite_fail(dstfile,k2settings->overwrite_minsize_mb))!=0)
+            {
+            masterinfo_free(masterinfo,k2settings);
+            if (folder)
+                filelist_free(fl);
+            if (status<0)
+                k2sys_exit(k2settings,20);
+            return(0.);
+            }
+        if (pdffile_init(&masterinfo->outfile,dstfile,1)==NULL)
+            {
+            k2printf(TTEXT_WARN "\n\aCannot open PDF file %s for output!" TTEXT_NORMAL "\n\n",dstfile);
+            k2sys_exit(k2settings,30);
+            }
+        if (k2settings->use_crop_boxes)
+            pdffile_close(&masterinfo->outfile);
+        if (k2settings->show_marked_source)
+            {
+            filename_substitute(markedfile,"%s_marked",filename,0,"pdf");
+            if (pdffile_init(mpdf,markedfile,1)==NULL)
+                {
+                k2printf(TTEXT_WARN "\n\aCannot open PDF file %s for marked output!" TTEXT_NORMAL "\n\n",markedfile);
+                k2sys_exit(k2settings,40);
+                }
+            }
+        }
     if (src_type==SRC_TYPE_PDF || src_type==SRC_TYPE_DJVU)
         {
         wsys_set_decimal_period(1);
@@ -321,7 +328,7 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
 #ifdef HAVE_MUPDF_LIB
         if (np==-1 && (k2settings->usegs<=0) && src_type==SRC_TYPE_PDF)
             {
-            aprintf(mupdferr_trygs,filename);
+            k2printf(mupdferr_trygs,filename);
             if (k2settings->usegs==0)
                 k2settings->usegs=1;
             }
@@ -348,7 +355,7 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
     if (np>0 && pagecount==0)
         {
         if (!second_time_through)
-            aprintf("\a\n" TTEXT_WARN "No %ss to convert (-p %s)!" TTEXT_NORMAL "\n\n",
+            k2printf("\a\n" TTEXT_WARN "No %ss to convert (-p %s)!" TTEXT_NORMAL "\n\n",
                      folder?"file":"page",k2settings->pagelist);
         masterinfo_free(masterinfo,k2settings);
         if (folder)
@@ -357,20 +364,20 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
         }
     if (!second_time_through)
         {
-        aprintf("Reading ");
+        k2printf("Reading ");
         if (pagecount>0)
            {
            if (pagecount<np)
-               aprintf("%d out of %d %s%s",pagecount,np,folder?"file":"page",np>1?"s":"");
+               k2printf("%d out of %d %s%s",pagecount,np,folder?"file":"page",np>1?"s":"");
            else
-               aprintf("%d %s%s",np,folder?"file":"page",np>1?"s":"");
+               k2printf("%d %s%s",np,folder?"file":"page",np>1?"s":"");
            }
         else
-           aprintf("%ss",folder?"file":"page");
-        aprintf(" from " TTEXT_BOLD2 "%s" TTEXT_NORMAL " ...\n",filename);
+           k2printf("%ss",folder?"file":"page");
+        k2printf(" from " TTEXT_BOLD2 "%s" TTEXT_NORMAL " ...\n",filename);
         }
     if (or_detect)
-        aprintf("\nDetecting document orientation ... ");
+        k2printf("\nDetecting document orientation ... ");
     bormean=1.0;
     for (i=0;1;i+=pagestep)
         {
@@ -393,7 +400,7 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
             if (status<0)
                 {
                 if (!second_time_through)
-                    aprintf(TTEXT_WARN "\n\aCould not read file %s.\n" TTEXT_NORMAL,bmpfile);
+                    k2printf(TTEXT_WARN "\n\aCould not read file %s.\n" TTEXT_NORMAL,bmpfile);
                 continue;
                 }
             }
@@ -416,9 +423,9 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
                 errcnt++;
                 if (errcnt<=10)
                     {
-                    aprintf(readerr,pageno,filename);
+                    k2printf(readerr,pageno,filename);
                     if (errcnt==10)
-                        aprintf(readlimit,filename);
+                        k2printf(readlimit,filename);
                     }
                 /* Error reading PS probably means we've run out of pages. */
                 if (src_type==SRC_TYPE_PS)
@@ -433,7 +440,7 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
                 int ww,hh;
                 ww=(int)((double)(dpi/10.)*src->width+.5);
                 hh=(int)((double)(dpi/10.)*src->height+.5);
-                aprintf("\a\n" TTEXT_WARN "\n\a ** Source resolution is very high (%d x %d pixels)!\n"
+                k2printf("\a\n" TTEXT_WARN "\n\a ** Source resolution is very high (%d x %d pixels)!\n"
                         "    You may want to reduce the -odpi or -idpi setting!\n"
                         "    k2pdfopt may crash when reading the source file..."
                         TTEXT_NORMAL "\n\n",ww,hh);
@@ -454,7 +461,7 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
                 errcnt++;
                 if (errcnt<=10)
                     {
-                    aprintf(readerr,pageno,filename);
+                    k2printf(readerr,pageno,filename);
                     if (errcnt==10)
                         aprintf(readlimit,filename);
                     }
@@ -473,15 +480,15 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
             continue;
             }
 
-        aprintf("\n" TTEXT_HEADER "SOURCE PAGE %d",pageno);
+        k2printf("\n" TTEXT_HEADER "SOURCE PAGE %d",pageno);
         if (pagecount>0)
             {
             if (k2settings->pagelist[0]!='\0')
-                aprintf(" (%d of %d)",pages_done+1,pagecount);
+                k2printf(" (%d of %d)",pages_done+1,pagecount);
             else
-                aprintf(" of %d",pagecount);
+                k2printf(" of %d",pagecount);
             }
-        aprintf(TTEXT_NORMAL 
+        k2printf(TTEXT_NORMAL 
                 " (%.1f x %.1f in) ... %s",(double)srcgrey->width/k2settings->src_dpi,
                   (double)srcgrey->height/k2settings->src_dpi,rotstr);
         fflush(stdout);
@@ -490,13 +497,13 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
         if (pages_done>0 && k2settings->dst_break_pages<-1)
             masterinfo_add_gap(masterinfo,k2settings,(-1-k2settings->dst_break_pages)/1000.);
         /* Parse the source bitmap for viewable regions */
-        bmpregion_source_page_add(&region,k2settings,masterinfo,1,
-                                  pages_done==0. ? 0. : (int)(0.25*k2settings->src_dpi+.5));
+        bmpregion_source_page_add(&region,k2settings,masterinfo,1,pages_done,
+                                      (int)(0.25*k2settings->src_dpi+.5));
         pages_done++;
         if (k2settings->verbose)
             {
-            printf("    master->rows=%d\n",masterinfo->rows);
-            printf("Publishing...\n");
+            k2printf("    master->rows=%d\n",masterinfo->rows);
+            k2printf("Publishing...\n");
             }
         /* Reset the display order for this source page */
         if (k2settings->show_marked_source)
@@ -505,7 +512,7 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
             masterinfo_publish(masterinfo,k2settings,k2settings->dst_break_pages>0 ? 1 : 0);
         if (k2settings->show_marked_source)
             publish_marked_page(mpdf,k2settings->dst_color ? marked : src,k2settings->src_dpi);
-        printf("%d new pages saved.\n",masterinfo->published_pages-pw);
+        k2printf("%d new pages saved.\n",masterinfo->published_pages-pw);
         pw=masterinfo->published_pages;
         }
     bmp_free(marked);
@@ -528,14 +535,14 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,dou
                 thresh=5.;
             if (bormean < 1./thresh)
                 {
-                printf("Rotating clockwise.\n");
+                k2printf("Rotating clockwise.\n");
                 masterinfo_free(masterinfo,k2settings);
                 if (folder)
                     filelist_free(fl);
                 return(270.);
                 }
             }
-        printf("No rotation necessary.\n");
+        k2printf("No rotation necessary.\n");
         masterinfo_free(masterinfo,k2settings);
         if (folder)
             filelist_free(fl);
@@ -573,12 +580,12 @@ for (i=0;i<masterinfo->pageinfo.boxes.n;i++)
 {
 WPDFBOX *box;
 box=&masterinfo->pageinfo.boxes.box[i];
-printf("Box %d:\n",i);
-printf("    srcpage=%2d, dstpage=%2d\n",box->srcbox.pageno,box->dstpage);
-printf("    x0=%5.1f, y0=%5.1f\n",box->x0,box->y0);
-printf("    w =%5.1f, h =%5.1f\n",box->w,box->h);
-printf("    x1=%5.1f, y1=%5.1f\n",box->x1,box->y1);
-printf("    sr=%5.1f, dr=%5.1f\n\n",box->srcrot_deg,box->dstrot_deg);
+k2printf("Box %d:\n",i);
+k2printf("    srcpage=%2d, dstpage=%2d\n",box->srcbox.pageno,box->dstpage);
+k2printf("    x0=%5.1f, y0=%5.1f\n",box->x0,box->y0);
+k2printf("    w =%5.1f, h =%5.1f\n",box->w,box->h);
+k2printf("    x1=%5.1f, y1=%5.1f\n",box->x1,box->y1);
+k2printf("    sr=%5.1f, dr=%5.1f\n\n",box->srcrot_deg,box->dstrot_deg);
 }
 #endif
 #ifdef HAVE_MUPDF_LIB
@@ -592,23 +599,23 @@ printf("    sr=%5.1f, dr=%5.1f\n\n",box->srcrot_deg,box->dstrot_deg);
         }
     } // cdate, author, title selection
     if (k2settings->debug || k2settings->verbose)
-        printf("Cleaning up ...\n\n");
+        k2printf("Cleaning up ...\n\n");
     /*
     if (folder)
-        aprintf("Processing on " TTEXT_INPUT "folder %s" TTEXT_NORMAL " complete.  Total %d pages.\n\n",filename,masterinfo->published_pages);
+        k2printf("Processing on " TTEXT_INPUT "folder %s" TTEXT_NORMAL " complete.  Total %d pages.\n\n",filename,masterinfo->published_pages);
     else
-        aprintf("Processing on " TTEXT_BOLD2 "file %s" TTEXT_NORMAL " complete.  Total %d pages.\n\n",filename,masterinfo->published_pages);
+        k2printf("Processing on " TTEXT_BOLD2 "file %s" TTEXT_NORMAL " complete.  Total %d pages.\n\n",filename,masterinfo->published_pages);
     */
     size=wfile_size(dstfile);
-    aprintf("\n" TTEXT_BOLD "%d pages" TTEXT_NORMAL,masterinfo->published_pages);
+    k2printf("\n" TTEXT_BOLD "%d pages" TTEXT_NORMAL,masterinfo->published_pages);
     if (masterinfo->wordcount>0)
-        aprintf(" (%d words)",masterinfo->wordcount);
-    aprintf(" written to " TTEXT_MAGENTA "%s" TTEXT_NORMAL " (%.1f MB).\n\n",
+        k2printf(" (%d words)",masterinfo->wordcount);
+    k2printf(" written to " TTEXT_MAGENTA "%s" TTEXT_NORMAL " (%.1f MB).\n\n",
             dstfile,size/1024./1024.);
     if (k2settings->show_marked_source)
         {
         size=wfile_size(markedfile);
-        aprintf(TTEXT_BOLD "%d pages" TTEXT_NORMAL " written to " TTEXT_MAGENTA "%s" TTEXT_NORMAL " (%.1f MB).\n\n",pages_done,markedfile,size/1024./1024.);
+        k2printf(TTEXT_BOLD "%d pages" TTEXT_NORMAL " written to " TTEXT_MAGENTA "%s" TTEXT_NORMAL " (%.1f MB).\n\n",pages_done,markedfile,size/1024./1024.);
         }
     masterinfo_free(masterinfo,k2settings);
     if (folder)
@@ -704,21 +711,21 @@ static int overwrite_fail(char *outname,double overwrite_minsize_mb)
         return(0);
     wfile_basepath(basepath,outname);
     strcpy(newname,outname);
-    printf("\n\a");
+    k2printf("\n\a");
     while (1)
         {
         while (1)
             {
-            aprintf("File " TTEXT_MAGENTA "%s" TTEXT_NORMAL " (%.1f MB) already exists!\n"
+            k2printf("File " TTEXT_MAGENTA "%s" TTEXT_NORMAL " (%.1f MB) already exists!\n"
                       "   Overwrite it (y[es]/n[o]/a[ll]/q[uit])? " TTEXT_INPUT,
                     newname,size_mb);
             fgets(buf,16,stdin);
-            aprintf(TTEXT_NORMAL);
+            k2printf(TTEXT_NORMAL);
             clean_line(buf);
             buf[0]=tolower(buf[0]);
             if (buf[0]!='y' && buf[0]!='n' && buf[0]!='a' && buf[0]!='q')
                 {
-                aprintf("\a\n  ** Must respond with 'y', 'n', 'a', or 'q' **\n\n");
+                k2printf("\a\n  ** Must respond with 'y', 'n', 'a', or 'q' **\n\n");
                 continue;
                 }
             break;
@@ -731,10 +738,10 @@ static int overwrite_fail(char *outname,double overwrite_minsize_mb)
                 all=1;
             return(0);
             }
-        aprintf("Enter a new output base name (.pdf will be appended, q=quit).\n"
+        k2printf("Enter a new output base name (.pdf will be appended, q=quit).\n"
                 "New name: " TTEXT_INPUT);
         fgets(buf,255,stdin);
-        aprintf(TTEXT_NORMAL);
+        k2printf(TTEXT_NORMAL);
         clean_line(buf);
         if (!stricmp(buf,"q"))
             return(-1);

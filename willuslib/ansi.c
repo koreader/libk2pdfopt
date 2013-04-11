@@ -6,7 +6,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -466,7 +466,7 @@ static void ansi_win32_setcolor(FILE *f,int n)
         }
     if (!GetConsoleScreenBufferInfo(hout,&cinfo))
         {
-        fprintf(stderr,"ansi_win32_setcolor:  get console info failed.\n");
+        /* fprintf(stderr,"ansi_win32_setcolor:  get console info failed.\n"); */
         return;
         }
 
@@ -524,7 +524,7 @@ static void ansi_win32_erase_end_line(FILE *f)
         }
     if (!GetConsoleScreenBufferInfo(hout,&cinfo))
         {
-        fprintf(stderr,"ansi_win32_erase_end_line:  get console info failed.\n");
+        /* fprintf(stderr,"ansi_win32_erase_end_line:  get console info failed.\n"); */
         return;
         }
 
@@ -570,7 +570,7 @@ static void ansi_win32_cursor_left(FILE *f,int n)
         }
     if (!GetConsoleScreenBufferInfo(hout,&cinfo))
         {
-        fprintf(stderr,"ansi_win32_cursor_left:  get console info failed.\n");
+        /* fprintf(stderr,"ansi_win32_cursor_left:  get console info failed.\n"); */
         return;
         }
 
@@ -600,7 +600,7 @@ static void ansi_win32_cursor_up(FILE *f,int n)
         }
     if (!GetConsoleScreenBufferInfo(hout,&cinfo))
         {
-        fprintf(stderr,"ansi_win32_cursor_up:  get console info failed.\n");
+        /* fprintf(stderr,"ansi_win32_cursor_up:  get console info failed.\n"); */
         return;
         }
 
@@ -630,7 +630,7 @@ static void ansi_win32_cursor_position(FILE *f,int x,int y)
         }
     if (!GetConsoleScreenBufferInfo(hout,&cinfo))
         {
-        fprintf(stderr,"ansi_win32_cursor_position:  get console info failed.\n");
+        /* fprintf(stderr,"ansi_win32_cursor_position:  get console info failed.\n"); */
         return;
         }
 
@@ -655,12 +655,12 @@ static int ansi_win32_rows_cols(FILE *f,int *rows,int *cols)
         hout=GetStdHandle(STD_OUTPUT_HANDLE);
     if (hout==INVALID_HANDLE_VALUE)
         {
-        // fprintf(stderr,"ansi_win32_rows_cols:  get handle failed.\n");
+        /* fprintf(stderr,"ansi_win32_rows_cols:  get handle failed.\n"); */
         return(0);
         }
     if (!GetConsoleScreenBufferInfo(hout,&cinfo))
         {
-        // fprintf(stderr,"ansi_win32_rows_cols:  get console info failed.\n");
+        /* fprintf(stderr,"ansi_win32_rows_cols:  get console info failed.\n"); */
         return(0);
         }
     /*
@@ -691,7 +691,7 @@ static void ansi_win32_get_cursor(FILE *f,int *x,int *y)
         }
     if (!GetConsoleScreenBufferInfo(hout,&cinfo))
         {
-        fprintf(stderr,"ansi_win32_get_cursor:  get console info failed.\n");
+        /* fprintf(stderr,"ansi_win32_get_cursor:  get console info failed.\n"); */
         return;
         }
 
@@ -722,7 +722,7 @@ static void ansi_win32_clear(FILE *f)
         }
     if (!GetConsoleScreenBufferInfo(hout,&cinfo))
         {
-        fprintf(stderr,"ansi_win32_clear:  get console info failed.\n");
+        /* fprintf(stderr,"ansi_win32_clear:  get console info failed.\n"); */
         return;
         }
     c.X=0;

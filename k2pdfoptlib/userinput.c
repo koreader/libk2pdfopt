@@ -34,13 +34,13 @@ int userinput_float(char *message,double defval,double *dstval,int nmax,
     while (1)
         {
         if (extramessage!=NULL && extramessage[0]!='\0')
-            aprintf(TTEXT_BOLD2 "%s" TTEXT_NORMAL "\n",extramessage);
-        aprintf(TTEXT_BOLD2 "%s" TTEXT_NORMAL,message);
+            k2printf(TTEXT_BOLD2 "%s" TTEXT_NORMAL "\n",extramessage);
+        k2printf(TTEXT_BOLD2 "%s" TTEXT_NORMAL,message);
         if (defval > -1e9)
-            aprintf(" [%g]",defval);
-        aprintf(": ");
+            k2printf(" [%g]",defval);
+        k2printf(": ");
         fgets(buf,255,stdin);
-        aprintf(TTEXT_NORMAL "\n");
+        k2printf(TTEXT_NORMAL "\n");
         clean_line(buf);
         if (buf[0]=='\0')
             {
@@ -52,14 +52,14 @@ int userinput_float(char *message,double defval,double *dstval,int nmax,
         na=string_read_doubles(buf,v,nmax);
         if (na<=0)
             {
-            aprintf(TTEXT_WARN "\aThe response '%s' is not valid.\n\n" TTEXT_NORMAL,buf);
+            k2printf(TTEXT_WARN "\aThe response '%s' is not valid.\n\n" TTEXT_NORMAL,buf);
             continue;
             }
         for (i=0;i<na;i++)
             {
             if (atof(buf)<min || atof(buf)>max)
                 {
-                aprintf(TTEXT_WARN "\aThe response must be between %g and %g.\n\n" TTEXT_NORMAL,min,max);
+                k2printf(TTEXT_WARN "\aThe response must be between %g and %g.\n\n" TTEXT_NORMAL,min,max);
                 break;
                 }
             }
@@ -79,10 +79,10 @@ int userinput_integer(char *message,int defval,int *dstval,int min,int max)
 
     while (1)
         {
-        aprintf(TTEXT_BOLD2 "%s" TTEXT_NORMAL " [%d]: " TTEXT_INPUT,
+        k2printf(TTEXT_BOLD2 "%s" TTEXT_NORMAL " [%d]: " TTEXT_INPUT,
                 message,defval);
         fgets(buf,255,stdin);
-        aprintf(TTEXT_NORMAL "\n");
+        k2printf(TTEXT_NORMAL "\n");
         clean_line(buf);
         if (buf[0]=='\0')
             {
@@ -93,12 +93,12 @@ int userinput_integer(char *message,int defval,int *dstval,int min,int max)
             return(-1);
         if (!is_an_integer(buf))
             {
-            aprintf(TTEXT_WARN "\aThe response '%s' is not valid.\n\n" TTEXT_NORMAL,buf);
+            k2printf(TTEXT_WARN "\aThe response '%s' is not valid.\n\n" TTEXT_NORMAL,buf);
             continue;
             }
         if (atoi(buf)<min || atoi(buf)>max)
             {
-            aprintf(TTEXT_WARN "\aThe response must be between %d and %d.\n\n" TTEXT_NORMAL,min,max);
+            k2printf(TTEXT_WARN "\aThe response must be between %d and %d.\n\n" TTEXT_NORMAL,min,max);
             continue;
             }
         (*dstval)=atoi(buf);
@@ -116,10 +116,10 @@ int userinput_any_string(char *message,char *dstval,int maxlen,char *defname)
         maxlen=1023;
     while (1)
         {
-        aprintf(TTEXT_BOLD2 "%s" TTEXT_NORMAL " [%s]: " TTEXT_INPUT,
+        k2printf(TTEXT_BOLD2 "%s" TTEXT_NORMAL " [%s]: " TTEXT_INPUT,
                 message,defname);
         fgets(buf,maxlen,stdin);
-        aprintf(TTEXT_NORMAL "\n");
+        k2printf(TTEXT_NORMAL "\n");
         clean_line(buf);
         if (buf[0]=='\0')
             {
@@ -143,13 +143,13 @@ int userinput_string(char *message,char *selection[],char *def)
 
     while (1)
         {
-        aprintf(TTEXT_BOLD2 "%s" TTEXT_NORMAL " (",message);
+        k2printf(TTEXT_BOLD2 "%s" TTEXT_NORMAL " (",message);
         for (i=0;selection[i][0]!='\0';i++)
-            aprintf("%s" TTEXT_BOLD "%c" TTEXT_NORMAL "%s",
+            k2printf("%s" TTEXT_BOLD "%c" TTEXT_NORMAL "%s",
                     i>0 ? ", " : "",selection[i][0],&selection[i][1]);
-        aprintf(") [%c]: " TTEXT_INPUT,def[0]);
+        k2printf(") [%c]: " TTEXT_INPUT,def[0]);
         fgets(buf,255,stdin);
-        aprintf(TTEXT_NORMAL "\n");
+        k2printf(TTEXT_NORMAL "\n");
         clean_line(buf);
         if (buf[0]=='\0')
             strcpy(buf,def);
@@ -158,7 +158,7 @@ int userinput_string(char *message,char *selection[],char *def)
         for (i=0;selection[i][0]!='\0';i++)
             if (tolower(buf[0])==tolower(selection[i][0]))
                 return(i);
-        aprintf(TTEXT_WARN "\aThe response '%s' is not valid.\n\n" TTEXT_NORMAL,
+        k2printf(TTEXT_WARN "\aThe response '%s' is not valid.\n\n" TTEXT_NORMAL,
                 buf);
         }
     }

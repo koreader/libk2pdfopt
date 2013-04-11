@@ -26,8 +26,7 @@ static void one_opt_echo(STRBUF *opts,char *coloring,int *column);
 static int  wildcount(char *wildspec);
 
 
-int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
-                  STRBUF *env,STRBUF *cmdline,STRBUF *usermenu)
+int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF *usermenu)
 
     {
     int status,cmdclear,envclear;
@@ -35,6 +34,7 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
     static char *jpegpng[]={"png","jpeg",""};
     static char *ansjust[]={"left","center","right",""};
     double defmar;
+    K2PDFOPT_SETTINGS *k2settings;
     // char specfile[512];
     static char *options[] =
         {
@@ -72,12 +72,13 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
         "x. Exit on completion (-x)",
         ""};
 
+    k2settings=&k2conv->k2settings;
     status=0; /* Avoid compiler warning */
     strbuf_clear(usermenu);
     cmdclear=0;
     envclear=0;
     /*
-    if (filecount>0)
+    if (k2conv->k2files.n>0)
         strcpy(specfile,firstfile);
     */
     if (!k2settings->query_user)
@@ -95,18 +96,18 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
             for (j=0;options[i][j]!='.';j++)
                 opt[j]=options[i][j];
             opt[j]='\0';
-            aprintf(TTEXT_BOLD "%2s" TTEXT_NORMAL "%-38s",opt,&options[i][j]);
+            k2printf(TTEXT_BOLD "%2s" TTEXT_NORMAL "%-38s",opt,&options[i][j]);
             k=i+(no+1)/2;
             if (k < no)
                 {
                 for (j=0;options[k][j]!='.';j++)
                     opt[j]=options[k][j];
                 opt[j]='\0';
-                aprintf(TTEXT_BOLD "%2s" TTEXT_NORMAL "%s",opt,&options[k][j]);
+                k2printf(TTEXT_BOLD "%2s" TTEXT_NORMAL "%s",opt,&options[k][j]);
                 }
-            aprintf("\n");
+            k2printf("\n");
             }
-        aprintf("\n");
+        k2printf("\n");
         allopts_echo(env,envclear,cmdline,cmdclear,usermenu);
         newmenu=0;
         while (1)
@@ -114,13 +115,13 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
             int goodspec;
 
             /*
-            if (filecount>0)
+            if (k2conv->k2files.n>0)
                 {
-                if (filecount==1)
-                    aprintf("\nSource file: " TTEXT_MAGENTA "%s" TTEXT_NORMAL "\n",specfile);
+                if (k2conv->k2files.n==1)
+                    k2printf("\nSource file: " TTEXT_MAGENTA "%s" TTEXT_NORMAL "\n",specfile);
                 else 
-                    aprintf("\nSource file: (multiple files specified)\n");
-                aprintf(TTEXT_BOLD2 "Enter option above" TTEXT_NORMAL
+                    k2printf("\nSource file: (multiple files specified)\n");
+                k2printf(TTEXT_BOLD2 "Enter option above" TTEXT_NORMAL
                  " or " TTEXT_BOLD2 "?" TTEXT_NORMAL " for help"
                  " or " TTEXT_BOLD2 "page range" TTEXT_NORMAL " (e.g. 2,4,8-10) to convert\n"
                  "or " TTEXT_BOLD2 "q" TTEXT_NORMAL " to quit or just "
@@ -128,22 +129,22 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
                  TTEXT_INPUT);
                 }
             else
-                aprintf("\n(No source file specified.)\n" 
+                k2printf("\n(No source file specified.)\n" 
                         TTEXT_BOLD2 "Enter option above" TTEXT_NORMAL
                  " or " TTEXT_BOLD2 "?" TTEXT_NORMAL " for help"
                  " or " TTEXT_BOLD2 "q" TTEXT_NORMAL " to quit\n"
                  "or type in a file name to convert: "
                  TTEXT_INPUT);
-            aprintf(TTEXT_BOLD2 "Enter option above" TTEXT_NORMAL
+            k2printf(TTEXT_BOLD2 "Enter option above" TTEXT_NORMAL
                 " or " TTEXT_BOLD2 "?" TTEXT_NORMAL " for help"
                 " or " TTEXT_BOLD2 "cmd line opts" TTEXT_NORMAL " (e.g. -dpi 200)\n"
                 " or " TTEXT_BOLD2 "q" TTEXT_NORMAL " to quit or just "
                 TTEXT_BOLD2 "<Enter>" TTEXT_NORMAL " to start conversion: "
                 TTEXT_INPUT);
             */
-            aprintf("\n" TTEXT_BOLD2 "Enter option above (h=help, q=quit): " TTEXT_NORMAL);
+            k2printf("\n" TTEXT_BOLD2 "Enter option above (h=help, q=quit): " TTEXT_NORMAL);
             fgets(buf,511,stdin);
-            aprintf(TTEXT_NORMAL "\n");
+            k2printf(TTEXT_NORMAL "\n");
             clean_line(buf);
             if (!stricmp(buf,"?") || !stricmp(buf,"h"))
                 {
@@ -189,7 +190,7 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
                 }
             if (options[i][0]!='\0')
                 break;
-            if (filecount>0 && pagelist_valid_page_range(buf))
+            if (k2conv->k2files.n>0 && pagelist_valid_page_range(buf))
                 {
                 strbuf_cat(usermenu,"-p");
                 strbuf_cat_no_spaces(usermenu,buf);
@@ -221,24 +222,14 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
                     strcpy(buf,buf2);
                 }
             goodspec = (wildcount(buf)>0);
-            /*
-            if (filecount==0 && goodspec)
-                {
-                strcpy(specfile,buf);
-                strcpy(uifile,buf);
-                filecount=1;
-                newmenu=1;
-                break;
-                }
-            */
             if (goodspec)
                 {
-                // aprintf(TTEXT_WARN "\a** Invalid entry. (File%s already specified.) **" TTEXT_NORMAL "\n",filecount>1?"s":"");
+                // k2printf(TTEXT_WARN "\a** Invalid entry. (File%s already specified.) **" TTEXT_NORMAL "\n",k2conv->k2files.n>1?"s":"");
                 strbuf_cat_with_quotes(usermenu,buf);
                 break;
                 }
             else
-                aprintf(TTEXT_WARN "\a** Unrecognized option: %s. **" TTEXT_NORMAL "\n",buf);
+                k2printf(TTEXT_WARN "\a** Unrecognized option: %s. **" TTEXT_NORMAL "\n",buf);
             }
         if (newmenu)
             continue;
@@ -406,26 +397,26 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
                 strbuf_sprintf(usermenu,"-dev %s",p);
                 continue;
                 }   
-            status=userinput_float("Destination pixel width",DEFAULT_WIDTH,&k2settings->dst_userwidth,1,-100.,20000.,NULL);
+            status=userinput_float("E-reader display pixel width",DEFAULT_WIDTH,&k2settings->dst_userwidth,1,-100.,20000.,NULL);
             if (status<0)
                 return(status);
             strbuf_sprintf(usermenu,"-w %g",k2settings->dst_userwidth);
             k2settings->dst_userwidth_units=UNITS_PIXELS;
-            status=userinput_float("Destination pixel height",DEFAULT_HEIGHT,&k2settings->dst_userheight,1,-100.,20000.,NULL);
+            status=userinput_float("E-reader display pixel height",DEFAULT_HEIGHT,&k2settings->dst_userheight,1,-100.,20000.,NULL);
             if (status<0)
                 return(status);
             strbuf_sprintf(usermenu,"-h %g",k2settings->dst_userheight);
             k2settings->dst_userheight_units=UNITS_PIXELS;
-            status=userinput_integer("Output/Destination pixels per inch",167,&k2settings->dst_dpi,20,1200);
+            status=userinput_integer("E-reader display pixels per inch",167,&k2settings->dst_dpi,20,1200);
             if (status<0)
                 return(status);
             strbuf_sprintf(usermenu,"-dpi %d",k2settings->dst_dpi);
-            status=userinput_float("Input/Source pixels per inch",k2settings->user_src_dpi,&k2settings->user_src_dpi,1,-10.,1200.,NULL);
+            status=userinput_float("Input/Source file pixels per inch (use -2 if not sure)",k2settings->user_src_dpi,&k2settings->user_src_dpi,1,-10.,1200.,NULL);
             if (status<0)
                 return(status);
             while (k2settings->user_src_dpi > -.25 &&  k2settings->user_src_dpi < 50.)
                 {
-                aprintf(TTEXT_WARN "\n\a** Invalid response.  Dpi must be <= -.25 or >= 50. **" TTEXT_NORMAL "\n\n");
+                k2printf(TTEXT_WARN "\n\a** Invalid response.  Dpi must be <= -.25 or >= 50. **" TTEXT_NORMAL "\n\n");
                 status=userinput_float("Input/Source pixels per inch",k2settings->user_src_dpi,&k2settings->user_src_dpi,1,-10.,1200.,NULL);
                 if (status<0)
                     return(status);
@@ -673,12 +664,12 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
                         {
                         wfile_basespec(base1,fl->entry[fl->n-i].name);
                         wfile_newext(base,base1,"");
-                        aprintf(TTEXT_BOLD "%2d" TTEXT_NORMAL ". %s\n",i,base);
+                        k2printf(TTEXT_BOLD "%2d" TTEXT_NORMAL ". %s\n",i,base);
                         }
                     while (1)
                         {
                         char buf[16];
-                        aprintf(TTEXT_BOLD2 "Enter language selection (def=1): " TTEXT_NORMAL);
+                        k2printf(TTEXT_BOLD2 "Enter language selection (def=1): " TTEXT_NORMAL);
                         fgets(buf,15,stdin);
                         clean_line(buf);
                         if (buf[0]=='\0')
@@ -689,7 +680,7 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
                         i=atoi(buf);
                         if (!is_an_integer(buf) || i<1 || i>fl->n)
                             {
-                            aprintf("\n" TTEXT_WARN " ** Please enter a number in the range 1 - %d. **" TTEXT_NORMAL "\n\n",fl->n);
+                            k2printf("\n" TTEXT_WARN " ** Please enter a number in the range 1 - %d. **" TTEXT_NORMAL "\n\n",fl->n);
                             continue;
                             }
                         break;
@@ -799,7 +790,7 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
             if (status<0)
                 return(status);
             strbuf_sprintf(usermenu,"-de %g",k2settings->defect_size_pts);
-            printf("\n0. Don't erase vertical lines.\n"
+            k2printf("\n0. Don't erase vertical lines.\n"
                      "1. Detect and erase only free-standing vertical lines.\n"
                      "2. Detect and erase all vertical lines.\n\n");
             status=userinput_integer("Enter option above (0, 1, or 2)",
@@ -827,12 +818,12 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
             {
             int i,tty_rows;
 
-            k2sys_header();
+            k2sys_header(NULL);
             if (!k2pdfopt_usage())
                 return(-1);
             tty_rows = get_ttyrows();
             for (i=0;i<tty_rows-16;i++)
-                aprintf("\n");
+                k2printf("\n");
             }
         else if (!stricmp(buf,"v"))
             {
@@ -898,7 +889,7 @@ int k2pdfopt_menu(K2PDFOPT_SETTINGS *k2settings,int filecount,
             k2settings->exit_on_complete=!status;
             strbuf_sprintf(usermenu,"-x%s",k2settings->exit_on_complete?"":"-");
             }
-        aprintf("\n");
+        k2printf("\n");
         }
     }
 
@@ -911,7 +902,7 @@ static void menu_help(void)
         TTEXT_BOLD2
         "    (menu item)  "
         TTEXT_NORMAL
-        "Enter the one of the 1- or 2-letter menu options.\n"
+        "Enter one of the 1- or 2-letter menu options.\n"
         "                 E.g. " TTEXT_BOLD "d" TTEXT_NORMAL " or "
                                  TTEXT_BOLD "mo" TTEXT_NORMAL " (followed by <Enter>).\n\n"
         TTEXT_BOLD2
@@ -952,10 +943,10 @@ static void menu_help(void)
         "Quit (abort).\n";
     char buf[16];
 
-    aprintf("%s",mhelp);
-    aprintf("Press " TTEXT_BOLD "<Enter>" TTEXT_NORMAL " to re-display the menu.");
+    k2printf("%s",mhelp);
+    k2printf("Press " TTEXT_BOLD "<Enter>" TTEXT_NORMAL " to re-display the menu.");
     fgets(buf,15,stdin);
-    aprintf("\n\n");
+    k2printf("\n\n");
     }
 
 
@@ -964,12 +955,12 @@ static void allopts_echo(STRBUF *o1,int o1clear,STRBUF *o2,int o2clear,STRBUF *o
     {
     int col;
 
-    aprintf("Selected options: ");
+    k2printf("Selected options: ");
     col=18;
     if ((o1->s==NULL || o1->s[0]=='\n')
          && (o2->s==NULL || o2->s[0]=='\n')
          && (o3->s==NULL || o3->s[0]=='\n'))
-        aprintf("(none)");
+        k2printf("(none)");
     else
         {
         if (!o1clear)
@@ -978,7 +969,7 @@ static void allopts_echo(STRBUF *o1,int o1clear,STRBUF *o2,int o2clear,STRBUF *o
             one_opt_echo(o2,ANSI_BROWN,&col);
         one_opt_echo(o3,ANSI_GREEN,&col);
         }
-    aprintf("\n");
+    k2printf("\n");
     }
 
 
@@ -990,7 +981,7 @@ static void one_opt_echo(STRBUF *opts,char *coloring,int *column)
 
     if (opts->s==NULL || opts->s[0]=='\0')
         return;
-    aprintf("%s",coloring);
+    k2printf("%s",coloring);
     s=opts->s;
     for (i=0;s[i]!='\0';)
         {
@@ -1001,18 +992,18 @@ static void one_opt_echo(STRBUF *opts,char *coloring,int *column)
         for (i0=i;s[i]!=' ' && s[i]!='\t' && s[i]!='\0';i++);
         if (i-i0+1+(*column) > 78)
             {
-            aprintf("\n   ");
+            k2printf("\n   ");
             (*column)=4;
             }
         c=s[i];
         s[i]='\0';
-        aprintf(" %s",&s[i0]);
+        k2printf(" %s",&s[i0]);
         (*column) += strlen(&s[i0])+1;
         s[i]=c;
         if (s[i]=='\0')
             break;
         }
-    aprintf("%s",TTEXT_NORMAL);
+    k2printf("%s",TTEXT_NORMAL);
     }
 
 

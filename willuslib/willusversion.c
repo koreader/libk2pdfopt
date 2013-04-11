@@ -1,4 +1,4 @@
-static char *version = "Ver 4.61 (Jan  5, 2013)";
+static char *version = "Ver 4.71 (Apr  3, 2013)";
 /*
 ** willusversion.c    Report version of WILLUSLIB library
 **

@@ -24,16 +24,24 @@ static void breakinfo_compute_row_gaps(BREAKINFO *breakinfo,int r2);
 static void breakinfo_compute_col_gaps(BREAKINFO *breakinfo,int c2);
 static void breakinfo_remove_small_col_gaps(BREAKINFO *breakinfo,int lcheight,double mingap,
                                             double word_spacing);
+static void breakinfo_find_doubles(BREAKINFO *breakinfo,int *rowthresh,BMPREGION *region,
+                                   K2PDFOPT_SETTINGS *k2settings,int *colcount,int *rowcount,
+                                   int maxsize);
+static int  minval(int *x,int n,int dx,int *index,int index0);
+static int  maxval(int *x,int n,int dx,int *index,int index0);
 static void textrow_assign_bmpregion(TEXTROW *textrow,BMPREGION *region);
+/*
+static int breakinfo_median_row_height(BREAKINFO *breakinfo);
+*/
 
 #if (WILLUSDEBUGX & 6)
 void breakinfo_echo(BREAKINFO *breakinfo)
 
     {
     int i;
-    printf("@breakinfo_echo...\n");
+    k2printf("@breakinfo_echo...\n");
     for (i=0;i<breakinfo->n;i++)
-        printf("    %2d.  r1=%4d, rowbase=%4d, r2=%4d, c1=%4d, c2=%4d\n",
+        k2printf("    %2d.  r1=%4d, rowbase=%4d, r2=%4d, c1=%4d, c2=%4d\n",
              i+1,breakinfo->textrow[i].r1,
              breakinfo->textrow[i].rowbase,
              breakinfo->textrow[i].r2,
@@ -51,7 +59,11 @@ static void breakinfo_compute_row_gaps(BREAKINFO *breakinfo,int r2)
     n=breakinfo->n;
     if (n<=0)
         return;
-    breakinfo->textrow[0].rowheight = breakinfo->textrow[0].r2 - breakinfo->textrow[0].r1;
+    /* New in v1.65 -- use [1].r1 - [0].r1 for first rowheight. */
+    if (breakinfo->n>1)
+        breakinfo->textrow[0].rowheight = breakinfo->textrow[1].r1 - breakinfo->textrow[0].r1;
+    else
+        breakinfo->textrow[0].rowheight = breakinfo->textrow[0].r2 - breakinfo->textrow[0].r1;
     for (i=0;i<n-1;i++)
         breakinfo->textrow[i].gap = breakinfo->textrow[i+1].r1 - breakinfo->textrow[i].rowbase - 1;
         /*
@@ -122,7 +134,7 @@ void breakinfo_remove_small_rows(BREAKINFO *breakinfo,K2PDFOPT_SETTINGS *k2setti
     static char *funcname="breakinfo_remove_small_rows";
 
 #if (WILLUSDEBUGX & 2)
-printf("@breakinfo_remove_small_rows(fracrh=%g,fracgap=%g)\n",fracrh,fracgap);
+k2printf("@breakinfo_remove_small_rows(fracrh=%g,fracgap=%g)\n",fracrh,fracgap);
 #endif
     if (breakinfo->n<2)
         return;
@@ -149,8 +161,8 @@ printf("@breakinfo_remove_small_rows(fracrh=%g,fracgap=%g)\n",fracrh,fracgap);
     if (mg<1)
         mg=1;
 #if (WILLUSDEBUGX & 2)
-printf("mh = %d x %g = %d\n",rh[breakinfo->n/2],fracrh,mh);
-printf("mg = %d x %g = %d\n",gap[breakinfo->n/2],fracgap,mg);
+k2printf("mh = %d x %g = %d\n",rh[breakinfo->n/2],fracrh,mh);
+k2printf("mg = %d x %g = %d\n",gap[breakinfo->n/2],fracgap,mg);
 #endif
     for (i=0;i<breakinfo->n;i++)
         {
@@ -181,7 +193,7 @@ printf("mg = %d x %g = %d\n",gap[breakinfo->n/2],fracgap,mg);
             gs2=breakinfo->textrow[i].gap;
             }
 #if (WILLUSDEBUGX & 2)
-printf("   rowheight[%d] = %d, mh=%d, gs1=%d, gs2=%d\n",i,trh,mh,gs1,gs2);
+k2printf("   rowheight[%d] = %d, mh=%d, gs1=%d, gs2=%d\n",i,trh,mh,gs1,gs2);
 #endif
         gap_is_big = (trh >= mh || (gs1 >= mg && gs2 >= mg));
         /*
@@ -196,12 +208,12 @@ printf("   rowheight[%d] = %d, mh=%d, gs1=%d, gs2=%d\n",i,trh,mh,gs1,gs2);
                             && row_width_inches < k2settings->little_piece_threshold_inches
                             && (g1<=mg1 || g2<=mg1);
 #if (WILLUSDEBUGX & 2)
-printf("       m1=%g, m2=%g, rwi=%g, g1=%d, g2=%d, mg0=%d\n",m1,m2,row_width_inches,g1,g2,mg0);
+k2printf("       m1=%g, m2=%g, rwi=%g, g1=%d, g2=%d, mg0=%d\n",m1,m2,row_width_inches,g1,g2,mg0);
 #endif
         if (gap_is_big && !row_too_small)
             continue;
 #if (WILLUSDEBUGX & 2)
-printf("   row[%d] to be combined w/next row.\n",i);
+k2printf("   row[%d] to be combined w/next row.\n",i);
 #endif
         if (row_too_small)
             {
@@ -214,8 +226,8 @@ printf("   row[%d] to be combined w/next row.\n",i);
                 i--;
             }
 /*
-printf("Removing row.  nrows=%d, rh=%d, gs1=%d, gs2=%d\n",breakinfo->n,trh,gs1,gs2);
-printf("    mh = %d, mg = %d\n",rh[breakinfo->n/2],gap[(breakinfo->n-1)/2]);
+k2printf("Removing row.  nrows=%d, rh=%d, gs1=%d, gs2=%d\n",breakinfo->n,trh,gs1,gs2);
+k2printf("    mh = %d, mg = %d\n",rh[breakinfo->n/2],gap[(breakinfo->n-1)/2]);
 */
         breakinfo->textrow[i].r2 = breakinfo->textrow[i+1].r2;
         if (breakinfo->textrow[i+1].c2 > breakinfo->textrow[i].c2)
@@ -402,7 +414,7 @@ void bmpregion_find_vertical_breaks(BMPREGION *region,BREAKINFO *breakinfo,
     newregion=&_newregion;
     (*newregion)=(*region);
     if (k2settings->debug)
-        printf("@bmpregion_find_vertical_breaks:  (%d,%d) - (%d,%d)\n",
+        k2printf("@bmpregion_find_vertical_breaks:  (%d,%d) - (%d,%d)\n",
                 region->c1,region->r1,region->c2,region->r2);
     /*
     ** brc = consecutive blank pixel rows
@@ -418,7 +430,7 @@ void bmpregion_find_vertical_breaks(BMPREGION *region,BREAKINFO *breakinfo,
     aperture=(int)(region->dpi*apsize_in+.5);
 /*
 for (i=region->r1;i<=region->r2;i++)
-printf("rowcount[%d]=%d\n",i,rowcount[i]);
+k2printf("rowcount[%d]=%d\n",i,rowcount[i]);
 */
     breakinfo->rhmean_pixels=0; // Mean text row height
     ntr=0; // Number of text rows
@@ -467,7 +479,15 @@ printf("rowcount[%d]=%d\n",i,rowcount[i]);
     if (ntr>0)
         breakinfo->rhmean_pixels /= ntr;
 /*
-printf("rhmean=%d (ntr=%d)\n",breakinfo->rhmean_pixels,ntr);
+{
+static int count=0;
+if (!count)
+{
+bmp_write(region->bmp,"bigbmp.png",stdout,100);
+count++;
+}
+}
+k2printf("rhmean=%d (ntr=%d)\n",breakinfo->rhmean_pixels,ntr);
 {
 FILE *f;
 static int count=0;
@@ -492,8 +512,8 @@ fclose(f);
         if (rowthresh[rmax-region->r1]>10)
             break;
     */
-    /* Look for "row" gaps in the region so that it can be broken into */
-    /* multiple "rows".                                                */
+    /* Look for gaps between rows in the region so that it can be broken into */
+    /* multiple "rows".                                                       */
     breakinfo->n=0;
     for (labelrow=figrow=-1,dtrc=trc=brc=0,i=region->r1;i<=region->r2+1;i++)
         {
@@ -624,25 +644,209 @@ fclose(f);
             brc=0;
             }
         }
-/* Re-did logic in 1.52 so that this next part is no longer necessary */
-#ifdef COMMENT
-    newregion->r2=region->r2;
-    if (dtrc>0 && newregion->r2-newregion->r1+1 > 0)
-        {
-        /* If we were processing a figure, include it. */
-        if (figrow>=0)
-            newregion->r1=figrow;
-        newregion->c1=region->c1;
-        newregion->c2=region->c2;
-        bmpregion_trim_margins(newregion,k2settings,colcount,rowcount,0x1f);
-printf("Final add:  %d - %d\n",newregion->r1,newregion->r2);
-        if (newregion->r2>newregion->r1)
-            textrow_assign_bmpregion(&breakinfo->textrow[breakinfo->n++],newregion);
-        }
-#endif
+
+    /* Set rat=0 for all entries */
+    for (i=0;i<breakinfo->n;i++)
+        breakinfo->textrow[i].rat=0.;
+
     /* Compute gaps between rows and row heights */
     breakinfo_compute_row_gaps(breakinfo,region->r2);
+
+    /* Look for double-height and triple-height rows and break them up */
+    /* if conditions seem right.                                       */
+    breakinfo_find_doubles(breakinfo,rowthresh,region,k2settings,colcount,rowcount,3);
+
+    /* Compute gaps between rows and row heights again */
+    breakinfo_compute_row_gaps(breakinfo,region->r2);
     willus_dmem_free(15,(double **)&rowthresh,funcname);
+    }
+
+
+/*
+** Find double-height rows and split them into two if there is a reasonable gap.
+*/
+static void breakinfo_find_doubles(BREAKINFO *breakinfo,int *rowthresh,
+                                   BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
+                                   int *colcount,int *rowcount,int maxsize)
+
+    {
+    int i,r1,r2;
+    int rb[4];
+
+    r1=region->r1;
+    r2=region->r2;
+    if (maxsize > 5)
+        maxsize = 5;
+#if (WILLUSDEBUGX & 256)
+for (i=0;i<breakinfo->n;i++)
+printf("row[%2d].capheight = %3d\n",i,breakinfo->textrow[i].capheight);
+#endif
+    for (i=0;i<breakinfo->n;i++)
+        {
+        int lch,rh;
+
+        lch=0;
+        if (i>0 && breakinfo->textrow[i].capheight > breakinfo->textrow[i-1].capheight*1.8)
+            lch=breakinfo->textrow[i-1].lcheight;
+        if (lch==0 && i<breakinfo->n-1
+                  && breakinfo->textrow[i].capheight > breakinfo->textrow[i+1].capheight*1.8)
+            lch=breakinfo->textrow[i+1].lcheight;
+        /* Get "nominal" rowheight */
+        rh=-1;
+        if (i-1>0)
+            rh = breakinfo->textrow[i-1].rowheight;
+        if (i>0 && (rh<0 || rh > breakinfo->textrow[i].rowheight))
+            rh = breakinfo->textrow[i].rowheight;
+        if (rh<0 || rh > breakinfo->textrow[i+1].rowheight)
+            rh = breakinfo->textrow[i+1].rowheight;
+
+        /* Make sure it's not too big */
+        if (rh > 7*lch)
+            rh = 7*lch;
+           
+        if (lch>0)
+           {
+           int jbest,itry;
+           double maxrat;
+
+           maxrat = -1.0;
+           jbest=-1;
+           for (itry=0;itry<=1;itry++)
+
+           {
+           int j;
+
+#if (WILLUSDEBUGX & 256)
+if (itry==0)
+printf("Large gap:  row[%d] = rows %d - %d, capheight = %d, lch=%d, rh=%d\n",i,breakinfo->textrow[i].r1,breakinfo->textrow[i].r2,breakinfo->textrow[i].capheight,lch,rh);
+#endif
+           for (j=2;j<=maxsize;j++)
+               {
+               int ip,c1,c2;
+               double rat;
+
+               if (itry==1 && j!=jbest)
+                   continue;
+               /* Sanity check the row height -- should be approx. j * the nominal height */
+               if (i>0 && (breakinfo->textrow[i].rowheight < j*rh*0.7
+                             || breakinfo->textrow[i].rowheight > j*rh*1.5))
+                   continue;
+               if (i==0 && (breakinfo->textrow[i].capheight < j*rh*0.7
+                             || breakinfo->textrow[i].capheight > j*rh*1.5))
+                   continue;
+               c1=c2=-1;
+               for (ip=0;ip<j-1;ip++)
+                   {
+                   int rmin,c;
+                   c=minval(rowthresh,r2-r1+1,lch,&rmin,breakinfo->textrow[i].rowbase-(ip+1)*breakinfo->textrow[i].capheight/j-r1);
+                   rb[ip]=rmin+r1;
+/* printf("        nadir point[%d of %d] = row %4d = %d\n",ip+1,j-1,rmin+r1,rowthresh[rmin]); */
+                   if (c1<0 || c>c1)
+                       c1=c;
+                   } 
+               for (ip=0;ip<j;ip++)
+                   {
+                   int rmax,c;
+                   if (ip==0)
+                       c=maxval(rowthresh,r2-r1+1,lch,&rmax,breakinfo->textrow[i].rowbase-breakinfo->textrow[i].capheight+lch-r1);
+                   else if (ip==j-1)
+                       c=maxval(rowthresh,r2-r1+1,lch,&rmax,breakinfo->textrow[i].rowbase-lch-r1);
+                   else
+                       c=maxval(rowthresh,r2-r1+1,lch,&rmax,breakinfo->textrow[i].rowbase - (ip+1)*breakinfo->textrow[i].capheight*ip/(j-1)-r1);
+                   if (c2<0 || c<c2)
+                       c2=c;
+/* printf("        peak point[%d of %d] = row %4d = %d\n",ip+1,j,rmax+r1,rowthresh[rmax]); */
+                   } 
+               if (c1==0)
+                   c1=1;
+               rat=(double)c2/c1;
+#if (WILLUSDEBUGX & 256)
+if (itry==0)
+printf("    rat[%d rows] = %g\n",j,rat);
+#endif
+               if (maxrat<0 || rat > maxrat)
+                   {
+                   maxrat = rat;
+                   jbest = j;
+                   }
+               }
+           }
+#if (WILLUSDEBUGX & 256)
+printf("MAX RATIO (%d rows) = %g\n",jbest,maxrat);
+#endif
+           /* If figure of merit is met, split this row into jbest rows */
+           if (maxrat > k2settings->row_split_fom)
+               {
+               int ii;
+
+               for (ii=breakinfo->n-1;ii>i;ii--)
+                   breakinfo->textrow[ii+jbest-1] = breakinfo->textrow[ii];
+               for (ii=i+1;ii<i+jbest;ii++)
+                   breakinfo->textrow[ii]=breakinfo->textrow[i];
+               for (ii=i;ii<i+jbest;ii++)
+                   {
+                   BMPREGION _newregion,*newregion;
+
+                   if (ii<i+jbest-1)
+                       breakinfo->textrow[ii].r2 = rb[ii-i];
+                   if (ii>i)
+                       breakinfo->textrow[ii].r1 = rb[ii-i-1]+1;
+                   newregion=&_newregion;
+                   (*newregion)=(*region);
+                   newregion->c1=breakinfo->textrow[ii].c1;
+                   newregion->c2=breakinfo->textrow[ii].c2;
+                   newregion->r1=breakinfo->textrow[ii].r1;
+                   newregion->r2=breakinfo->textrow[ii].r2;
+                   bmpregion_trim_margins(newregion,k2settings,colcount,rowcount,0x1f);
+                   textrow_assign_bmpregion(&breakinfo->textrow[ii],newregion);
+                   breakinfo->textrow[ii].rat = maxrat;
+                   }
+               breakinfo->n += (jbest-1);
+               }
+           }
+        }
+    }
+
+
+static int minval(int *x,int n,int dx,int *index,int index0)
+
+    {
+    int i,imin,dx2;
+
+    dx2=dx/4;
+    if (dx2<1)
+        dx2=1;
+    for (imin=-1,i=index0-dx2;i<=index0+dx2;i++)
+        {
+        if (i<0 || i>=n)
+            continue;
+        if (imin<0 || x[i]<x[imin])
+            imin=i;
+        }
+    if (index!=NULL)
+        (*index)=imin;
+    return(x[imin]);
+    }
+
+
+static int maxval(int *x,int n,int dx,int *index,int index0)
+
+    {
+    int i,imax,dx2;
+
+    dx2=dx/4;
+    if (dx2<1)
+        dx2=1;
+    for (imax=-1,i=index0-dx2;i<=index0+dx2;i++)
+        {
+        if (i<0 || i>=n)
+            continue;
+        if (imax<0 || x[i]>x[imax])
+            imax=i;
+        }
+    if (index!=NULL)
+        (*index)=imax;
+    return(x[imax]);
     }
 
 
@@ -657,6 +861,7 @@ static void textrow_assign_bmpregion(TEXTROW *textrow,BMPREGION *region)
     textrow->lcheight=region->lcheight;
     textrow->capheight=region->capheight;
     textrow->h5050=region->h5050;
+    textrow->rat=0.;
     }
 
 
@@ -675,7 +880,7 @@ void bmpregion_one_row_find_breaks(BMPREGION *region,BREAKINFO *breakinfo,
     static char *funcname="bmpregion_one_row_find_breaks";
 
     if (k2settings->debug)
-        printf("@bmpregion_one_row_find_breaks(%d,%d)-(%d,%d)\n",
+        k2printf("@bmpregion_one_row_find_breaks(%d,%d)-(%d,%d)\n",
                region->c1,region->r1,region->c2,region->r2);
     newregion=&_newregion;
     (*newregion)=(*region);
@@ -856,4 +1061,3 @@ void word_gaps_add(BREAKINFO *breakinfo,int lcheight,double *median_gap,
             (*median_gap)=0.7;
         }
     }
-

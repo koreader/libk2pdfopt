@@ -47,6 +47,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
 #ifdef HAVE_TESSERACT_LIB
     k2settings->dst_ocr_lang[0]='\0';
 #endif
+    k2settings->ocr_max_columns=-1;  /* -1 = use value of max_columns */
     k2settings->dst_ocr=0;
     k2settings->dst_ocr_visibility_flags=1;
     k2settings->ocr_max_height_inches=1.5;
@@ -89,6 +90,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->min_column_gap_inches=0.1;
     k2settings->max_column_gap_inches=1.5; // max gap between columns
     k2settings->min_column_height_inches=1.5;
+    k2settings->row_split_fom=20.; /* Higher make it hard to split rows */
     k2settings->mar_top=-1.0;
     k2settings->mar_bot=-1.0;
     k2settings->mar_left=-1.0;
@@ -145,6 +147,13 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     }
 
 
+void k2pdfopt_settings_copy(K2PDFOPT_SETTINGS *dst,K2PDFOPT_SETTINGS *src)
+
+    {
+    (*dst)=(*src);
+    }
+
+
 int k2pdfopt_settings_set_to_device(K2PDFOPT_SETTINGS *k2settings,DEVPROFILE *dp)
 
     {
@@ -168,12 +177,13 @@ int k2pdfopt_settings_set_to_device(K2PDFOPT_SETTINGS *k2settings,DEVPROFILE *dp
 /*
 ** Check / adjust k2pdfopt user input settings.
 **
-** This function is called just once, right before doing any conversions.
+** This function is called before beginning the conversion of each new document...?
 **
 */
 void k2pdfopt_settings_sanity_check(K2PDFOPT_SETTINGS *k2settings)
 
     {
+/* printf("@k2pdfopt_settings_sanity_check, k2settings=%p.\n",k2settings); */
     /*
     ** Check compatibility between various settings
     */
@@ -248,6 +258,7 @@ void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings)
         ocrwords_clear(&k2settings->dst_ocrwords);
         }
 #endif
+    k2proc_init_one_document();
     }
 
 
@@ -334,6 +345,9 @@ void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
     int new_width,new_height,zeroarea;
     WPDFPAGEINFO *pageinfo;
 
+#ifdef WILLUSDEBUG
+printf("@k2pdfopt_settings_set_margins_and_devsize(region=%p,trimmed=%d)\n",region,trimmed);
+#endif
     zeroarea=0;
     pageinfo=masterinfo!=NULL ? &masterinfo->pageinfo : NULL;
     if (region==NULL)
@@ -408,7 +422,7 @@ void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
         olddpi = k2settings->dst_dpi;
         k2settings->dst_dpi = (int)((double)k2settings->dst_width/(MIN_REGION_WIDTH_INCHES+k2settings->dst_marleft+k2settings->dst_marright));
         if (!zeroarea)
-            aprintf(TTEXT_BOLD2 "Output DPI reduced from %d to %d ... " TTEXT_NORMAL,
+            k2printf(TTEXT_BOLD2 "Output DPI reduced from %d to %d ... " TTEXT_NORMAL,
                 olddpi,k2settings->dst_dpi);
         }
     k2pdfopt_settings_set_region_widths(k2settings);
@@ -420,7 +434,7 @@ static void k2pdfopt_settings_set_crop_margins(K2PDFOPT_SETTINGS *k2settings)
     {
     double defval;
 
-    defval=0.25;
+    defval=0.0;
     if (k2settings->mar_left < 0.)
         k2settings->mar_left=defval;
     if (k2settings->mar_right < 0.)

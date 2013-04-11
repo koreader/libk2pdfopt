@@ -19,6 +19,7 @@
 */
 
 #include "k2pdfopt.h"
+#include <stdarg.h>
 
 
 void k2sys_init(void)
@@ -57,7 +58,7 @@ void k2sys_enter_to_exit(K2PDFOPT_SETTINGS *k2settings)
     if (k2settings->exit_on_complete==0)
         {
         char buf[16];
-        aprintf("%s",mesg);
+        k2printf("%s",mesg);
         fgets(buf,15,stdin);
         return;
         }
@@ -66,7 +67,7 @@ void k2sys_enter_to_exit(K2PDFOPT_SETTINGS *k2settings)
     }
 
 
-void k2sys_header(void)
+void k2sys_header(char *s)
 
     {
     char date[32];
@@ -93,9 +94,32 @@ void k2sys_header(void)
     else
         strcat(cap,")");
     wsys_system_version(NULL,k2pdfopt_os,k2pdfopt_chip,k2pdfopt_compiler);
-    aprintf(TTEXT_HEADER "k2pdfopt %s" TTEXT_NORMAL "%s (c) %s, GPLv3, http://willus.com\n"
+    if (s==NULL)
+        k2printf(TTEXT_HEADER "k2pdfopt %s" TTEXT_NORMAL "%s (c) %s, GPLv3, http://willus.com\n"
             "    Compiled %s with %s for %s on %s.\n\n",
            k2pdfopt_version,cap,
            &date[strlen(date)-4],
            __DATE__,k2pdfopt_compiler,k2pdfopt_os,k2pdfopt_chip);
+    else
+        sprintf(s,"k2pdfopt %s%s\r\n"
+                  "(c) %s, GPLv3, http://willus.com\r\n"
+                  "Compiled %s\r\n"
+                  "    with %s\r\n"
+                  "    for %s on %s.",
+           k2pdfopt_version,cap,
+           &date[strlen(date)-4],
+           __DATE__,k2pdfopt_compiler,k2pdfopt_os,k2pdfopt_chip);
+    }
+
+
+int k2printf(char *fmt,...)
+
+    {
+    va_list args;
+    int     status;
+
+    va_start(args,fmt);
+    status=avprintf(stdout,fmt,args);
+    va_end(args);
+    return(status);
     }

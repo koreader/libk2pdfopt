@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -41,7 +41,7 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
     double dpp;
     fz_rect bounds,bounds2;
     fz_matrix ctm;
-    fz_bbox bbox;
+    fz_irect bbox;
 //    fz_glyph_cache *glyphcache;
 //    fz_error error;
     int np,status;
@@ -89,7 +89,7 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
         }
     fz_try(ctx) { list=fz_new_display_list(ctx);
                   dev=fz_new_list_device(ctx,list);
-                  fz_run_page(doc,page,dev,fz_identity,NULL);
+                  fz_run_page(doc,page,dev,&fz_identity,NULL);
                 }
     fz_catch(ctx)
         {
@@ -105,11 +105,13 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
     dpp=dpi/72.;
     pix=NULL;
     fz_var(pix);
-    bounds=fz_bound_page(doc,page);
-    ctm=fz_scale(dpp,dpp);
-//    ctm=fz_concat(ctm,fz_rotate(rotation)); 
-    bounds2=fz_transform_rect(ctm,bounds);
-    bbox=fz_round_rect(bounds2);
+    fz_bound_page(doc,page,&bounds);
+    ctm=fz_identity;
+    fz_scale(&ctm,dpp,dpp);
+//    ctm=fz_concat(ctm,fz_rotate(rotation));
+    bounds2=bounds;
+    fz_transform_rect(&bounds2,&ctm);
+    fz_round_rect(&bbox,&bounds2);
 //    ctm=fz_translate(0,-page->mediabox.y1);
 //    ctm=fz_concat(ctm,fz_scale(dpp,-dpp));
 //    ctm=fz_concat(ctm,fz_rotate(page->rotate));
@@ -118,13 +120,13 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
 //    pix=fz_new_pixmap_with_rect(colorspace,bbox);
     fz_try(ctx)
         {
-        pix=fz_new_pixmap_with_bbox(ctx,colorspace,bbox);
+        pix=fz_new_pixmap_with_bbox(ctx,colorspace,&bbox);
         fz_clear_pixmap_with_value(ctx,pix,255);
         dev=fz_new_draw_device(ctx,pix);
         if (list)
-            fz_run_display_list(list,dev,ctm,bbox,NULL);
+            fz_run_display_list(list,dev,&ctm,&bounds2,NULL);
         else
-            fz_run_page(doc,page,dev,ctm,NULL);
+            fz_run_page(doc,page,dev,&ctm,NULL);
         fz_free_device(dev);
         dev=NULL;
         status=bmpmupdf_pixmap_to_bmp(bmp,ctx,pix);

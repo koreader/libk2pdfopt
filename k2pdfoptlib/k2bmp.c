@@ -26,7 +26,7 @@
 static int inflection_count(double *x,int n,int delta,int *wthresh);
 static int vert_line_erase(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,WILLUSBITMAP *tmp,
                     int row0,int col0,double tanth,double minheight_in,
-                    double minwidth_in,double maxwidth_in,int white_thresh,
+                    /*double minwidth_in,*/ double maxwidth_in,int white_thresh,
                     double dpi,int erase_vertical_lines);
 
 
@@ -51,7 +51,7 @@ int bmp_get_one_document_page(WILLUSBITMAP *src,K2PDFOPT_SETTINGS *k2settings,
         /* Switch to Postscript since MuPDF failed */
         if (k2settings->usegs==0)
             {
-            aprintf(mupdferr_trygs,filename);
+            k2printf(mupdferr_trygs,filename);
             k2settings->usegs=1;
             }
 #endif
@@ -65,7 +65,7 @@ int bmp_get_one_document_page(WILLUSBITMAP *src,K2PDFOPT_SETTINGS *k2settings,
         bmp_set_pdf_pageno(pageno);
         bmp_set_pdf_dpi(dpi);
         /*
-        aprintf("Converting " TTEXT_BOLD2 "%s" TTEXT_NORMAL 
+        k2printf("Converting " TTEXT_BOLD2 "%s" TTEXT_NORMAL 
             " page %2d to %d dpi bitmap ... ",filename,i,dpi);
         fflush(stdout);
         */
@@ -93,7 +93,7 @@ void bmp_adjust_contrast(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,
     WILLUSBITMAP *dst,_dst;
 
     if (k2settings->debug && k2settings->verbose)
-        printf("\nAt adjust_contrast.\n");
+        k2printf("\nAt adjust_contrast.\n");
     if ((*white) <= 0)
         (*white)=192;
     /* If contrast_max negative, use it as fixed contrast adjustment. */
@@ -132,7 +132,7 @@ void bmp_adjust_contrast(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,
                 h1+=hist[j];
             rat0=(double)h1/tc;
             if (k2settings->debug && k2settings->verbose)
-                printf("    rat0 = rat[%d-255]=%.4f\n",(*white),rat0);
+                k2printf("    rat0 = rat[%d-255]=%.4f\n",(*white),rat0);
             }
         
         /* Find white ratio */
@@ -148,14 +148,14 @@ void bmp_adjust_contrast(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,
             break;
         */
         if (k2settings->debug && k2settings->verbose)
-            printf("    %2d. Contrast=%7.2f, rat[252-255]/rat0=%.4f\n",
+            k2printf("    %2d. Contrast=%7.2f, rat[252-255]/rat0=%.4f\n",
                         tries+1,contrast,(double)wc/tc/rat0);
         if ((double)wc/tc >= rat0*0.94)
             break;
         contrast *= 1.05;
         }
     if (k2settings->debug)
-        printf("Contrast=%7.2f, rat[252-255]/rat0=%.4f\n",
+        k2printf("Contrast=%7.2f, rat[252-255]/rat0=%.4f\n",
                        contrast,(double)wc/tc/rat0);
 /*
 bmp_write(dst,"outc.png",stdout,100);
@@ -264,7 +264,7 @@ double bmp_orientation(WILLUSBITMAP *bmp)
         int wth,wtv;
 
 #ifdef DEBUG
-printf("h %d:\n",i);
+k2printf("h %d:\n",i);
 #endif
         if (ic==0)
             wth=-1;
@@ -279,7 +279,7 @@ f=fopen("inf.ep","a");
 fprintf(f,"/ag\n");
 fclose(f);
 }
-printf("v %d:\n",i);
+k2printf("v %d:\n",i);
 #endif
         if (ic==0)
             wtv=-1;
@@ -307,7 +307,7 @@ wtv=-1;
         rat=vsum/hsum;
     if (rat < .01)
         rat = .01;
-    // printf("    page %2d:  %8.4f\n",pagenum,rat);
+    // k2printf("    page %2d:  %8.4f\n",pagenum,rat);
     // fprintf(out,"\t%8.4f",vsum/hsum);
     // fprintf(out,"\n");
     return(rat);
@@ -439,7 +439,7 @@ static int inflection_count(double *x,int n,int delta,int *wthresh)
         if (wt<192)
             wt=192;
 #ifdef DEBUG
-printf("wt=%d\n",wt);
+k2printf("wt=%d\n",wt);
 #endif
         (*wthresh)=wt;
         }
@@ -499,7 +499,7 @@ printf("wt=%d\n",wt);
     else
         f2=1.;
 #ifdef DEBUG
-printf("    ni=%3d, f1=%8.4f, f2=%8.4f, f1*f2*ni=%8.4f\n",ni,f1,f2,f1*f2*ni);
+k2printf("    ni=%3d, f1=%8.4f, f2=%8.4f, f1*f2*ni=%8.4f\n",ni,f1,f2,f1*f2*ni);
 {
 static int count=0;
 FILE *f;
@@ -521,14 +521,14 @@ fclose(f);
 ** bmp must be grayscale! (cbmp = color, can be null)
 */
 void bmp_detect_vertical_lines(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,
-                               double dpi,double minwidth_in,
+                               double dpi,/* double minwidth_in, */
                                double maxwidth_in,double minheight_in,double anglemax_deg,
                                int white_thresh,int erase_vertical_lines,int debug,int verbose)
 
     {
     int tc,iangle,irow,icol;
     int rowstep,na,angle_sign,ccthresh;
-    int pixmin,halfwidth,bytewidth;
+    int halfwidth,bytewidth;
     int bs1,nrsteps;
     double anglestep;
     WILLUSBITMAP *tmp,_tmp;
@@ -536,10 +536,10 @@ void bmp_detect_vertical_lines(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,
     unsigned char *t0;
 
     if (debug)
-        printf("At bmp_detect_vertical_lines...\n");
+        k2printf("At bmp_detect_vertical_lines...\n");
     if (!bmp_is_grayscale(bmp))
         {
-        printf("Internal error.  bmp_detect_vertical_lines passed a non-grayscale bitmap.\n");
+        k2printf("Internal error.  bmp_detect_vertical_lines passed a non-grayscale bitmap.\n");
         exit(10);
         }
     tmp=&_tmp;
@@ -548,12 +548,15 @@ void bmp_detect_vertical_lines(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,
     p0=bmp_rowptr_from_top(bmp,0);
     t0=bmp_rowptr_from_top(tmp,0);
     bytewidth=bmp_bytewidth(bmp);
+    /*
     pixmin = (int)(minwidth_in*dpi+.5);
     if (pixmin<1)
         pixmin=1;
     halfwidth=pixmin/4;
     if (halfwidth<1)
         halfwidth=1; 
+    */
+    halfwidth=1;
     anglestep=atan2((double)halfwidth/dpi,minheight_in);
     na=(int)((anglemax_deg*PI/180.)/anglestep+.5);
     if (na<1)
@@ -567,7 +570,7 @@ void bmp_detect_vertical_lines(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,
     if (ccthresh<2)
         ccthresh=2;
     if (debug && verbose)
-        printf("    na = %d, rowstep = %d, ccthresh = %d, white_thresh = %d, nrsteps=%d\n",na,rowstep,ccthresh,white_thresh,nrsteps);
+        k2printf("    na = %d, rowstep = %d, ccthresh = %d, white_thresh = %d, nrsteps=%d\n",na,rowstep,ccthresh,white_thresh,nrsteps);
 /*
 bmp_write(bmp,"out.png",stdout,97);
 wfile_written_info("out.png",stdout);
@@ -602,7 +605,7 @@ wfile_written_info("out.png",stdout);
                     ic1=(int)(-bmp->height*tanth+1.);
                     ic2=bmp->width-1+(int)(-bmp->height*tanth+1.);
                     }
-// printf("iangle=%2d, angle_sign=%2d, ic1=%4d, ic2=%4d\n",iangle,angle_sign,ic1,ic2);
+// k2printf("iangle=%2d, angle_sign=%2d, ic1=%4d, ic2=%4d\n",iangle,angle_sign,ic1,ic2);
                 for (icol=ic1;icol<=ic2;icol++)
                     {
                     unsigned char *p,*t;
@@ -651,9 +654,9 @@ wfile_written_info("out.png",stdout);
         if (ccmax<ccthresh)
             break;
         if (debug)
-            printf("    Vert line detected:  ccmax=%d (pix=%d), tanthmax=%g, ic0max=%d, ir0max=%d\n",ccmax,ccmax*rowstep,tanthmax,ic0max,ir0max);
+            k2printf("    Vert line detected:  ccmax=%d (pix=%d), tanthmax=%g, ic0max=%d, ir0max=%d\n",ccmax,ccmax*rowstep,tanthmax,ic0max,ir0max);
         if (!vert_line_erase(bmp,cbmp,tmp,ir0max,ic0max,tanthmax,minheight_in,
-                             minwidth_in,maxwidth_in,white_thresh,dpi,erase_vertical_lines))
+                             /*minwidth_in,*/ maxwidth_in,white_thresh,dpi,erase_vertical_lines))
             break;
         }
 /*
@@ -672,7 +675,7 @@ exit(10);
 */
 static int vert_line_erase(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,WILLUSBITMAP *tmp,
                     int row0,int col0,double tanth,double minheight_in,
-                    double minwidth_in,double maxwidth_in,int white_thresh,
+                    /* double minwidth_in,*/ double maxwidth_in,int white_thresh,
                     double dpi,int erase_vertical_lines)
 
     {
@@ -764,9 +767,12 @@ static int vert_line_erase(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,WILLUSBITMAP *tm
         }
     if (n>1)
         sorti(w,n);
+/*
+printf("n=%d, w[%d]=%d, w[%d]=%d (mw=%g)\n",n,n/4,w[n/4],3*n/4,w[3*n/4],maxwidth_in*dpi);
+*/
     if (n < 10 || n < minheight_in*dpi
-               || w[n/4] < minwidth_in*dpi 
-               || w[3*n/4] > maxwidth_in*dpi
+               || w[n/4] < 1 /* (int)(minwidth_in*dpi + .5) */
+               || w[3*n/4] > (int)(maxwidth_in*dpi)
                || (erase_vertical_lines==1 && w[n-1] > maxwidth_in*dpi))
         {
         /* Erase area in temp bitmap */
@@ -788,7 +794,7 @@ static int vert_line_erase(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,WILLUSBITMAP *tm
         /* Erase line width in source bitmap */
         lw=w[3*n/4]+nw*2;
         if (lw > maxwidth_in*dpi/2)
-            lw=maxwidth_in*dpi/2; 
+            lw=maxwidth_in*dpi/2;
         for (i=0;i<bmp->height;i++)
             {
             unsigned char *p;

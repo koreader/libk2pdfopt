@@ -45,6 +45,7 @@ void masterinfo_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
     masterinfo->wordcount=0;
     masterinfo->debugfolder[0]='\0';
     bmp_init(&masterinfo->bmp);
+    masterinfo->bmp.height=masterinfo->bmp.width=0;
     masterinfo->bmp.bpp=k2settings->dst_color ? 24 : 8;
     for (i=0;i<256;i++)
         masterinfo->bmp.red[i]=masterinfo->bmp.blue[i]=masterinfo->bmp.green[i]=i;
@@ -64,6 +65,9 @@ void masterinfo_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
 #endif
         masterinfo->debugfolder[0]='\0';
     masterinfo->rows=0;
+    masterinfo->fontsize=-1.;
+    masterinfo->linespacing=-1.;
+    masterinfo->gap=0;
     sprintf(masterinfo->pageinfo.producer,"K2pdfopt %s",k2pdfopt_version);
     }
 
@@ -135,7 +139,7 @@ int masterinfo_new_source_page_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2
                                          rot_deg,bormean,pageno))
         return(0);
     if (k2settings->erase_vertical_lines>0)
-        bmp_detect_vertical_lines(srcgrey,src,(double)k2settings->src_dpi,0.005,0.25,
+        bmp_detect_vertical_lines(srcgrey,src,(double)k2settings->src_dpi,/*0.005,*/0.25,
                         k2settings->min_column_height_inches,k2settings->src_autostraighten,white,
                         k2settings->erase_vertical_lines,
                         k2settings->debug,k2settings->verbose);
@@ -186,10 +190,10 @@ static int masterinfo_detecting_orientation(MASTERINFO *masterinfo,K2PDFOPT_SETT
         double bor,rotnow;
 
         if (k2settings->debug)
-            printf("Checking orientation of page %d ... ",pageno);
+            k2printf("Checking orientation of page %d ... ",pageno);
         bor=bmp_orientation(srcgrey);
         if (k2settings->debug)
-            printf("orientation factor = %g\n",bor);
+            k2printf("orientation factor = %g\n",bor);
         if (OR_DETECT(rot_deg))
             {
             if (bormean!=NULL)
@@ -247,33 +251,33 @@ void masterinfo_add_bitmap(MASTERINFO *masterinfo,WILLUSBITMAP *src,
 
     {
     WILLUSBITMAP *src1,_src1;
-    WILLUSBITMAP *tmp;
+    WILLUSBITMAP *tmp,_tmp;
 #ifdef HAVE_OCR_LIB
-    WILLUSBITMAP _tmp;
     OCRWORDS _words,*words;
 #endif
     int dw,dw2;
-    int i,srcbytespp,srcbytewidth,go_full;
+    int i,srcbytespp,srcbytewidth,go_full,gap_start;
     int destwidth,destx0,just;
+    static char *funcname="masterinfo_add_bitmap";
 
     if (src->width<=0 || src->height<=0)
         return;
 /*
-printf("@masterinfo_add_bitmap.  dst->bpp=%d, src->bpp=%d, src=%d x %d\n",masterinfo->bmp.bpp,src->bpp,src->width,src->height);
+k2printf("@masterinfo_add_bitmap.  dst->bpp=%d, src->bpp=%d, src=%d x %d\n",masterinfo->bmp.bpp,src->bpp,src->width,src->height);
 */
 /*
 {
 static int count=0;
 static char filename[256];
 
-printf("    @masterinfo_add_bitmap...\n");
+k2printf("    @masterinfo_add_bitmap...\n");
 sprintf(filename,"src%05d.png",count++);
 bmp_write(src,filename,stdout,100);
 }
 */
 /*
 if (fulljust && k2settings->dst_fulljustify)
-printf("srcbytespp=%d, srcbytewidth=%d, destwidth=%d, destx0=%d, destbytewidth=%d\n",
+k2printf("srcbytespp=%d, srcbytewidth=%d, destwidth=%d, destx0=%d, destbytewidth=%d\n",
 srcbytespp,srcbytewidth,destwidth,destx0,dstbytewidth);
 */
 
@@ -315,32 +319,170 @@ srcbytespp,srcbytewidth,destwidth,destx0,dstbytewidth);
         src1=src;
 
 #if (WILLUSDEBUGX & 1)
-printf("@masterinfo_add_bitmap:  jflags=0x%02X just=%d, go_full=%d\n",justification_flags,just,go_full);
-printf("    destx0=%d, destwidth=%d, src->width=%d\n",destx0,destwidth,src->width);
+k2printf("@masterinfo_add_bitmap:  jflags=0x%02X just=%d, go_full=%d\n",justification_flags,just,go_full);
+k2printf("    destx0=%d, destwidth=%d, src->width=%d\n",destx0,destwidth,src->width);
+#endif
+
+    if (k2settings->vertical_break_threshold < 0
+#ifdef HAVE_OCR_LIB
+          || k2settings->dst_ocr
+#endif
+                                )
+        {
+        BMPREGION region;
+        BREAKINFO *rowbreaks,_rowbreaks;
+        int *colcount,*rowcount;
+        WILLUSBITMAP *gray,_gray;
+
+        if (src1->bpp==8)
+            gray=src1;
+        else
+            {
+            gray=&_gray;
+            bmp_init(gray);
+            bmp_convert_to_grayscale_ex(gray,src1);
+            }
+        region.bgcolor=whitethresh;
+        region.c1=0;
+        region.c2=gray->width-1;
+        region.r1=0;
+        region.r2=gray->height-1;
+        region.bmp8=gray;
+        region.bmp=src1; /* May not be 24-bit! */
+        region.dpi=dpi;
+        colcount=rowcount=NULL;
+        willus_dmem_alloc_warn(25,(void **)&colcount,sizeof(int)*(gray->width+gray->height),funcname,10);
+        rowcount=&colcount[gray->width];
+        /* Allocate rowbreaks structure */
+        rowbreaks=&_rowbreaks;
+        rowbreaks->textrow=NULL;
+        breakinfo_alloc(104,rowbreaks,gray->height);
+        /* Find row breaks so we can determine line spacing of region */
+#if (WILLUSDEBUGX & 512)
+printf("Add bitmap to master, scanning region for vertical breaks...\n");
+printf("    Region = (%d,%d) - (%d,%d)\n",region.c1,region.r1,region.c2,region.r2);
+#endif
+        bmpregion_find_vertical_breaks(&region,rowbreaks,k2settings,colcount,rowcount,
+                                       k2settings->column_row_gap_height_in);
+#if (WILLUSDEBUGX & 512)
+printf("    Found %d row breaks.\n",rowbreaks->n);
+#endif
+        /*
+        ** Record line size at beginning/end of region so we can accurately
+        ** connect consecutive large regions if necessary.
+        ** (only necesary if vertical_break_threshold < 0)
+        */
+        if (k2settings->vertical_break_threshold < 0 && rowbreaks->n > 0)
+            {
+            int fontsize1,rowbase1,linespacing1;
+            int fontsizen,linespacingn;
+
+            fontsize1=(rowbreaks->textrow[0].capheight
+                      + rowbreaks->textrow[0].lcheight) / 2.;
+            rowbase1=rowbreaks->textrow[0].rowbase;
+            fontsizen=(rowbreaks->textrow[rowbreaks->n-1].capheight
+                      + rowbreaks->textrow[rowbreaks->n-1].lcheight) / 2.;
+            if (rowbreaks->n > 1)
+                {
+                linespacing1 = rowbreaks->textrow[1].rowbase
+                               - rowbreaks->textrow[0].rowbase;
+                linespacingn = rowbreaks->textrow[rowbreaks->n-1].rowbase
+                               - rowbreaks->textrow[rowbreaks->n-2].rowbase;
+                }
+            else
+                {
+                linespacing1 = -1.;
+                linespacingn = -1.;
+                }
+#if (WILLUSDEBUGX & 512)
+printf("\nregion: %d x %d\n",region.c2-region.c1+1,region.r2-region.r1+1);
+printf("dpi=%d\n",dpi);
+printf("fontsize1=%d\n",fontsize1);
+printf("linespacing1=%d\n",linespacing1);
+printf("rowbase1=%d\n",rowbase1);
+printf("fontsizen=%d\n",fontsizen);
+printf("linespacingn=%d\n",linespacingn);
+printf("mi->linespacing=%d\n",masterinfo->linespacing);
+printf("mi->fontsize=%d\n",masterinfo->fontsize);
+printf("mi->gap=%d\n",masterinfo->gap);
+#endif
+            if ((masterinfo->linespacing > 0. && linespacing1 > 0.
+                   && fabs((double)linespacing1/masterinfo->linespacing-1.)<.1)
+                 || (masterinfo->fontsize > 0
+                      && fabs((double)fontsize1/masterinfo->fontsize-1.)<.2))
+                {
+                int ls;
+                ls=linespacing1;
+                if (ls<0.)
+                    ls=masterinfo->linespacing;
+                if (ls<0.)
+                    ls=fontsize1*2.;
+                gap_start = ls - (rowbase1 + 1 - region.r1 + masterinfo->gap);
+                }
+            /*
+            ** This doesn't work well if figures cause the linespacing on either
+            ** side to be very large.
+            **
+            else if (masterinfo->linespacing > 0. && linespacing1 > 0.)
+                {
+                int ls;
+                ls = masterinfo->linespacing > linespacing1
+                            ? masterinfo->linespacing : linespacing1;
+                gap_start = ls*1.2 - (rowbase1 + 1 - region.r1 + masterinfo->gap);
+                }
+            */
+            else
+                gap_start = k2settings->max_vertical_gap_inches*dpi - masterinfo->gap;
+            if (gap_start + masterinfo->gap > k2settings->max_vertical_gap_inches*dpi)
+                gap_start = k2settings->max_vertical_gap_inches*dpi - masterinfo->gap;
+            if (gap_start < 0)
+                gap_start = 0;
+            masterinfo->gap = region.r2 - rowbreaks->textrow[rowbreaks->n-1].rowbase;
+            masterinfo->fontsize = fontsizen;
+            masterinfo->linespacing = linespacingn;
+            if (gap_start < 0)
+                gap_start = 0;
+            }
+        else
+            gap_start = 0;
+#if (WILLUSDEBUGX & 512)
+printf("gap_start=%d\n\n",gap_start);
 #endif
 #ifdef HAVE_OCR_LIB
-    if (k2settings->dst_ocr)
-        {
-        /* Run OCR on the bitmap */
-        words=&_words;
-        ocrwords_init(words);
-        k2ocr_ocrwords_fill_in(k2settings,words,src1,whitethresh,dpi);
+        if (k2settings->dst_ocr)
+            {
+            /* Run OCR on the bitmap */
+            words=&_words;
+            ocrwords_init(words);
+            k2ocr_ocrwords_fill_in_ex(k2settings,&region,rowbreaks,colcount,rowcount,words);
+            }
+#endif
+        breakinfo_free(104,rowbreaks);
+        willus_dmem_free(25,(double **)&colcount,funcname);
+        if (src1->bpp!=8)
+            bmp_free(gray);
         /* Scale bitmap and word positions to destination size */
         if (nocr>1)
             {
             tmp=&_tmp;
             bmp_init(tmp);
             bmp_integer_resample(tmp,src1,nocr);
-            ocrwords_int_scale(words,nocr);
+            gap_start /= nocr;
+#ifdef HAVE_OCR_LIB
+            if (k2settings->dst_ocr)
+                ocrwords_int_scale(words,nocr);
+#endif
             }
         else
             tmp=src1;
         }
-    else
-#endif
+    else /* No OCR and no vertical break < 0 */
+        {
+        gap_start = 0;
         tmp=src1;
+        }
 /*
-printf("writing...\n");
+k2printf("writing...\n");
 ocrwords_box(words,tmp);
 bmp_write(tmp,"out.png",stdout,100);
 exit(10);
@@ -358,7 +500,7 @@ exit(10);
 #ifdef HAVE_OCR_LIB
     if (k2settings->dst_ocr)
         {
-        ocrwords_offset(words,dw,masterinfo->rows);
+        ocrwords_offset(words,dw,masterinfo->rows+gap_start);
         ocrwords_concatenate(&k2settings->dst_ocrwords,words);
         ocrwords_free(words);
         }
@@ -376,7 +518,7 @@ exit(10);
         box=&masterinfo->pageinfo.boxes.box[masterinfo->pageinfo.boxes.n-1];
         /* These values will get adjusted in masterinfo_publish() */
         box->x1 = dw;
-        box->y1 = masterinfo->rows;
+        box->y1 = masterinfo->rows+gap_start;
         box->userx = tmp->width;
         box->usery = tmp->height;
         }
@@ -388,6 +530,35 @@ exit(10);
     dw2=masterinfo->bmp.width-tmp->width-dw;
     dw *= srcbytespp;
     dw2 *= srcbytespp;
+    while (masterinfo->rows+tmp->height+gap_start > masterinfo->bmp.height)
+        bmp_more_rows(&masterinfo->bmp,1.4,255);
+#if (WILLUSDEBUGX & 512)
+{
+static int count=0;
+char filename[256];
+int ht;
+
+ht=masterinfo->bmp.height;
+masterinfo->bmp.height=masterinfo->rows;
+sprintf(filename,"master%03da.png",count);
+if (masterinfo->bmp.height>0)
+bmp_write(&masterinfo->bmp,filename,stdout,100);
+masterinfo->bmp.height=ht;
+sprintf(filename,"master%03db.png",count);
+if (tmp->height>0)
+bmp_write(tmp,filename,stdout,100);
+#endif
+    /*
+    ** Add gap
+    */
+    if (gap_start>0)
+        {
+        unsigned char *pdst;
+
+        pdst=bmp_rowptr_from_top(&masterinfo->bmp,masterinfo->rows);
+        memset(pdst,255,bmp_bytewidth(&masterinfo->bmp)*gap_start);
+        masterinfo->rows += gap_start;
+        }
     for (i=0;i<tmp->height;i++,masterinfo->rows++)
         {
         unsigned char *pdst,*psrc;
@@ -400,12 +571,19 @@ exit(10);
         pdst += srcbytewidth;
         memset(pdst,255,dw2);
         }
-
-
-#ifdef HAVE_OCR_LIB
-    if (k2settings->dst_ocr && nocr>1)
-        bmp_free(tmp);
+#if (WILLUSDEBUGX & 512)
+ht=masterinfo->bmp.height;
+masterinfo->bmp.height=masterinfo->rows;
+sprintf(filename,"master%03dc.png",count);
+if (masterinfo->bmp.height>0)
+bmp_write(&masterinfo->bmp,filename,stdout,100);
+masterinfo->bmp.height=ht;
+count++;
+}
 #endif
+
+    if (nocr>1)
+        bmp_free(tmp);
     if (go_full)
         bmp_free(src1);
     }
@@ -417,9 +595,15 @@ void masterinfo_add_gap_src_pixels(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2s
     {
     double gap_inches;
 
-/*
-aprintf("%s " ANSI_GREEN "masterinfo_add" ANSI_NORMAL " %.3f in (%d pix)\n",caller,(double)pixels/k2settings->src_dpi,pixels);
-*/
+#if (WILLUSDEBUGX & 512)
+k2printf("%s " ANSI_GREEN "masterinfo_add" ANSI_NORMAL " %.3f in (%d pix)\n",caller,(double)pixels/k2settings->src_dpi,pixels);
+#endif
+#ifdef WILLUSDEBUG
+printf("@masterinfo_add_gap_src_pixels(mi=%p,k2settings=%p,pixels=%d,caller=%s)\n",
+masterinfo,k2settings,pixels,caller);
+printf("   src_dpi=%g\n",(double)k2settings->src_dpi);
+printf("   dst_dpi=%g\n",(double)k2settings->dst_dpi);
+#endif
     if (k2settings->last_scale_factor_internal < 0.)
         gap_inches=(double)pixels/k2settings->src_dpi;
     else
@@ -486,10 +670,10 @@ int masterinfo_get_next_output_page(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2
     int bp,i;
 
     if (k2settings->debug)
-        printf("@masterinfo_get_next_output_page(page %d)\n",masterinfo->published_pages);
+        k2printf("@masterinfo_get_next_output_page(page %d)\n",masterinfo->published_pages);
     if (masterinfo->bmp.width != k2settings->dst_width)
         {
-        aprintf("\n\n\a" TTEXT_WARN "!! Internal error, masterinfo->bmp.width=%d != dst_width=%d.\n"
+        k2printf("\n\n\a" TTEXT_WARN "!! Internal error, masterinfo->bmp.width=%d != dst_width=%d.\n"
                "Contact author." TTEXT_NORMAL "\n\n",masterinfo->bmp.width,k2settings->dst_width);
         wsys_enter_to_exit(NULL);
         exit(10);
@@ -508,9 +692,9 @@ int masterinfo_get_next_output_page(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2
         r0=k2settings->dst_height-maxsize;
     rr= flushall ? 0 : maxsize;
     if (k2settings->verbose)
-        printf("rows=%d, maxsize=%d, rr=%d\n",masterinfo->rows,maxsize,rr);
+        k2printf("rows=%d, maxsize=%d, rr=%d\n",masterinfo->rows,maxsize,rr);
 #if (WILLUSDEBUGX & 64)
-printf("start:  mi->rows=%d, rr=%d\n",masterinfo->rows,rr);
+k2printf("start:  mi->rows=%d, rr=%d\n",masterinfo->rows,rr);
 #endif
     /* Enough pixel rows in dest bitmap?  IF so, create an output page */
     if (masterinfo->rows<=0 || masterinfo->rows<rr)
@@ -519,9 +703,9 @@ printf("start:  mi->rows=%d, rr=%d\n",masterinfo->rows,rr);
     /* Get a suitable breaking point for the next page */
     bp=masterinfo_break_point(masterinfo,maxsize);
     if (k2settings->verbose)
-        printf("bp: maxsize=%d, bp=%d, r0=%d\n",maxsize,bp,r0);
+        k2printf("bp: maxsize=%d, bp=%d, r0=%d\n",maxsize,bp,r0);
 #if (WILLUSDEBUGX & 64)
-printf("bp: maxsize=%d, bp=%d, r0=%d\n",maxsize,bp,r0);
+k2printf("bp: maxsize=%d, bp=%d, r0=%d\n",maxsize,bp,r0);
 #endif
     bmp1->bpp=masterinfo->bmp.bpp;
     for (i=0;i<256;i++)
@@ -535,10 +719,10 @@ printf("bp: maxsize=%d, bp=%d, r0=%d\n",maxsize,bp,r0);
     */
     /* If too tall, shrink to fit */
 #if (WILLUSDEBUGX & 64)
-printf("masterinfo->rows=%d\n",masterinfo->rows);
-printf("bp=%d, maxsize=%d\n",bp,maxsize);
-printf("dst_width=%g\n",(double)k2settings->dst_width);
-printf("dst_height=%g\n",(double)k2settings->dst_height);
+k2printf("masterinfo->rows=%d\n",masterinfo->rows);
+k2printf("bp=%d, maxsize=%d\n",bp,maxsize);
+k2printf("dst_width=%g\n",(double)k2settings->dst_width);
+k2printf("dst_height=%g\n",(double)k2settings->dst_height);
 #endif
     if (bp>maxsize)
         {
@@ -561,11 +745,11 @@ printf("dst_height=%g\n",(double)k2settings->dst_height);
     bmp1->width=lwidth;
     bmp1->height=lheight;
 #if (WILLUSDEBUGX & 64)
-printf("bmp1 wxh = %d x %d\n",bmp1->width,bmp1->height);
+k2printf("bmp1 wxh = %d x %d\n",bmp1->width,bmp1->height);
 #endif
     masterinfo->published_pages++;
 #if (WILLUSDEBUGX & 64)
-printf("mi->published_pages=%d\n",masterinfo->published_pages);
+k2printf("mi->published_pages=%d\n",masterinfo->published_pages);
 #endif
 
 #ifdef HAVE_MUPDF_LIB
@@ -750,7 +934,7 @@ static void masterinfo_add_cropbox(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2s
     height=bmp1->height+r0+r1;
     dstpageno = masterinfo->published_pages;
 #if (WILLUSDEBUGX & 64)
-printf("@masterinfo_add_cropbox, nboxes=%d\n",masterinfo->pageinfo.boxes.n);
+k2printf("@masterinfo_add_cropbox, nboxes=%d\n",masterinfo->pageinfo.boxes.n);
 #endif
     for (i=0;i<masterinfo->pageinfo.boxes.n;i++)
         {
@@ -759,11 +943,11 @@ printf("@masterinfo_add_cropbox, nboxes=%d\n",masterinfo->pageinfo.boxes.n);
 
         box=&masterinfo->pageinfo.boxes.box[i];
 #if (WILLUSDEBUGX & 64)
-printf("    box[%2d]:  x0pts=%g, y0pts=%g, %g x %g\n",i,box->srcbox.x0_pts,box->srcbox.y0_pts,
+k2printf("    box[%2d]:  x0pts=%g, y0pts=%g, %g x %g\n",i,box->srcbox.x0_pts,box->srcbox.y0_pts,
 box->srcbox.crop_width_pts,box->srcbox.crop_height_pts);
-printf("              Top = %d, height = %d\n",(int)box->y1,(int)box->usery);
-printf("              box->dstpage = %d\n",box->dstpage);
-printf("              box->y1 = %g, rows-.1 = %g\n",box->y1,rows-.1);
+k2printf("              Top = %d, height = %d\n",(int)box->y1,(int)box->usery);
+k2printf("              box->dstpage = %d\n",box->dstpage);
+k2printf("              box->y1 = %g, rows-.1 = %g\n",box->y1,rows-.1);
 #endif
         if (box->dstpage>0)
             continue;
@@ -772,7 +956,7 @@ printf("              box->y1 = %g, rows-.1 = %g\n",box->y1,rows-.1);
             continue;
         /* If crop-box is cut off by this page, split it */
 #if (WILLUSDEBUGX & 64)
-printf("    box[%d]:  rows(bp)=%d, ix0=%d, iy0=%d, y1=%g, usery=%g, bmp1->ht=%d\n",i,rows,
+k2printf("    box[%d]:  rows(bp)=%d, ix0=%d, iy0=%d, y1=%g, usery=%g, bmp1->ht=%d\n",i,rows,
 (int)(box->srcbox.x0_pts*10.+.5),
 (int)((box->srcbox.page_height_pts-box->srcbox.y0_pts)*10.+.5),
 box->y1,box->usery,bmp1->height);
@@ -782,7 +966,7 @@ box->y1,box->usery,bmp1->height);
             double newheight,dy;
             newheight = box->usery-(rows-box->y1);
 #if (WILLUSDEBUGX & 64)
-printf("    Splitting box.  New height=%d.\n",(int)newheight);
+k2printf("    Splitting box.  New height=%d.\n",(int)newheight);
 #endif
             if (newheight>0.5)
                 {
@@ -804,7 +988,7 @@ printf("    Splitting box.  New height=%d.\n",(int)newheight);
                 }
             }
 #if (WILLUSDEBUGX & 64)
-printf("    Adding box %d.\n",i);
+k2printf("    Adding box %d.\n",i);
 #endif
         box->dstpage = dstpageno;
         w1=(bmp1->width-masterinfo->bmp.width)/2;
@@ -928,15 +1112,38 @@ void masterinfo_add_gap(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,dou
     int n,bw;
     unsigned char *p;
 
+#ifdef WILLUSDEBUG
+printf("@masterinfo_add_gap(%g inches), masterinfo->bmp.height=%d, dpi=%g\n",inches,masterinfo->bmp.height,(double)k2settings->dst_dpi);
+printf("    rows=%d\n",masterinfo->rows);
+#endif
     n=(int)(inches*k2settings->dst_dpi+.5);
     if (n<1)
         n=1;
+#ifdef WILLUSDEBUG
+printf("    n=%d, rowptr=%p\n",n,bmp_rowptr_from_top(&masterinfo->bmp,0));
+#endif
     while (masterinfo->rows+n > masterinfo->bmp.height)
+{
+#ifdef WILLUSDEBUG
+printf("   calling bmp_more_rows()\n");
+#endif
         bmp_more_rows(&masterinfo->bmp,1.4,255);
+#ifdef WILLUSDEBUG
+printf("   back.\n");
+printf("    n=%d, rowptr=%p\n",n,bmp_rowptr_from_top(&masterinfo->bmp,0));
+#endif
+}
     bw=bmp_bytewidth(&masterinfo->bmp)*n;
     p=bmp_rowptr_from_top(&masterinfo->bmp,masterinfo->rows);
+#ifdef WILLUSDEBUG
+printf("  calling memset (p=%p, ht=%d, rows=%d, bmpwidth=%d, bw=%d)\n",p,masterinfo->bmp.height,masterinfo->rows,masterinfo->bmp.width,bw);
+#endif
     memset(p,255,bw);
+#ifdef WILLUSDEBUG
+printf("  back\n");
+#endif
     masterinfo->rows += n;
+    masterinfo->gap += n;
     }
 
 
@@ -1102,7 +1309,7 @@ static int masterinfo_break_point(MASTERINFO *masterinfo,int maxsize)
     int bp1e,bp2e;
 
 /*
-printf("@breakpoint, mi->rows=%d, maxsize=%d\n",masterinfo->rows,maxsize);
+k2printf("@breakpoint, mi->rows=%d, maxsize=%d\n",masterinfo->rows,maxsize);
 */
     /* masterinfo->fit_to_page==-2 means user specified -f2p -2 which means */
     /* flush entire contents of master to single page every time.   */
@@ -1118,7 +1325,7 @@ printf("@breakpoint, mi->rows=%d, maxsize=%d\n",masterinfo->rows,maxsize);
         scanheight=maxsize;
     /* If available rows almost exactly fit page, just send the whole thing */
 /*
-printf("    scanheight=%d, mi->rows=%d, fabs=%g\n",scanheight,masterinfo->rows,
+k2printf("    scanheight=%d, mi->rows=%d, fabs=%g\n",scanheight,masterinfo->rows,
 fabs((double)scanheight/masterinfo->rows-1.));
 */
     if (abs(scanheight-masterinfo->rows)<=1
@@ -1156,7 +1363,7 @@ fabs((double)scanheight/masterinfo->rows-1.));
         if (rowcount[i]==0)
             {
 // if (cw==0)
-// printf("%d black\n",fc);
+// k2printf("%d black\n",fc);
             cw++;
             if (fc>figure)
                 {
@@ -1187,7 +1394,7 @@ fabs((double)scanheight/masterinfo->rows-1.));
         else
             {
 // if (fc==0)
-// printf("%d white\n",cw);
+// k2printf("%d white\n",cw);
             cw=0;
             nwc++;
             fc++;
@@ -1198,8 +1405,8 @@ fabs((double)scanheight/masterinfo->rows-1.));
 static int count=0;
 FILE *out;
 count++;
-printf("rows=%d, gs=%d, scanheight=%d, bp1=%d, bp2=%d\n",masterinfo->rows,goodsize,scanheight,bp1,bp2);
-printf("     bp1f=%d, bp2f=%d, bp1e=%d, bp2e=%d\n",bp1f,bp2f,bp1e,bp2e);
+k2printf("rows=%d, gs=%d, scanheight=%d, bp1=%d, bp2=%d\n",masterinfo->rows,goodsize,scanheight,bp1,bp2);
+k2printf("     bp1f=%d, bp2f=%d, bp1e=%d, bp2e=%d\n",bp1f,bp2f,bp1e,bp2e);
 bmp_write(&masterinfo->bmp,"master.png",stdout,100);
 out=fopen("rc.dat","w");
 for (i=0;i<scanheight;i++)

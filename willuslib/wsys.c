@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -505,4 +505,92 @@ static int wsys_decimal_is_period(void)
         return(0);
     strcpy(buf,"12.34");
     return(fabs(atof(buf)-x) < .01);
+    }
+
+/*
+** Returns 0 for okay, negative value for error.
+** Only implemented in Windows for now.
+** system==NZ for system level var, 0 for user var.
+*/
+int wsys_set_envvar(char *varname,char *value,int system)
+
+    {
+    char *estr;
+    static char *funcname="wsys_set_envvar";
+#if (defined(WIN32) || defined(WIN64))
+    int status;
+    HKEY newkey;
+#endif
+
+    willus_mem_alloc_warn((void **)&estr,strlen(varname)+strlen(value)+16,funcname,10);
+    sprintf(estr,"%s=%s",varname,value);
+    putenv(estr);
+    willus_mem_free((double **)&estr,funcname);
+#if (defined(WIN32) || defined(WIN64))
+    /* Make permanent by changing Windows registry */
+    if (system)
+        status=RegOpenKeyEx(HKEY_LOCAL_MACHINE,"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",0,KEY_WRITE,&newkey);
+    else
+        status=RegOpenKeyEx(HKEY_CURRENT_USER,"Environment",0,KEY_WRITE,&newkey);
+    if (status!=ERROR_SUCCESS)
+        return(-1);
+    status=RegSetValueEx(newkey,varname,0,REG_SZ,(unsigned char *)value,strlen(value)+1);
+    if (status!=ERROR_SUCCESS)
+        return(-2);
+    RegCloseKey(newkey);
+#endif
+    return(0);
+    }
+
+
+/*
+** Return 0 for okay, negative for error.
+**
+** If windows, uses registry first.
+**
+*/
+int wsys_get_envvar_ex(char *varname,char *value,int maxlen)
+
+    {
+    char *p;
+#if (defined(WIN32) || defined(WIN64))
+    int i,status;
+    HKEY newkey;
+    
+    status=RegOpenKeyEx(HKEY_CURRENT_USER,"Environment",0,KEY_READ,&newkey);
+    if (status==ERROR_SUCCESS)
+        {
+        for (i=0;1;i++)
+            {
+            int size,valuesize,type;
+            char buf[1024];
+            char valuename[256];
+            
+            size=1023;
+            valuesize=255;
+            status=RegEnumValue(newkey,(DWORD)i,valuename,(LPDWORD)&valuesize,(LPDWORD)NULL,
+                                (LPDWORD)&type,(LPBYTE)buf,(LPDWORD)&size);
+            if (status==ERROR_SUCCESS)
+                {
+                if (!stricmp(valuename,varname))
+                    {
+                    strncpy(value,buf,maxlen-1);
+                    value[maxlen-1]='\0';
+                    RegCloseKey(newkey);
+                    return(0);
+                    }
+                }
+            else
+                break;
+            }
+        RegCloseKey(newkey);
+        }
+#endif
+    value[0]='\0';
+    p=getenv(varname);
+    if (p==NULL)
+        return(-10);
+    strncpy(value,p,maxlen-1);
+    value[maxlen-1]='\0';
+    return(0);
     }

@@ -722,6 +722,7 @@ void wfile_unique_part(char *filename,char *path);
 void wfile_reslash(char *filename);
 void wfile_slash_this_way(char *filename,int slash);
 char *wfile_temppath(char *path);
+void wfile_temppath_from_env(char *dir);
 char *wfile_tempname(char *dir,char *prefix);
 void wfile_abstmpnam(char *filename);
 int wfile_hushit(char *filename);
@@ -907,6 +908,8 @@ double wsys_utc_offset(void);
 char  *wsys_utc_string(void);
 void   wsys_enter_to_exit(char *mesg);
 int    wsys_set_decimal_period(int setit);
+int    wsys_set_envvar(char *varname,char *value,int system);
+int    wsys_get_envvar_ex(char *varname,char *value,int maxlen);
 
 
 /* token.c */

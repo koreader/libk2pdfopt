@@ -1,15 +1,19 @@
 K2pdfopt build help.
 http://willus.com
 Original: 7 September 2012
-Last updated: 5 January 2013 (v1.64a)
+Last updated: 6 April 2013 (v1.65)
 
 This "read me" file describes the source code distribution for k2pdfopt.
+
+Version Change History
+----------------------
+See k2pdfoptlib\k2version.c.
 
 K2pdfopt Source Files
 ---------------------
 1. k2pdfopt.c (main module)
 
-2. k2pdfopt C library (21 C files + 1 header file) in k2pdfoptlib subfolder.
+2. k2pdfopt C library (22 C files + 1 header file) in k2pdfoptlib subfolder.
    Compile all C files in this subfolder and build them into libk2pdfopt.a.
 
 3. willus.com general-purpose C library (28 C files + 1 header file) in
@@ -26,20 +30,20 @@ NOTE 4 below).
 
     REQUIRED
     --------
-    1.  Z-lib 1.2.6 (zlib.net) -- SEE NOTE 1.
-    2.  libpng 1.5.9 (www.libpng.org)
-    3.  Turbo JPEG lib 1.2.0 (sourceforge.net/projects/libjpeg-turbo/)
+    1.  Z-lib 1.2.7 (zlib.net) -- SEE NOTE 1.
+    2.  libpng 1.5.14 (www.libpng.org)
+    3.  Turbo JPEG lib 1.2.1 (sourceforge.net/projects/libjpeg-turbo/)
 
     TO INCLUDE MuPDF LIBRARY (search for HAVE_MUPDF in k2pdfopt.c)
     --------------------------------------------------------------
     4.  JBIG2Dec 0.11 (jbig2dec.sourceforge.net)
     5.  OpenJPEG 1.5.0 (www.openjpeg.org)
-    6.  FreeType 2.4.10 (freetype.sourceforge.net/index2.html)
-    7.  Mupdf 1.1 (mupdf.com)
+    6.  FreeType 2.4.11 (freetype.sourceforge.net/index2.html)
+    7.  Mupdf 1.2 (mupdf.com)
 
     TO INCLUDE DjVuLibre LIBRARY (search for HAVE_DJVU in k2pdfopt.c)
     -----------------------------------------------------------------
-    8.  DJVULibre 3.5.25 (C++) (djvu.sourceforge.net)
+    8.  DJVULibre 3.5.25.3 (C++) (djvu.sourceforge.net)
 
     FOR OCR VERSIONS OF K2PDFOPT (search for HAVE_OCR in k2pdfopt.c)
     ----------------------------------------------------------------
@@ -107,8 +111,15 @@ to libxxx.a files in d:\3rdparty_lib and headers are in d:\3rdparty_include):
     4. g++ -Ofast -m32 -Wall -o k2pdfopt.exe k2pdfopt.o resfile.o -static-libgcc -static-libstdc++ d:\mingw\i386\lib\crt_noglob.o -Ld:\3rdparty_lib -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lgdi32 -lwsock32
 
 
-Build Steps on Linux and OS/X (64-bit)
---------------------------------------
+Build Steps on Linux (64-bit, gcc 4.7.2)
+----------------------------------------
+1. gcc -Wall -Ofast -m64 -o k2pdfopt.o -c k2pdfopt.c
+
+2. g++ -Ofast -m64 -o k2pdfopt k2pdfopt.o -static -static-libgcc -static-libstdc++ -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread
+
+
+Build Steps on OS/X (64-bit, gcc 4.2.1)
+---------------------------------------
 1. gcc -Wall -O3 -ffast-math -m64 -o k2pdfopt.o -c k2pdfopt.c
 
-2. g++ -O3 -ffast-math -m64 -o k2pdfopt k2pdfopt.o -static -static-libgcc -static-libstdc++ -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread
+2. g++ -O3 -ffast-math -m64 -o k2pdfopt k2pdfopt.o -static-libgcc -static-libstdc++ -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread

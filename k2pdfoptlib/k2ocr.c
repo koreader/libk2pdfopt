@@ -22,6 +22,8 @@
 
 #ifdef HAVE_OCR_LIB
 static int k2ocr_inited=0;
+static void k2ocr_ocrwords_fill_in(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region,
+                            BREAKINFO *rowbreaks,int *colcount,int *rowcount,OCRWORDS *words);
 #endif
 
 void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
@@ -35,7 +37,7 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
 #if (!defined(HAVE_TESSERACT_LIB) && defined(HAVE_GOCR_LIB))
     if (k2settings->dst_ocr=='t')
         {
-        aprintf(TTEXT_WARN "\a** Tesseract not compiled into this version.  Using GOCR. **"
+        k2printf(TTEXT_WARN "\a** Tesseract not compiled into this version.  Using GOCR. **"
                 TTEXT_NORMAL "\n\n");
         k2settings->dst_ocr='g';
         }
@@ -43,7 +45,7 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
 #if (defined(HAVE_TESSERACT_LIB) && !defined(HAVE_GOCR_LIB))
     if (k2settings->dst_ocr=='g')
         {
-        aprintf(TTEXT_WARN "\a** GOCR not compiled into this version.  Using Tesseract. **"
+        k2printf(TTEXT_WARN "\a** GOCR not compiled into this version.  Using Tesseract. **"
                 TTEXT_NORMAL "\n\n");
         k2settings->dst_ocr='t';
         }
@@ -53,22 +55,22 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
     if (k2settings->dst_ocr=='t')
         {
 #endif
-        aprintf(TTEXT_BOLD);
+        k2printf(TTEXT_BOLD);
         k2settings->ocrtess_status=ocrtess_init(NULL,
                           k2settings->dst_ocr_lang[0]=='\0'?NULL:k2settings->dst_ocr_lang,
                           3,stdout);
-        aprintf(TTEXT_NORMAL);
+        k2printf(TTEXT_NORMAL);
         if (k2settings->ocrtess_status)
-            aprintf(TTEXT_WARN "Could not find Tesseract data" TTEXT_NORMAL " (env var = TESSDATA_PREFIX).\nUsing GOCR v0.49.\n\n");
+            k2printf(TTEXT_WARN "Could not find Tesseract data" TTEXT_NORMAL " (env var TESSDATA_PREFIX = %s).\nUsing GOCR v0.49.\n\n",getenv("TESSDATA_PREFIX")==NULL?"(not assigned)":getenv("TESSDATA_PREFIX"));
         else
-            aprintf("\n");
+            k2printf("\n");
 #ifdef HAVE_GOCR_LIB
         }
     else
 #endif
 #endif
 #ifdef HAVE_GOCR_LIB
-        aprintf(TTEXT_BOLD "GOCR v0.49 OCR Engine" TTEXT_NORMAL "\n\n");
+        k2printf(TTEXT_BOLD "GOCR v0.49 OCR Engine" TTEXT_NORMAL "\n\n");
 #endif
 #endif /* HAVE_OCR_LIB */
     }
@@ -93,21 +95,60 @@ void k2ocr_end(K2PDFOPT_SETTINGS *k2settings)
 #ifdef HAVE_OCR_LIB
 /*
 ** Find words in src bitmap and put into words structure.
+** If ocrcolumns > maxcols, looks for multiple columns
+**
 */
-void k2ocr_ocrwords_fill_in(K2PDFOPT_SETTINGS *k2settings,OCRWORDS *words,WILLUSBITMAP *src,
-                            int whitethresh,int dpi)
+void k2ocr_ocrwords_fill_in_ex(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region,BREAKINFO *rowbreaks,
+                            int *colcount,int *rowcount,OCRWORDS *words)
 
     {
-    BMPREGION region;
-    BREAKINFO *rowbreaks,_rowbreaks;
+    PAGEREGIONS *pageregions,_pageregions;
+    int i,maxlevels;
+
+    if (k2settings->ocr_max_columns<0 || k2settings->ocr_max_columns <= k2settings->max_columns)
+        {
+        k2ocr_ocrwords_fill_in(k2settings,region,rowbreaks,colcount,rowcount,words);
+        return;
+        }
+    /* Parse region into columns for OCR */
+    pageregions=&_pageregions;
+    pageregions_init(pageregions);
+    if (k2settings->ocr_max_columns==2 || k2settings->max_columns>1)
+        maxlevels = 2;
+    else
+        maxlevels = 3;
+    pageregions_find(pageregions,region,rowcount,colcount,k2settings,maxlevels);
+    for (i=0;i<pageregions->n;i++)
+        {
+        BREAKINFO *rbreaks,_rbreaks;
+        BMPREGION *reg;
+
+        reg=&pageregions->pageregion[i].bmpregion;
+        rbreaks=&_rbreaks;
+        rbreaks->textrow=NULL;
+        breakinfo_alloc(104,rbreaks,reg->bmp8->height);
+        bmpregion_find_vertical_breaks(reg,rbreaks,k2settings,colcount,rowcount,
+                                       k2settings->column_row_gap_height_in);
+        k2ocr_ocrwords_fill_in(k2settings,reg,rbreaks,colcount,rowcount,words);
+        breakinfo_free(104,rbreaks);
+        }
+    pageregions_free(pageregions);
+    }
+
+    
+/*
+** Find words in src bitmap and put into words structure.
+*/
+static void k2ocr_ocrwords_fill_in(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region,
+                            BREAKINFO *rowbreaks,int *colcount,int *rowcount,OCRWORDS *words)
+
+    {
     BREAKINFO *colbreaks,_colbreaks;
-    WILLUSBITMAP *gray,_gray;
-    int *colcount,*rowcount;
     int i;
-    static char *funcname="ocrwords_fill_in";
+    /* static char *funcname="ocrwords_fill_in"; */
 
 #if (WILLUSDEBUGX & 32)
-printf("@ocrwords_fill_in...\n");
+k2printf("@ocrwords_fill_in...\n");
 #endif
 /*
 {
@@ -117,45 +158,16 @@ sprintf(filename,"out%03d.png",count);
 bmp_write(src,filename,stdout,100);
 }
 */
-    if (src->width<=0 || src->height<=0)
+    if (region->bmp->width<=0 || region->bmp->height<=0)
         return;
 
-    /* Create grayscale version of bitmap */
-    if (src->bpp==8)
-        gray=src;
-    else
-        {
-        gray=&_gray;
-        bmp_init(gray);
-        bmp_convert_to_grayscale_ex(gray,src);
-        }
-
-    /* Find breaks in the text row */
-    region.bgcolor=whitethresh;
-    region.c1=0;
-    region.c2=gray->width-1;
-    region.r1=0;
-    region.r2=gray->height-1;
-    region.bmp8=gray;
-    region.bmp=src; /* May not be 24-bit! */
-    region.dpi=dpi;
-    colcount=rowcount=NULL;
-    willus_dmem_alloc_warn(25,(void **)&colcount,sizeof(int)*(gray->width+gray->height),funcname,10);
-    rowcount=&colcount[src->width];
-    /* Allocate rowbreaks and colbreaks structures */
-    rowbreaks=&_rowbreaks;
-    rowbreaks->textrow=NULL;
-    breakinfo_alloc(104,rowbreaks,gray->height);
+    /* Allocate colbreaks structures */
     colbreaks=&_colbreaks;
     colbreaks->textrow=NULL;
-    breakinfo_alloc(105,colbreaks,gray->width);
-
-    /* Find rows of text */
-    bmpregion_find_vertical_breaks(&region,rowbreaks,k2settings,colcount,rowcount,
-                                   k2settings->column_row_gap_height_in);
+    breakinfo_alloc(105,colbreaks,region->bmp8->width);
 
 #if (WILLUSDEBUGX & 32)
-printf("    %d rows of text\n",rowbreaks->n);
+k2printf("    %d rows of text\n",rowbreaks->n);
 #endif
     /* Go text row by text row */
     for (i=0;i<rowbreaks->n;i++)
@@ -165,7 +177,7 @@ printf("    %d rows of text\n",rowbreaks->n);
         double lcheight;
 
         newregion=&_newregion;
-        (*newregion)=region;
+        (*newregion)=(*region);
         r1=newregion->r1=rowbreaks->textrow[i].r1;
         r2=newregion->r2=rowbreaks->textrow[i].r2;
         rowbase=rowbreaks->textrow[i].rowbase;
@@ -183,11 +195,11 @@ printf("    %d rows of text\n",rowbreaks->n);
             char wordbuf[256];
 
             /* Don't OCR if "word" height exceeds spec */
-            if ((double)(colbreaks->textrow[j].r2-colbreaks->textrow[j].r1+1)/dpi
+            if ((double)(colbreaks->textrow[j].r2-colbreaks->textrow[j].r1+1)/region->dpi
                      > k2settings->ocr_max_height_inches)
                 continue;
 #if (WILLUSDEBUGX & 32)
-printf("j=%d of %d\n",j,colbreaks->n);
+k2printf("j=%d of %d\n",j,colbreaks->n);
 {
 static int counter=1;
 int i;
@@ -211,7 +223,7 @@ memcpy(d,s,bmp->width);
 sprintf(filename,"word%04d.png",counter);
 bmp_write(bmp,filename,stdout,100);
 bmp_free(bmp);
-printf("%5d. ",counter);
+k2printf("%5d. ",counter);
 fflush(stdout);
 #endif
             wordbuf[0]='\0';
@@ -246,10 +258,10 @@ sprintf(filename,"word%04d.txt",counter);
 f=fopen(filename,"wb");
 fprintf(f,"%s\n",wordbuf);
 fclose(f);
-printf("%s\n",wordbuf);
+k2printf("%s\n",wordbuf);
 }
 else
-printf("(OCR failed)\n");
+k2printf("(OCR failed)\n");
 counter++;
 }
 #endif
@@ -266,7 +278,7 @@ counter++;
                 word.rot=0;
                 word.text=wordbuf;
 #if (WILLUSDEBUGX & 32)
-printf("'%s', r1=%d, rowbase=%d, h=%d\n",wordbuf,
+k2printf("'%s', r1=%d, rowbase=%d, h=%d\n",wordbuf,
                              colbreaks->textrow[j].r1,
                              colbreaks->textrow[j].rowbase,
                              colbreaks->textrow[j].r2-colbreaks->textrow[j].r1+1);
@@ -276,9 +288,5 @@ printf("'%s', r1=%d, rowbase=%d, h=%d\n",wordbuf,
             }
         }
     breakinfo_free(105,colbreaks);
-    breakinfo_free(104,rowbreaks);
-    willus_dmem_free(25,(double **)&colcount,funcname);
-    if (src->bpp!=8)
-        bmp_free(gray);
     }
 #endif /* HAVE_OCR_LIB */

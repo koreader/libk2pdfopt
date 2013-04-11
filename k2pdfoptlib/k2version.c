@@ -1,4 +1,4 @@
-char *k2pdfopt_version = "v1.64a";
+char *k2pdfopt_version = "v1.65";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
@@ -17,9 +17,67 @@ char *k2pdfopt_version = "v1.64a";
 ** You should have received a copy of the GNU Affero General Public License
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **
-** FUTURE MODIFICATIONS
+** v1.65     6 APRIL 2013
+**           NEW FEATURES / OPTIONS
+**           - Added Kobo Glo and Kobo Touch device settings.
+**             (http://www.mobileread.com/forums/showpost.php?p=2441354&postcount=336)
+**           - Re-vamped the bmp_source_page_add() function so that the
+**             logic that breaks the page out into displayable rectangular
+**             regions can be used in other places (e.g. by the OCR fill-in
+**             function).
+**           - Added option -ocrcols which sets the max number of columns for
+**             processing with OCR (if different from the -col value).  You would
+**             use this if you want to OCR a PDF file using -mode copy, but
+**             the file has multiple columns of text.
+**             (http://www.mobileread.com/forums/showpost.php?p=2442523&postcount=341)
+**           - Added option -rsf (row-split figure-of-merit) which controls a
+**             new algorithm which goes back and looks for rows of text which
+**             should be split into two (or three) separate rows.  This is meant
+**             to help catch those cases where k2pdfopt should have split apart
+**             two rows of text but did not because of a small amount of overlap.
+**             See breakinfo_find_doubles() in breakinfo.c.
 **
-** VERSION HISTORY
+**           LIBRARY UPDATES
+**           - Compiled with latest versions of major libraries:  MuPDF 1.2,
+**             DjVu 3.5.25.3, FreeType 2.4.11, Turbo JPEG 1.2.1, PNG 1.5.14,
+**             Z-lib 1.2.7.
+**           - Linux version now compiled with gcc 4.7.2 in Ubuntu 12.
+**
+**           TWEAKS
+**           - Clarified usage for -vb in k2usage.c
+**           - Changed "destination" to "E-reader" in places on the k2 interactive
+**             menu and device menu.
+**           - Put "disclaimer" in OCR usage which clarifies the purpose.
+**           - Default crop margins are now zero (was 0.25 inches).  This was
+**             confusing too many people.
+**             (http://www.mobileread.com/forums/showpost.php?p=2456032&postcount=352)
+**           - In bmp_region_vertically_break(), different width regions and
+**             regions with different ending/starting row heights cause
+**             a vertical gap to be inserted in the output.
+**
+**           BUG FIXES
+**           - Call k2pdfopt_settings_sanity_check() once per source document.
+**             This fixes a crash when converting multiple files.
+**             (Certain vars weren't getting correctly initialized on the
+**              2nd, 3rd, etc. conversion files.)
+**             (http://www.mobileread.com/forums/showpost.php?p=2409726&postcount=317)
+**           - Fixed array-out-of-bounds access in k2proc.c
+**             (bmpregion_find_multicolumn_divider function) which occasionally
+**             caused k2pdfopt to terminate abnormally (typically when converting
+**             mostly blank pages).
+**             (http://www.mobileread.com/forums/showpost.php?p=2456548&postcount=356)
+**           - Fixed k2pdfopt_proc_one() in k2file.c so that native PDF output
+**             is turned off if the source file is not PDF (e.g. DjVu conversion).
+**           - Fixed spacing between regions with -vb -2 or -vb -1 (gap between
+**             pages where new chapter starts, for example--font change, etc.).
+**             (http://www.mobileread.com/forums/showpost.php?p=2373550&postcount=292)
+**           - Minimum width in vertical line detection is now 1 pixel.
+**             (http://www.mobileread.com/forums/showpost.php?p=2452356&postcount=345)
+**           - Better diagnostic output on TESSDATA_PREFIX env var.
+**           - Fixed native PDF output so that scientific notation is not allowed
+**             in PDF clipping commands.  This was causing native conversions
+**             not to work correctly in some cases.
+**             (http://www.mobileread.com/forums/showpost.php?p=2467063&postcount=371)
 **
 ** v1.64a    5 JAN 2013
 **           - Fixed bug in Native PDF output introduced in v1.64.

@@ -53,10 +53,10 @@ static char *k2pdfopt_options=
 /*
 "-arlim <ar>       Set aspect ratio limit to avoid wrapping.\n"
 */
-"-as [<maxdeg>]    Attempt to automatically straighten tilted source pages.\n"
+"-as[-] [<maxdeg>] Attempt to automatically straighten tilted source pages.\n"
 "                  Will rotate up to +/-<maxdegrees> degrees if a value is\n"
 "                  specified, otherwise defaults to 4 degrees max.  Use -1 to\n"
-"                  turn off. Default is off (-as -1).\n"
+"                  turn off. Default is off (-as -1 or -as-).\n"
 "-bp[-] [<inches>] Break [do not break] output pages at end of each input page.\n"
 "                  Default is -bp-.  If a numeric value is put after -bp, then\n"
 "                  rather than breaking the output page at the end of each\n"
@@ -177,7 +177,7 @@ static char *k2pdfopt_options=
 "                  no longer considered a gap.  A higher value makes it easier\n"
 "                  to detect gaps between rows of text.  Too high of a value\n"
 "                  may inadvertently split figures and other graphics.\n"
-"                  Default = 0.006.\n"
+"                  Default = 0.006.  See also -rsf.\n"
 "-gtw <inches>     Threshold for detecting word gaps (expert mode).\n"
 "                  See -gtr.  Default = .0015.\n"
 "-h <height>[in|cm|s|t] Set height of output device in pixels, inches, cm,\n"
@@ -237,7 +237,8 @@ static char *k2pdfopt_options=
 "-ls[-]            Set output to be in landscape [portrait] mode.  The\n"
 "                  default is portrait.\n"
 "-m[b|l|r|t] <in>  Ignore <in> inches around the [bottom|left|right|top]\n"
-"                  margin[s] of the source file.  Default = 0.25 inches.\n"
+"                  margin[s] of the source file.  Default = 0 inches.\n"
+"                  [NOTE: Default was 0.25 inches before v1.65.]\n"
 "                  E.g. -m 0.5 (set all margins to 0.5 inches)\n"
 "                       -mb 0.75 (set bottom margin to 0.75 inches)\n"
 "                  You can also give four comma-delimited numbers after -m\n"
@@ -330,6 +331,24 @@ static char *k2pdfopt_options=
 "                  the ocr engine to use (tesseract or gocr).  Default if not\n"
 "                  specified is tesseract.  See also -ocrvis and -ocrhmax.\n"
 "                  NOTE:  Turning on OCR will disable native PDF output.\n"
+"                  DISCLAIMER:  The main intent of OCR isn't to improve the\n"
+"                      visual quality of the text at all--at least not the way\n"
+"                      k2pdfopt does it.  OCR is most useful on scanned PDFs\n"
+"                      that don't have selectable text to begin with, but using\n"
+"                      OCR with k2pdfopt on such documents doesn't change the\n"
+"                      look of the output PDF file at all.  The OCR text is\n"
+"                      simply placed invisibly over the scanned text so that\n"
+"                      you appear to be able to select the scanned text (when,\n"
+"                      in fact, you are selecting the invisibly placed OCR\n"
+"                      text).  So the only time you will even notice the OCR\n"
+"                      errors is if you try to search for a word and can't find\n"
+"                      that word because the OCR of that word is incorrect, or\n"
+"                      if you copy a selection of the OCR text and paste it\n"
+"                      into something else so that you can actually see it.\n"
+"-ocrcol <n>       If you are simply processing a PDF to OCR it (e.g. if you\n"
+"                  are using the -mode copy optoin) and the source document has\n"
+"                  multiple columns of text, set this value to the number of\n"
+"                  columns to process (up to 4).\n"
 "-ocrhmax <in>     Set max height for an OCR'd word in inches.  Any graphic\n"
 "                  exceeding this height will not be processed with the OCR\n"
 "                  engine.  Default = 1.5.  See -ocr.\n"
@@ -376,6 +395,12 @@ static char *k2pdfopt_options=
 "-png              (Default) Use PNG compression in PDF file.  See also -jpeg.\n"
 "-r[-]             Right-to-left [left-to-right] page scans.  Default is\n"
 "                  left to right.\n"
+"-rsf <val>        Row Split Figure of merit (expert mode).  After k2pdfopt has\n"
+"                  looked for gaps between rows of text, it will check to see\n"
+"                  if there appear to be missed gaps (e.g. if one row is twice\n"
+"                  the height of all the others).  Increasing this value makes\n"
+"                  it harder for k2pdfopt to split a row.  Lowering it makes it\n"
+"                  easier.  Default value = 20.\n"
 "-rt <deg>|auto|aep  Rotate source page counter clockwise by <deg> degrees.\n"
 "                  Can be 90, 180, 270.  Or use \"-rt auto\" to examine up to\n"
 "                  10 pages of each file to determine the orientation used\n"
@@ -408,11 +433,16 @@ static char *k2pdfopt_options=
 "-v                Verbose output.\n"
 "-vb <thresh>      Set gap-size vertical-break threshold between regions that\n"
 "                  cause them to be treated as separate regions.  E.g. -vb 2\n"
-"                  will break regions anywhere the vertical gap between them\n"
-"                  exceeds 2 times the median gap between lines.  Use -vb -1\n"
-"                  to disallow region breaking.  Use -vb -2 to disallow region\n"
-"                  breaking and to exactly preserve all vertical spacing within\n"
-"                  each region.  Default is -vb 1.75.\n"
+"                  will break the document into separate regions anywhere\n"
+"                  there is a vertical gap that exceeds 2 times the median\n"
+"                  gap between lines of text.  These separate regions may\n"
+"                  then be scaled and aligned independently.\n"
+"                  Special values:  Use -vb -1 to preserve all horizontal\n"
+"                  alignment and scaling across entire regions (vertical\n"
+"                  spacing may still be adjusted).  Use -vb -2 to exactly\n"
+"                  preserve each region (both horizontal alignment and\n"
+"                  vertical spacing--this is the value used by -mode fw, for\n"
+"                  example).  The default is -vb 1.75.\n"
 /*
 "-vm <mult>        Vertical spacing multiplier.  Reduces gaps and line spacings\n"
 "                  in the document using the multiplier <mult>.\n"
@@ -454,6 +484,8 @@ static char *k2pdfopt_options=
 "-x[-]             Exit [don't exit--wait for <Enter>] after completion.\n";
 
 
+static int strlencrlf(char *s);
+static void strcatcrlf(char *d,char *s);
 static int prcmdopts(char *s,int nl);
 static int cmdoplines(char *s);
 static char *pr1cmdopt(char *s,int maxlines);
@@ -464,12 +496,57 @@ static int wait_enter(void);
 void k2usage_show_all(FILE *out)
 
     {
-    fprintf(out,"%s",usageintro);
-    fprintf(out,"%s",usageenv);
-    fprintf(out,"Command Line Options\n"
+    fprintf(out,"%s%s"
+                "Command Line Options\n"
                 "--------------------\n"
-                "%s\n",k2pdfopt_options);
+                "%s\n",usageintro,usageenv,k2pdfopt_options);
     }
+
+
+void k2usage_to_string(char *s)
+
+    {
+    s[0]='\0';
+    strcatcrlf(s,usageintro);
+    strcatcrlf(s,usageenv);
+    strcatcrlf(s,"Command Line Options\n"
+                 "--------------------\n");
+    strcatcrlf(s,k2pdfopt_options);
+    }
+
+
+int k2usage_len(void)
+
+    {
+    return(strlencrlf(usageintro)+strlencrlf(usageenv)+strlencrlf(k2pdfopt_options)+128);
+    }
+
+
+static int strlencrlf(char *s)
+
+    {
+    int i,c;
+
+    for (c=i=0;s[i]!='\0';i++)
+        c += (s[i]=='\n') ? 2 : 1;
+    return(c);
+    }
+
+
+static void strcatcrlf(char *d,char *s)
+
+    {
+    int i,j;
+
+    for (j=strlen(d),i=0;s[i]!='\0';i++)
+        {
+        if (s[i]=='\n')
+            d[j++]='\r';
+        d[j++]=s[i];
+        }
+    d[j]='\0';
+    }
+
 
 int k2pdfopt_usage(void)
 
@@ -499,10 +576,10 @@ static int prcmdopts(char *s,int nl)
     for (i=0;1;i++)
         { 
         if (i==0)
-            aprintf(TTEXT_BOLD "Command Line Options\n"
+            k2printf(TTEXT_BOLD "Command Line Options\n"
                                "--------------------\n" TTEXT_NORMAL);
         else
-            aprintf(TTEXT_BOLD "Command Line Options (cont'd)\n"
+            k2printf(TTEXT_BOLD "Command Line Options (cont'd)\n"
                                "-----------------------------\n" TTEXT_NORMAL);
         ll=!i ? nl-3 : nl-2;
         c=0;
@@ -520,11 +597,11 @@ static int prcmdopts(char *s,int nl)
             }
         while (ll>1)
             {
-            aprintf("\n");
+            k2printf("\n");
             ll--;
             }
         if (!i)
-            aprintf("\n");
+            k2printf("\n");
         if (wait_enter()<0)
             return(0);
         if (s[0]=='\0')
@@ -562,20 +639,20 @@ static char *pr1cmdopt(char *s,int maxlines)
         for (k=0;k<18 && s[j]!=' ' && s[j]!='\n' && s[j]!='\0';j++)
             buf[k++]=s[j];
         buf[k]='\0';
-        aprintf(TTEXT_BOLD "%s" TTEXT_NORMAL,buf);
+        k2printf(TTEXT_BOLD "%s" TTEXT_NORMAL,buf);
         if (k<17 && s[j]==' ' && s[j+1]!=' ')
             {
             for (k0=0;k<18 && s[j]!='\n' && s[j]!='\0';j++,k++)
                 buf[k0++]=s[j];
             buf[k0]='\0';
-            aprintf(TTEXT_MAGENTA "%s" TTEXT_NORMAL,buf);
+            k2printf(TTEXT_MAGENTA "%s" TTEXT_NORMAL,buf);
             }
         if (s[j]!='\0' && s[j]!='\n')
             {
             for (k=0;s[j]!='\n' && s[j]!='\0';j++)
                 buf[k++]=s[j];
             buf[k]='\0';
-            aprintf("%s\n",buf);
+            k2printf("%s\n",buf);
             }
         nl++;
         if (nl>=maxlines)
@@ -597,9 +674,9 @@ static void prlines(char *s,int nlines)
     for (i=ns=0;s[i]!='\0';i++)
         if (s[i]=='\n')
             ns++;
-    aprintf("%s",s);
+    k2printf("%s",s);
     for (i=ns;i<nlines;i++)
-        aprintf("\n");
+        k2printf("\n");
     }
 
 
@@ -608,7 +685,7 @@ static int wait_enter(void)
     {
     char buf[32];
 
-    aprintf(TTEXT_BOLD2 "Press <ENTER> to continue (q to quit)." TTEXT_NORMAL);
+    k2printf(TTEXT_BOLD2 "Press <ENTER> to continue (q to quit)." TTEXT_NORMAL);
     fflush(stdout);
     fgets(buf,16,stdin);
     if (tolower(buf[0])=='q')

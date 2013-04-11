@@ -220,7 +220,7 @@ int bmpregion_is_clear(BMPREGION *region,int *row_black_count,int *col_black_cou
             return(0);
         }
 /*
-printf("(%d,%d)-(%d,%d):  c=%d, pt=%d (gt_in=%g)\n",
+k2printf("(%d,%d)-(%d,%d):  c=%d, pt=%d (gt_in=%g)\n",
 region->c1,region->r1,region->c2,region->r2,c,pt,gt_in);
 */
     return(pt<=0 ? 1 : 1+(int)10*c/pt);
@@ -281,7 +281,7 @@ int bmpregion_column_height_and_gap_test(BMPREGION *column,BMPREGION *region,
     column[0].c2=cmid-1;
     bmpregion_trim_margins(&column[0],k2settings,colcount,rowcount,0xf);
 /*
-printf("    COL1:  pix=%d (%d - %d)\n",newregion->r2-newregion->r1+1,newregion->r1,newregion->r2);
+k2printf("    COL1:  pix=%d (%d - %d)\n",newregion->r2-newregion->r1+1,newregion->r1,newregion->r2);
 */
     if (column[0].r2-column[0].r1+1 < min_height_pixels)
         status |= 1;
@@ -292,7 +292,7 @@ printf("    COL1:  pix=%d (%d - %d)\n",newregion->r2-newregion->r1+1,newregion->
     column[1].c2=region->c2;
     bmpregion_trim_margins(&column[1],k2settings,colcount,rowcount,0xf);
 /*
-printf("    COL2:  pix=%d (%d - %d)\n",newregion->r2-newregion->r1+1,newregion->r1,newregion->r2);
+k2printf("    COL2:  pix=%d (%d - %d)\n",newregion->r2-newregion->r1+1,newregion->r1,newregion->r2);
 */
     if (column[1].r2-column[1].r1+1 < min_height_pixels)
         status |= 2;
@@ -344,10 +344,10 @@ void bmpregion_trim_margins(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
         rowcount=rowcount0;
     n=region->c2-region->c1+1;
 /*
-printf("Trim:  reg=(%d,%d) - (%d,%d)\n",region->c1,region->r1,region->c2,region->r2);
+k2printf("Trim:  reg=(%d,%d) - (%d,%d)\n",region->c1,region->r1,region->c2,region->r2);
 if (region->c2+1 > cca || region->r2+1 > rca)
 {
-printf("A ha 0!\n");
+k2printf("A ha 0!\n");
 exit(10);
 }
 */
@@ -408,7 +408,7 @@ exit(10);
         h2=height2_calc(&rowcount[region->r1],region->r2-region->r1+1);
 #if (WILLUSDEBUGX & 8)
 if (region->c2-region->c1 > 1500)
-printf("reg %d x %d (%d,%d) - (%d,%d) h2=%d ch/h2=%g\n",region->c2-region->c1+1,region->r2-region->r1+1,region->c1,region->r1,region->c2,region->r2,h2,(double)region->capheight/h2);
+k2printf("reg %d x %d (%d,%d) - (%d,%d) h2=%d ch/h2=%g\n",region->c2-region->c1+1,region->r2-region->r1+1,region->c1,region->r1,region->c2,region->r2,h2,(double)region->capheight/h2);
 #endif
         if (region->capheight < h2*0.75)
             region->capheight = h2;
@@ -419,7 +419,7 @@ printf("reg %d x %d (%d,%d) - (%d,%d) h2=%d ch/h2=%g\n",region->c2-region->c1+1,
             region->lcheight = (int)(0.72*region->capheight+.5);
 #if (WILLUSDEBUGX & 8)
 if (region->c2-region->c1 > 1500)
-printf("    lcheight final = %d\n",region->lcheight);
+k2printf("    lcheight final = %d\n",region->lcheight);
 #endif
 #if (WILLUSDEBUGX & 10)
 if (region->c2-region->c1 > 1500 && region->r2-region->r1 < 100)
@@ -444,8 +444,8 @@ fclose(f);
         region->rowbase = region->r2;
         }
 #if (WILLUSDEBUGX & 2)
-printf("trim:\n    reg->c1=%d, reg->c2=%d\n",region->c1,region->c2);
-printf("    reg->r1=%d, reg->r2=%d, reg->rowbase=%d\n\n",region->r1,region->r2,region->rowbase);
+k2printf("trim:\n    reg->c1=%d, reg->c2=%d\n",region->c1,region->c2);
+k2printf("    reg->r1=%d, reg->r2=%d, reg->rowbase=%d\n\n",region->r1,region->r2,region->rowbase);
 #endif
     if (rowcount0==NULL)
         willus_dmem_free(11,(double **)&rowcount,funcname);
@@ -539,7 +539,7 @@ static int height2_calc(int *rc,int n)
         if (rc[i]>=thresh)
             break;
 #if (WILLUSDEBUGX & 8)
-// printf("thresh = %g, i1=%d, i2=%d\n",(double)thresh/cmax,i1,i);
+// k2printf("thresh = %g, i1=%d, i2=%d\n",(double)thresh/cmax,i1,i);
 #endif
     h2=i-i1+1; /* Guaranteed to be >=1 */
     return(h2);
@@ -566,7 +566,7 @@ char pngfile[256];
 FILE *out;
 
 count++;
-printf("@bmpregion_hyphen_detect count=%d\n",count);
+k2printf("@bmpregion_hyphen_detect count=%d\n",count);
 sprintf(pngfile,"word%04d.png",count);
 bmpregion_write(region,pngfile);
 sprintf(pngfile,"word%04d.txt",count);
@@ -616,9 +616,9 @@ fprintf(out,"   j     r0     r1     r2     r3\n");
         {
         int r,rmid,dr,drmax;
 
-// printf("j=%d\n",j);
+// k2printf("j=%d\n",j);
         rmid=(rmin+rmax)/2;
-// printf("   rmid=%d\n",rmid);
+// k2printf("   rmid=%d\n",rmid);
         drmax=region->r2+1-rmid > rmid-region->r1+1 ? region->r2+1-rmid : rmid-region->r1+1;
         /* Find dark region closest to center line */
         for (dr=0;dr<drmax;dr++)
@@ -797,8 +797,8 @@ fclose(out);
     willus_dmem_free(27,(double **)&r0,funcname);
 #if (WILLUSDEBUGX & 16)
 if (region->hyphen.ch>=0)
-printf("\n\n   GOT HYPHEN.\n\n");
-printf("   Exiting bmpregion_hyphen_detect\n");
+k2printf("\n\n   GOT HYPHEN.\n\n");
+k2printf("   Exiting bmpregion_hyphen_detect\n");
 #endif
     }
 
@@ -811,8 +811,8 @@ int bmpregion_is_centered(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
     int textheight;
 
 #if (WILLUSDEBUGX & 1)
-printf("@bmpregion_is_centered:  region=(%d,%d) - (%d,%d)\n",region->c1,region->r1,region->c2,region->r2);
-printf("    nrows = %d\n",i2-i1+1);
+k2printf("@bmpregion_is_centered:  region=(%d,%d) - (%d,%d)\n",region->c1,region->r1,region->c2,region->r2);
+k2printf("    nrows = %d\n",i2-i1+1);
 #endif
     ntr=i2-i1+1;
     for (j=0;j<3;j++)
@@ -843,7 +843,7 @@ printf("    nrows = %d\n",i2-i1+1);
         {
         (*th)=textheight;
 #if (WILLUSDEBUGX & 1)
-printf("    textheight assigned (%d)\n",textheight);
+k2printf("    textheight assigned (%d)\n",textheight);
 #endif
         return(breakinfo->centered);
         }
@@ -856,26 +856,26 @@ printf("    textheight assigned (%d)\n",textheight);
         double indent1,indent2;
 
 #if (WILLUSDEBUGX & 1)
-printf("    tr[%d].c1,c2 = %d, %d\n",i,breakinfo->textrow[i].c1,breakinfo->textrow[i].c2);
+k2printf("    tr[%d].c1,c2 = %d, %d\n",i,breakinfo->textrow[i].c1,breakinfo->textrow[i].c2);
 #endif
         indent1 = (double)(breakinfo->textrow[i].c1-region->c1) / textheight;
         indent2 = (double)(region->c2 - breakinfo->textrow[i].c2) / textheight;
 #if (WILLUSDEBUGX & 1)
-printf("    tr[%d].indent1,2 = %g, %g\n",i,indent1,indent2);
+k2printf("    tr[%d].indent1,2 = %g, %g\n",i,indent1,indent2);
 #endif
         /* If only one line and it spans the entire region, call it centered */
         /* Sometimes this won't be the right thing to to. */
         if (i1==i2 && indent1<.5 && indent2<.5)
 {
 #if (WILLUSDEBUGX & 1)
-printf("    One line default to bigger region (%s).\n",breakinfo->centered?"not centered":"centered");
+k2printf("    One line default to bigger region (%s).\n",breakinfo->centered?"not centered":"centered");
 #endif
             return(1);
 }
         if (fabs(indent1-indent2) > 1.5)
 {
 #if (WILLUSDEBUGX & 1)
-printf("    Region not centered.\n");
+k2printf("    Region not centered.\n");
 #endif
             return(0);
 }
@@ -883,17 +883,17 @@ printf("    Region not centered.\n");
             cc++;
         }
 #if (WILLUSDEBUGX & 1)
-printf("Region centering:  i=%d, i2=%d, cc=%d, ntr=%d\n",i,i2,cc,ntr);
+k2printf("Region centering:  i=%d, i2=%d, cc=%d, ntr=%d\n",i,i2,cc,ntr);
 #endif
     if (cc>ntr/2)
 {
 #if (WILLUSDEBUGX & 1)
-printf("    Region is centered (enough obviously centered lines).\n");
+k2printf("    Region is centered (enough obviously centered lines).\n");
 #endif
         return(1);
 }
 #if (WILLUSDEBUGX & 1)
-printf("    Not centered (not enough obviously centered lines).\n");
+k2printf("    Not centered (not enough obviously centered lines).\n");
 #endif
     return(0);
     }

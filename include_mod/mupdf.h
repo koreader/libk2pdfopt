@@ -20,10 +20,11 @@
 #include <limits.h>	/* INT_MAX & co */
 #include <float.h> /* FLT_EPSILON, FLT_MAX & co */
 #include <fcntl.h> /* O_RDONLY & co */
+#include <time.h>
 
 #include <setjmp.h>
 
-/* Copyright (C) 2011 Artifex Software, Inc.
+/* Copyright (C) 2001-2012 Artifex Software, Inc.
    All Rights Reserved.
 
    This software is provided AS-IS with no warranty, either express or
@@ -31,10 +32,11 @@
 
    This software is distributed under license and may not be copied, modified
    or distributed except as expressly authorized under the terms of that
-   license.  Refer to licensing information at http://www.artifex.com/
+   license. Refer to licensing information at http://www.artifex.com
    or contact Artifex Software, Inc.,  7 Mt. Lassen Drive - Suite A-134,
    San Rafael, CA  94903, U.S.A., +1(415)492-9861, for further information.
 */
+
 
 /* Memento: A library to aid debugging of memory leaks/heap corruption.
  *
@@ -194,6 +196,8 @@ int Memento_check(void);
 int Memento_setParanoia(int);
 int Memento_paranoidAt(int);
 int Memento_breakAt(int);
+void Memento_breakOnFree(void *a);
+void Memento_breakOnRealloc(void *a);
 int Memento_getBlockNum(void *);
 int Memento_find(void *a);
 void Memento_breakpoint(void);
@@ -226,22 +230,24 @@ void *Memento_calloc(size_t, size_t);
 #define Memento_realloc MEMENTO_UNDERLYING_REALLOC
 #define Memento_calloc  MEMENTO_UNDERLYING_CALLOC
 
-#define Memento_checkBlock(A)    0
-#define Memento_checkAllMemory() 0
-#define Memento_check()          0
-#define Memento_setParanoia(A)   0
-#define Memento_paranoidAt(A)    0
-#define Memento_breakAt(A)       0
-#define Memento_getBlockNum(A)   0
-#define Memento_find(A)          0
-#define Memento_breakpoint()     do {} while (0)
-#define Memento_failAt(A)        0
-#define Memento_failThisEvent()  0
-#define Memento_listBlocks()     do {} while (0)
-#define Memento_listNewBlocks()  do {} while (0)
-#define Memento_setMax(A)        0
-#define Memento_stats()          do {} while (0)
-#define Memento_label(A,B)       (A)
+#define Memento_checkBlock(A)     0
+#define Memento_checkAllMemory()  0
+#define Memento_check()           0
+#define Memento_setParanoia(A)    0
+#define Memento_paranoidAt(A)     0
+#define Memento_breakAt(A)        0
+#define Memento_breakOnFree(A)    0
+#define Memento_breakOnRealloc(A) 0
+#define Memento_getBlockNum(A)    0
+#define Memento_find(A)           0
+#define Memento_breakpoint()      do {} while (0)
+#define Memento_failAt(A)         0
+#define Memento_failThisEvent()   0
+#define Memento_listBlocks()      do {} while (0)
+#define Memento_listNewBlocks()   do {} while (0)
+#define Memento_setMax(A)         0
+#define Memento_stats()           do {} while (0)
+#define Memento_label(A,B)        (A)
 
 #endif /* MEMENTO */
 
@@ -346,6 +352,11 @@ int gettimeofday(struct timeval *tv, struct timezone *tz);
 #endif
 
 /*
+	Shut the compiler up about unused variables
+*/
+#define UNUSED(x) do { x = x; } while (0)
+
+/*
 	Some standard math functions, done as static inlines for speed.
 	People with compilers that do not adequately implement inlines may
 	like to reimplement these using macros.
@@ -385,7 +396,7 @@ static inline float fz_clamp(float f, float min, float max)
 	return (f > min ? (f < max ? f : max) : min);
 }
 
-static inline int fz_clampi(int i, float min, float max)
+static inline int fz_clampi(int i, int min, int max)
 {
 	return (i > min ? (i < max ? i : max) : min);
 }
@@ -455,7 +466,6 @@ struct fz_error_context_s
 void fz_var_imp(void *);
 #define fz_var(var) fz_var_imp((void *)&(var))
 
-
 /*
 	Exception macro definitions. Just treat these as a black box - pay no
 	attention to the man behind the curtain.
@@ -469,17 +479,21 @@ void fz_var_imp(void *);
 #define fz_always(ctx) \
 		} while (0); \
 	} \
-	{ do { \
+	if (ctx->error->stack[ctx->error->top].code < 3) \
+	{ \
+		ctx->error->stack[ctx->error->top].code++; \
+		do { \
 
 #define fz_catch(ctx) \
 		} while(0); \
 	} \
-	if (ctx->error->stack[ctx->error->top--].code)
+	if (ctx->error->stack[ctx->error->top--].code > 1)
 
 int fz_push_try(fz_error_context *ex);
-void fz_throw(fz_context *, char *, ...) __printflike(2, 3);
+void fz_throw(fz_context *, const char *, ...) __printflike(2, 3);
 void fz_rethrow(fz_context *);
-void fz_warn(fz_context *ctx, char *fmt, ...) __printflike(2, 3);
+void fz_warn(fz_context *ctx, const char *fmt, ...) __printflike(2, 3);
+const char *fz_caught(fz_context *ctx);
 
 /*
 	fz_flush_warnings: Flush any repeated warnings.
@@ -717,7 +731,7 @@ void *fz_resize_array(fz_context *ctx, void *p, unsigned int count, unsigned int
 	Returns a pointer to a duplicated string. Throws exception on failure
 	to allocate.
 */
-char *fz_strdup(fz_context *ctx, char *s);
+char *fz_strdup(fz_context *ctx, const char *s);
 
 /*
 	fz_free: Frees an allocation.
@@ -785,7 +799,7 @@ void *fz_resize_array_no_throw(fz_context *ctx, void *p, unsigned int count, uns
 	Returns a pointer to a duplicated string. Returns NULL on failure
 	to allocate.
 */
-char *fz_strdup_no_throw(fz_context *ctx, char *s);
+char *fz_strdup_no_throw(fz_context *ctx, const char *s);
 
 /*
 	Safe string functions
@@ -875,6 +889,59 @@ extern int fz_optind;
 extern char *fz_optarg;
 
 /*
+	XML document model
+*/
+
+typedef struct fz_xml_s fz_xml;
+
+/*
+	fz_parse_xml: Parse a zero-terminated string into a tree of xml nodes.
+*/
+fz_xml *fz_parse_xml(fz_context *ctx, unsigned char *buf, int len);
+
+/*
+	fz_xml_next: Return next sibling of XML node.
+*/
+fz_xml *fz_xml_next(fz_xml *item);
+
+/*
+	fz_xml_down: Return first child of XML node.
+*/
+fz_xml *fz_xml_down(fz_xml *item);
+
+/*
+	fz_xml_tag: Return tag of XML node. Return the empty string for text nodes.
+*/
+char *fz_xml_tag(fz_xml *item);
+
+/*
+	fz_xml_att: Return the value of an attribute of an XML node.
+	NULL if the attribute doesn't exist.
+*/
+char *fz_xml_att(fz_xml *item, const char *att);
+
+/*
+	fz_xml_text: Return the text content of an XML node.
+	NULL if the node is a tag.
+*/
+char *fz_xml_text(fz_xml *item);
+
+/*
+	fz_free_xml: Free the XML node and all its children and siblings.
+*/
+void fz_free_xml(fz_context *doc, fz_xml *item);
+
+/*
+	fz_detach_xml: Detach a node from the tree, unlinking it from its parent.
+*/
+void fz_detach_xml(fz_xml *node);
+
+/*
+	fz_debug_xml: Pretty-print an XML tree to stdout.
+*/
+void fz_debug_xml(fz_xml *item, int level);
+
+/*
 	fz_point is a point in a two-dimensional space.
 */
 typedef struct fz_point_s fz_point;
@@ -895,8 +962,7 @@ struct fz_point_s
 	defined to be infinite.
 
 	To check for empty or infinite rectangles use fz_is_empty_rect
-	and fz_is_infinite_rect. Compare to fz_bbox which has corners
-	at integer coordinates.
+	and fz_is_infinite_rect.
 
 	x0, y0: The top left corner.
 
@@ -910,17 +976,28 @@ struct fz_rect_s
 };
 
 /*
-	fz_bbox is a bounding box similar to a fz_rect, except that
-	all corner coordinates are rounded to integer coordinates.
-	To check for empty or infinite bounding boxes use
-	fz_is_empty_bbox and fz_is_infinite_bbox.
-
-	x0, y0: The top left corner.
-
-	x1, y1: The bottom right corner.
+	fz_rect_min: get the minimum point from a rectangle as an fz_point.
 */
-typedef struct fz_bbox_s fz_bbox;
-struct fz_bbox_s
+static inline fz_point *fz_rect_min(fz_rect *f)
+{
+	return (fz_point *)(void *)&f->x0;
+}
+
+/*
+	fz_rect_max: get the maximum point from a rectangle as an fz_point.
+*/
+static inline fz_point *fz_rect_max(fz_rect *f)
+{
+	return (fz_point *)(void *)&f->x1;
+}
+
+/*
+	fz_irect is a rectangle using integers instead of floats.
+
+	It's used in the draw device and for pixmap dimensions.
+*/
+typedef struct fz_irect_s fz_irect;
+struct fz_irect_s
 {
 	int x0, y0;
 	int x1, y1;
@@ -935,21 +1012,12 @@ struct fz_bbox_s
 extern const fz_rect fz_unit_rect;
 
 /*
-	A bounding box with sides of length one. See fz_unit_rect.
-*/
-extern const fz_bbox fz_unit_bbox;
-
-/*
 	An empty rectangle with an area equal to zero.
 
 	Both the top left and bottom right corner are at (0, 0).
 */
 extern const fz_rect fz_empty_rect;
-
-/*
-	An empty bounding box. See fz_empty_rect.
-*/
-extern const fz_bbox fz_empty_bbox;
+extern const fz_irect fz_empty_irect;
 
 /*
 	An infinite rectangle with negative area.
@@ -958,26 +1026,24 @@ extern const fz_bbox fz_empty_bbox;
 	at (-1, -1).
 */
 extern const fz_rect fz_infinite_rect;
-
-/*
-	An infinite bounding box. See fz_infinite_rect.
-*/
-extern const fz_bbox fz_infinite_bbox;
+extern const fz_irect fz_infinite_irect;
 
 /*
 	fz_is_empty_rect: Check if rectangle is empty.
 
 	An empty rectangle is defined as one whose area is zero.
 */
-#define fz_is_empty_rect(r) ((r).x0 == (r).x1 || (r).y0 == (r).y1)
+static inline int
+fz_is_empty_rect(const fz_rect *r)
+{
+	return ((r)->x0 == (r)->x1 || (r)->y0 == (r)->y1);
+}
 
-/*
-	fz_is_empty_bbox: Check if bounding box is empty.
-
-	Same definition of empty bounding boxes as for empty
-	rectangles. See fz_is_empty_rect.
-*/
-#define fz_is_empty_bbox(b) ((b).x0 == (b).x1 || (b).y0 == (b).y1)
+static inline int
+fz_is_empty_irect(const fz_irect *r)
+{
+	return ((r)->x0 == (r)->x1 || (r)->y0 == (r)->y1);
+}
 
 /*
 	fz_is_infinite: Check if rectangle is infinite.
@@ -985,15 +1051,17 @@ extern const fz_bbox fz_infinite_bbox;
 	An infinite rectangle is defined as one where either of the
 	two relationships between corner coordinates are not true.
 */
-#define fz_is_infinite_rect(r) ((r).x0 > (r).x1 || (r).y0 > (r).y1)
+static inline int
+fz_is_infinite_rect(const fz_rect *r)
+{
+	return ((r)->x0 > (r)->x1 || (r)->y0 > (r)->y1);
+}
 
-/*
-	fz_is_infinite_bbox: Check if bounding box is infinite.
-
-	Same definition of infinite bounding boxes as for infinite
-	rectangles. See fz_is_infinite_rect.
-*/
-#define fz_is_infinite_bbox(b) ((b).x0 > (b).x1 || (b).y0 > (b).y1)
+static inline int
+fz_is_infinite_irect(const fz_irect *r)
+{
+	return ((r)->x0 > (r)->x1 || (r)->y0 > (r)->y1);
+}
 
 /*
 	fz_matrix is a a row-major 3x3 matrix used for representing
@@ -1014,11 +1082,16 @@ struct fz_matrix_s
 	float a, b, c, d, e, f;
 };
 
-
 /*
 	fz_identity: Identity transform matrix.
 */
 extern const fz_matrix fz_identity;
+
+static inline fz_matrix *fz_copy_matrix(fz_matrix *restrict m, const fz_matrix *restrict s)
+{
+	*m = *s;
+	return m;
+}
 
 /*
 	fz_concat: Multiply two matrices.
@@ -1026,34 +1099,75 @@ extern const fz_matrix fz_identity;
 	The order of the two matrices are important since matrix
 	multiplication is not commutative.
 
+	Returns result.
+
 	Does not throw exceptions.
 */
-fz_matrix fz_concat(fz_matrix left, fz_matrix right);
+fz_matrix *fz_concat(fz_matrix *result, const fz_matrix *left, const fz_matrix *right);
 
 /*
 	fz_scale: Create a scaling matrix.
 
 	The returned matrix is of the form [ sx 0 0 sy 0 0 ].
 
+	m: Pointer to the matrix to populate
+
 	sx, sy: Scaling factors along the X- and Y-axes. A scaling
 	factor of 1.0 will not cause any scaling along the relevant
 	axis.
 
+	Returns m.
+
 	Does not throw exceptions.
 */
-fz_matrix fz_scale(float sx, float sy);
+fz_matrix *fz_scale(fz_matrix *m, float sx, float sy);
+
+/*
+	fz_pre_scale: Scale a matrix by premultiplication.
+
+	m: Pointer to the matrix to scale
+
+	sx, sy: Scaling factors along the X- and Y-axes. A scaling
+	factor of 1.0 will not cause any scaling along the relevant
+	axis.
+
+	Returns m (updated).
+
+	Does not throw exceptions.
+*/
+fz_matrix *fz_pre_scale(fz_matrix *m, float sx, float sy);
 
 /*
 	fz_shear: Create a shearing matrix.
 
 	The returned matrix is of the form [ 1 sy sx 1 0 0 ].
 
+	m: pointer to place to store returned matrix
+
 	sx, sy: Shearing factors. A shearing factor of 0.0 will not
 	cause any shearing along the relevant axis.
 
+	Returns m.
+
 	Does not throw exceptions.
 */
-fz_matrix fz_shear(float sx, float sy);
+fz_matrix *fz_shear(fz_matrix *m, float sx, float sy);
+
+/*
+	fz_pre_shear: Premultiply a matrix with a shearing matrix.
+
+	The shearing matrix is of the form [ 1 sy sx 1 0 0 ].
+
+	m: pointer to matrix to premultiply
+
+	sx, sy: Shearing factors. A shearing factor of 0.0 will not
+	cause any shearing along the relevant axis.
+
+	Returns m (updated).
+
+	Does not throw exceptions.
+*/
+fz_matrix *fz_pre_shear(fz_matrix *m, float sx, float sy);
 
 /*
 	fz_rotate: Create a rotation matrix.
@@ -1061,36 +1175,80 @@ fz_matrix fz_shear(float sx, float sy);
 	The returned matrix is of the form
 	[ cos(deg) sin(deg) -sin(deg) cos(deg) 0 0 ].
 
+	m: Pointer to place to store matrix
+
 	degrees: Degrees of counter clockwise rotation. Values less
 	than zero and greater than 360 are handled as expected.
 
+	Returns m.
+
 	Does not throw exceptions.
 */
-fz_matrix fz_rotate(float degrees);
+fz_matrix *fz_rotate(fz_matrix *m, float degrees);
+
+/*
+	fz_pre_rotate: Rotate a transformation by premultiplying.
+
+	The premultiplied matrix is of the form
+	[ cos(deg) sin(deg) -sin(deg) cos(deg) 0 0 ].
+
+	m: Pointer to matrix to premultiply.
+
+	degrees: Degrees of counter clockwise rotation. Values less
+	than zero and greater than 360 are handled as expected.
+
+	Returns m (updated).
+
+	Does not throw exceptions.
+*/
+fz_matrix *fz_pre_rotate(fz_matrix *m, float degrees);
 
 /*
 	fz_translate: Create a translation matrix.
 
 	The returned matrix is of the form [ 1 0 0 1 tx ty ].
 
+	m: A place to store the created matrix.
+
 	tx, ty: Translation distances along the X- and Y-axes. A
 	translation of 0 will not cause any translation along the
 	relevant axis.
 
+	Returns m.
+
 	Does not throw exceptions.
 */
-fz_matrix fz_translate(float tx, float ty);
+fz_matrix *fz_translate(fz_matrix *m, float tx, float ty);
+
+/*
+	fz_pre_translate: Translate a matrix by premultiplication.
+
+	m: The matrix to translate
+
+	tx, ty: Translation distances along the X- and Y-axes. A
+	translation of 0 will not cause any translation along the
+	relevant axis.
+
+	Returns m.
+
+	Does not throw exceptions.
+*/
+fz_matrix *fz_pre_translate(fz_matrix *m, float tx, float ty);
 
 /*
 	fz_invert_matrix: Create an inverse matrix.
+
+	inverse: Place to store inverse matrix.
 
 	matrix: Matrix to invert. A degenerate matrix, where the
 	determinant is equal to zero, can not be inverted and the
 	original matrix is returned instead.
 
+	Returns inverse.
+
 	Does not throw exceptions.
 */
-fz_matrix fz_invert_matrix(fz_matrix matrix);
+fz_matrix *fz_invert_matrix(fz_matrix *inverse, const fz_matrix *matrix);
 
 /*
 	fz_is_rectilinear: Check if a transformation is rectilinear.
@@ -1102,37 +1260,81 @@ fz_matrix fz_invert_matrix(fz_matrix matrix);
 
 	Does not throw exceptions.
 */
-int fz_is_rectilinear(fz_matrix m);
+int fz_is_rectilinear(const fz_matrix *m);
 
 /*
 	fz_matrix_expansion: Calculate average scaling factor of matrix.
 */
-float fz_matrix_expansion(fz_matrix m); /* sumatrapdf */
+float fz_matrix_expansion(const fz_matrix *m); /* sumatrapdf */
 
 /*
-	fz_bbox_covering_rect: Convert a rect into the minimal bounding box
-	that covers the rectangle.
+	fz_intersect_rect: Compute intersection of two rectangles.
 
-	Coordinates in a bounding box are integers, so rounding of the
-	rects coordinates takes place. The top left corner is rounded
-	upwards and left while the bottom right corner is rounded
-	downwards and to the right. Overflows or underflowing
-	coordinates are clamped to INT_MIN/INT_MAX.
+	Given two rectangles, update the first to be the smallest
+	axis-aligned rectangle that covers the area covered by both
+	given rectangles. If either rectangle is empty then the
+	intersection is also empty. If either rectangle is infinite
+	then the intersection is simply the non-infinite rectangle.
+	Should both rectangles be infinite, then the intersection is
+	also infinite.
 
 	Does not throw exceptions.
 */
-fz_bbox fz_bbox_covering_rect(fz_rect rect);
+fz_rect *fz_intersect_rect(fz_rect *restrict a, const fz_rect *restrict b);
 
 /*
-	fz_round_rect: Convert a rect into a bounding box.
+	fz_intersect_irect: Compute intersection of two bounding boxes.
+
+	Similar to fz_intersect_rect but operates on two bounding
+	boxes instead of two rectangles.
+
+	Does not throw exceptions.
+*/
+fz_irect *fz_intersect_irect(fz_irect *restrict a, const fz_irect *restrict b);
+
+/*
+	fz_union_rect: Compute union of two rectangles.
+
+	Given two rectangles, update the first to be the smallest
+	axis-aligned rectangle that encompasses both given rectangles.
+	If either rectangle is infinite then the union is also infinite.
+	If either rectangle is empty then the union is simply the
+	non-empty rectangle. Should both rectangles be empty, then the
+	union is also empty.
+
+	Does not throw exceptions.
+*/
+fz_rect *fz_union_rect(fz_rect *restrict a, const fz_rect *restrict b);
+
+/*
+	fz_irect_from_rect: Convert a rect into the minimal bounding box
+	that covers the rectangle.
+
+	bbox: Place to store the returned bbox.
+
+	rect: The rectangle to convert to a bbox.
 
 	Coordinates in a bounding box are integers, so rounding of the
 	rects coordinates takes place. The top left corner is rounded
 	upwards and left while the bottom right corner is rounded
-	downwards and to the right. Overflows or underflowing
-	coordinates are clamped to INT_MIN/INT_MAX.
+	downwards and to the right.
 
-	This differs from fz_bbox_covering_rect, in that fz_bbox_covering_rect
+	Returns bbox (updated).
+
+	Does not throw exceptions.
+*/
+
+fz_irect *fz_irect_from_rect(fz_irect *restrict bbox, const fz_rect *restrict rect);
+
+/*
+	fz_round_rect: Round rectangle coordinates.
+
+	Coordinates in a bounding box are integers, so rounding of the
+	rects coordinates takes place. The top left corner is rounded
+	upwards and left while the bottom right corner is rounded
+	downwards and to the right.
+
+	This differs from fz_irect_from_rect, in that fz_irect_from_rect
 	slavishly follows the numbers (i.e any slight over/under calculations
 	can cause whole extra pixels to be added). fz_round_rect
 	allows for a small amount of rounding error when calculating
@@ -1140,54 +1342,39 @@ fz_bbox fz_bbox_covering_rect(fz_rect rect);
 
 	Does not throw exceptions.
 */
-fz_bbox fz_round_rect(fz_rect rect);
+fz_irect *fz_round_rect(fz_irect *restrict bbox, const fz_rect *restrict rect);
 
 /*
-	fz_intersect_rect: Compute intersection of two rectangles.
+	fz_rect_from_irect: Convert a bbox into a rect.
 
-	Compute the largest axis-aligned rectangle that covers the
-	area covered by both given rectangles. If either rectangle is
-	empty then the intersection is also empty. If either rectangle
-	is infinite then the intersection is simply the non-infinite
-	rectangle. Should both rectangles be infinite, then the
-	intersection is also infinite.
+	For our purposes, a rect can represent all the values we meet in
+	a bbox, so nothing can go wrong.
+
+	rect: A place to store the generated rectangle.
+
+	bbox: The bbox to convert.
+
+	Returns rect (updated).
 
 	Does not throw exceptions.
 */
-fz_rect fz_intersect_rect(fz_rect a, fz_rect b);
+fz_rect *fz_rect_from_irect(fz_rect *restrict rect, const fz_irect *restrict bbox);
 
 /*
-	fz_intersect_bbox: Compute intersection of two bounding boxes.
-
-	Similar to fz_intersect_rect but operates on two bounding
-	boxes instead of two rectangles.
+	fz_expand_rect: Expand a bbox by a given amount in all directions.
 
 	Does not throw exceptions.
 */
-fz_bbox fz_intersect_bbox(fz_bbox a, fz_bbox b);
+fz_rect *fz_expand_rect(fz_rect *b, float expand);
 
 /*
-	fz_union_rect: Compute union of two rectangles.
+	fz_translate_irect: Translate bounding box.
 
-	Compute the smallest axis-aligned rectangle that encompasses
-	both given rectangles. If either rectangle is infinite then
-	the union is also infinite. If either rectangle is empty then
-	the union is simply the non-empty rectangle. Should both
-	rectangles be empty, then the union is also empty.
+	Translate a bbox by a given x and y offset. Allows for overflow.
 
 	Does not throw exceptions.
 */
-fz_rect fz_union_rect(fz_rect a, fz_rect b);
-
-/*
-	fz_union_bbox: Compute union of two bounding boxes.
-
-	Similar to fz_union_rect but operates on two bounding boxes
-	instead of two rectangles.
-
-	Does not throw exceptions.
-*/
-fz_bbox fz_union_bbox(fz_bbox a, fz_bbox b);
+fz_irect *fz_translate_irect(fz_irect *a, int xoff, int yoff);
 
 /*
 	fz_transform_point: Apply a transformation to a point.
@@ -1196,9 +1383,13 @@ fz_bbox fz_union_bbox(fz_bbox a, fz_bbox b);
 	fz_scale, fz_rotate and fz_translate for how to create a
 	matrix.
 
+	point: Pointer to point to update.
+
+	Returns transform (unchanged).
+
 	Does not throw exceptions.
 */
-fz_point fz_transform_point(fz_matrix transform, fz_point point);
+fz_point *fz_transform_point(fz_point *restrict point, const fz_matrix *restrict transform);
 
 /*
 	fz_transform_vector: Apply a transformation to a vector.
@@ -1207,9 +1398,11 @@ fz_point fz_transform_point(fz_matrix transform, fz_point point);
 	fz_scale and fz_rotate for how to create a matrix. Any
 	translation will be ignored.
 
+	vector: Pointer to vector to update.
+
 	Does not throw exceptions.
 */
-fz_point fz_transform_vector(fz_matrix transform, fz_point vector);
+fz_point *fz_transform_vector(fz_point *restrict vector, const fz_matrix *restrict transform);
 
 /*
 	fz_transform_rect: Apply a transform to a rectangle.
@@ -1228,17 +1421,7 @@ fz_point fz_transform_vector(fz_matrix transform, fz_point vector);
 
 	Does not throw exceptions.
 */
-fz_rect fz_transform_rect(fz_matrix transform, fz_rect rect);
-
-/*
-	fz_transform_bbox: Transform a given bounding box.
-
-	Similar to fz_transform_rect, but operates on a bounding box
-	instead of a rectangle.
-
-	Does not throw exceptions.
-*/
-fz_bbox fz_transform_bbox(fz_matrix matrix, fz_bbox bbox);
+fz_rect *fz_transform_rect(fz_rect *restrict rect, const fz_matrix *restrict transform);
 
 /*
 	fz_buffer is a wrapper around a dynamically allocated array of bytes.
@@ -1468,11 +1651,9 @@ extern fz_colorspace *fz_device_cmyk;
 typedef struct fz_pixmap_s fz_pixmap;
 
 /*
-	fz_pixmap_bbox: Return a bounding box for a pixmap.
-
-	Returns an exact bounding box for the supplied pixmap.
+	fz_pixmap_bbox: Return the bounding box for a pixmap.
 */
-fz_bbox fz_pixmap_bbox(fz_context *ctx, fz_pixmap *pix);
+fz_irect *fz_pixmap_bbox(fz_context *ctx, fz_pixmap *pix, fz_irect *bbox);
 
 /*
 	fz_pixmap_width: Return the width of the pixmap in pixels.
@@ -1516,7 +1697,7 @@ fz_pixmap *fz_new_pixmap(fz_context *ctx, fz_colorspace *cs, int w, int h);
 	Returns a pointer to the new pixmap. Throws exception on failure to
 	allocate.
 */
-fz_pixmap *fz_new_pixmap_with_bbox(fz_context *ctx, fz_colorspace *colorspace, fz_bbox bbox);
+fz_pixmap *fz_new_pixmap_with_bbox(fz_context *ctx, fz_colorspace *colorspace, const fz_irect *bbox);
 
 /*
 	fz_new_pixmap_with_data: Create a new pixmap, with it's origin at
@@ -1555,7 +1736,7 @@ fz_pixmap *fz_new_pixmap_with_data(fz_context *ctx, fz_colorspace *colorspace, i
 	Returns a pointer to the new pixmap. Throws exception on failure to
 	allocate.
 */
-fz_pixmap *fz_new_pixmap_with_bbox_and_data(fz_context *ctx, fz_colorspace *colorspace, fz_bbox bbox, unsigned char *samples);
+fz_pixmap *fz_new_pixmap_with_bbox_and_data(fz_context *ctx, fz_colorspace *colorspace, const fz_irect *rect, unsigned char *samples);
 
 /*
 	fz_keep_pixmap: Take a reference to a pixmap.
@@ -1611,6 +1792,21 @@ unsigned char *fz_pixmap_samples(fz_context *ctx, fz_pixmap *pix);
 void fz_clear_pixmap_with_value(fz_context *ctx, fz_pixmap *pix, int value);
 
 /*
+	fz_clear_pixmap_with_value: Clears a subrect of a pixmap with the given value.
+
+	pix: The pixmap to clear.
+
+	value: Values in the range 0 to 255 are valid. Each component
+	sample for each pixel in the pixmap will be set to this value,
+	while alpha will always be set to 255 (non-transparent).
+
+	r: the rectangle.
+
+	Does not throw exceptions.
+*/
+void fz_clear_pixmap_rect_with_value(fz_context *ctx, fz_pixmap *pix, int value, const fz_irect *r);
+
+/*
 	fz_clear_pixmap_with_value: Sets all components (including alpha) of
 	all pixels in a pixmap to 0.
 
@@ -1635,7 +1831,7 @@ void fz_invert_pixmap(fz_context *ctx, fz_pixmap *pix);
 
 	Does not throw exceptions.
 */
-void fz_invert_pixmap_rect(fz_pixmap *image, fz_bbox rect);
+void fz_invert_pixmap_rect(fz_pixmap *image, const fz_irect *rect);
 
 /*
 	fz_gamma_pixmap: Apply gamma correction to a pixmap. All components
@@ -1811,7 +2007,7 @@ fz_device *fz_new_trace_device(fz_context *ctx);
 	The returned bounding box will be the union of all bounding
 	boxes of all objects on a page.
 */
-fz_device *fz_new_bbox_device(fz_context *ctx, fz_bbox *bboxp);
+fz_device *fz_new_bbox_device(fz_context *ctx, fz_rect *rectp);
 
 /*
 	fz_new_draw_device: Create a device to draw on a pixmap.
@@ -1836,7 +2032,7 @@ fz_device *fz_new_draw_device(fz_context *ctx, fz_pixmap *dest);
 	clip: Bounding box to restrict any marking operations of the
 	draw device.
 */
-fz_device *fz_new_draw_device_with_bbox(fz_context *ctx, fz_pixmap *dest, fz_bbox clip);
+fz_device *fz_new_draw_device_with_bbox(fz_context *ctx, fz_pixmap *dest, const fz_irect *clip);
 
 /*
 	Text extraction device: Used for searching, format conversion etc.
@@ -1975,28 +2171,76 @@ void fz_free_text_sheet(fz_context *ctx, fz_text_sheet *sheet);
 	The text page is filled out by the text device to contain the blocks,
 	lines and spans of text on the page.
 */
-fz_text_page *fz_new_text_page(fz_context *ctx, fz_rect mediabox);
+fz_text_page *fz_new_text_page(fz_context *ctx, const fz_rect *mediabox);
 void fz_free_text_page(fz_context *ctx, fz_text_page *page);
+
+typedef struct fz_output_s fz_output;
+
+struct fz_output_s
+{
+	fz_context *ctx;
+	void *opaque;
+	int (*printf)(fz_output *, const char *, va_list ap);
+	void (*close)(fz_output *);
+};
+
+fz_output *fz_new_output_file(fz_context *, FILE *);
+
+fz_output *fz_new_output_buffer(fz_context *, fz_buffer *);
+
+int fz_printf(fz_output *, const char *, ...);
+
+/*
+	fz_close_output: Close a previously opened fz_output stream.
+
+	Note: whether or not this closes the underlying output method is
+	method dependent. FILE * streams created by fz_new_output_file are
+	NOT closed.
+*/
+void fz_close_output(fz_output *);
 
 /*
 	fz_print_text_sheet: Output a text sheet to a file as CSS.
 */
-void fz_print_text_sheet(fz_context *ctx, FILE *out, fz_text_sheet *sheet);
+void fz_print_text_sheet(fz_context *ctx, fz_output *out, fz_text_sheet *sheet);
 
 /*
 	fz_print_text_page_html: Output a page to a file in HTML format.
 */
-void fz_print_text_page_html(fz_context *ctx, FILE *out, fz_text_page *page);
+void fz_print_text_page_html(fz_context *ctx, fz_output *out, fz_text_page *page);
 
 /*
 	fz_print_text_page_xml: Output a page to a file in XML format.
 */
-void fz_print_text_page_xml(fz_context *ctx, FILE *out, fz_text_page *page);
+void fz_print_text_page_xml(fz_context *ctx, fz_output *out, fz_text_page *page);
 
 /*
 	fz_print_text_page: Output a page to a file in UTF-8 format.
 */
-void fz_print_text_page(fz_context *ctx, FILE *out, fz_text_page *page);
+void fz_print_text_page(fz_context *ctx, fz_output *out, fz_text_page *page);
+
+/*
+	fz_search_text_page: Search for occurrence of 'needle' in text page.
+
+	Return the number of hits and store hit bboxes in the passed in array.
+
+	NOTE: This is an experimental interface and subject to change without notice.
+*/
+int fz_search_text_page(fz_context *ctx, fz_text_page *text, char *needle, fz_rect *hit_bbox, int hit_max);
+
+/*
+	fz_highlight_selection: Return a list of rectangles to highlight given a selection rectangle.
+
+	NOTE: This is an experimental interface and subject to change without notice.
+*/
+int fz_highlight_selection(fz_context *ctx, fz_text_page *page, fz_rect rect, fz_rect *hit_bbox, int hit_max);
+
+/*
+	fz_copy_selection: Return a newly allocated UTF-8 string with the text for a given selection rectangle.
+
+	NOTE: This is an experimental interface and subject to change without notice.
+*/
+char *fz_copy_selection(fz_context *ctx, fz_text_page *page, fz_rect rect);
 
 /*
 	Cookie support - simple communication channel between app/library.
@@ -2113,7 +2357,7 @@ fz_device *fz_new_list_device(fz_context *ctx, fz_display_list *list);
 	progress information back to the caller. The fields inside
 	cookie are continually updated while the page is being run.
 */
-void fz_run_display_list(fz_display_list *list, fz_device *dev, fz_matrix ctm, fz_bbox area, fz_cookie *cookie);
+void fz_run_display_list(fz_display_list *list, fz_device *dev, const fz_matrix *ctm, const fz_rect *area, fz_cookie *cookie);
 
 /*
 	fz_free_display_list: Frees a display list.
@@ -2272,7 +2516,7 @@ struct fz_link_s
 	fz_link *next;
 };
 
-fz_link *fz_new_link(fz_context *ctx, fz_rect bbox, fz_link_dest dest);
+fz_link *fz_new_link(fz_context *ctx, const fz_rect *bbox, fz_link_dest dest);
 fz_link *fz_keep_link(fz_context *ctx, fz_link *link);
 
 /*
@@ -2320,7 +2564,7 @@ struct fz_outline_s
 
 	outline: The outlines to output.
 */
-void fz_print_outline_xml(fz_context *ctx, FILE *out, fz_outline *outline);
+void fz_print_outline_xml(fz_context *ctx, fz_output *out, fz_outline *outline);
 
 /*
 	fz_print_outline: Dump the given outlines to as text.
@@ -2329,7 +2573,7 @@ void fz_print_outline_xml(fz_context *ctx, FILE *out, fz_outline *outline);
 
 	outline: The outlines to output.
 */
-void fz_print_outline(fz_context *ctx, FILE *out, fz_outline *outline);
+void fz_print_outline(fz_context *ctx, fz_output *out, fz_outline *outline);
 
 /*
 	fz_free_outline: Free hierarchical outline.
@@ -2339,6 +2583,53 @@ void fz_print_outline(fz_context *ctx, FILE *out, fz_outline *outline);
 	Does not throw exceptions.
 */
 void fz_free_outline(fz_context *ctx, fz_outline *outline);
+
+/* Transition support */
+typedef struct fz_transition_s fz_transition;
+
+enum {
+	FZ_TRANSITION_NONE = 0, /* aka 'R' or 'REPLACE' */
+	FZ_TRANSITION_SPLIT,
+	FZ_TRANSITION_BLINDS,
+	FZ_TRANSITION_BOX,
+	FZ_TRANSITION_WIPE,
+	FZ_TRANSITION_DISSOLVE,
+	FZ_TRANSITION_GLITTER,
+	FZ_TRANSITION_FLY,
+	FZ_TRANSITION_PUSH,
+	FZ_TRANSITION_COVER,
+	FZ_TRANSITION_UNCOVER,
+	FZ_TRANSITION_FADE
+};
+
+struct fz_transition_s
+{
+	int type;
+	float duration; /* Effect duration (seconds) */
+
+	/* Parameters controlling the effect */
+	int vertical; /* 0 or 1 */
+	int outwards; /* 0 or 1 */
+	int direction; /* Degrees */
+	/* Potentially more to come */
+
+	/* State variables for use of the transition code */
+	int state0;
+	int state1;
+};
+
+/*
+	fz_generate_transition: Generate a frame of a transition.
+
+	tpix: Target pixmap
+	opix: Old pixmap
+	npix: New pixmap
+	time: Position within the transition (0 to 256)
+	trans: Transition details
+
+	Returns 1 if successfully generated a frame.
+*/
+int fz_generate_transition(fz_pixmap *tpix, fz_pixmap *opix, fz_pixmap *npix, int time, fz_transition *trans);
 
 /*
 	Document interface
@@ -2360,7 +2651,17 @@ typedef struct fz_page_s fz_page;
 
 	filename: a path to a file as it would be given to open(2).
 */
-fz_document *fz_open_document(fz_context *ctx, char *filename);
+fz_document *fz_open_document(fz_context *ctx, const char *filename);
+
+/*
+	fz_open_document_with_stream: Open a PDF, XPS or CBZ document.
+
+	Open a document using the specified stream object rather than
+	opening a file on disk.
+
+	magic: a string used to detect document type; either a file name or mime-type.
+*/
+fz_document *fz_open_document_with_stream(fz_context *ctx, const char *magic, fz_stream *stream);
 
 /*
 	fz_close_document: Close and free an open document.
@@ -2434,7 +2735,33 @@ fz_link *fz_load_links(fz_document *doc, fz_page *page);
 
 	Does not throw exceptions.
 */
-fz_rect fz_bound_page(fz_document *doc, fz_page *page);
+fz_rect *fz_bound_page(fz_document *doc, fz_page *page, fz_rect *rect);
+
+/*
+	fz_annot: opaque pointer to annotation details.
+*/
+typedef struct fz_annot_s fz_annot;
+
+/*
+	fz_first_annot: Return a pointer to the first annotation on a page.
+
+	Does not throw exceptions.
+*/
+fz_annot *fz_first_annot(fz_document *doc, fz_page *page);
+
+/*
+	fz_next_annot: Return a pointer to the next annotation on a page.
+
+	Does not throw exceptions.
+*/
+fz_annot *fz_next_annot(fz_document *doc, fz_annot *annot);
+
+/*
+	fz_bound_annot: Return the bounding rectangle of the annotation.
+
+	Does not throw exceptions.
+*/
+fz_rect *fz_bound_annot(fz_document *doc, fz_annot *annot, fz_rect *rect);
 
 /*
 	fz_run_page: Run a page through a device.
@@ -2455,7 +2782,52 @@ fz_rect fz_bound_page(fz_document *doc, fz_page *page);
 	fields inside cookie are continually updated while the page is
 	rendering.
 */
-void fz_run_page(fz_document *doc, fz_page *page, fz_device *dev, fz_matrix transform, fz_cookie *cookie);
+void fz_run_page(fz_document *doc, fz_page *page, fz_device *dev, const fz_matrix *transform, fz_cookie *cookie);
+
+/*
+	fz_run_page_contents: Run a page through a device. Just the main
+	page content, without the annotations, if any.
+
+	page: Page obtained from fz_load_page.
+
+	dev: Device obtained from fz_new_*_device.
+
+	transform: Transform to apply to page. May include for example
+	scaling and rotation, see fz_scale, fz_rotate and fz_concat.
+	Set to fz_identity if no transformation is desired.
+
+	cookie: Communication mechanism between caller and library
+	rendering the page. Intended for multi-threaded applications,
+	while single-threaded applications set cookie to NULL. The
+	caller may abort an ongoing rendering of a page. Cookie also
+	communicates progress information back to the caller. The
+	fields inside cookie are continually updated while the page is
+	rendering.
+*/
+void fz_run_page_contents(fz_document *doc, fz_page *page, fz_device *dev, const fz_matrix *transform, fz_cookie *cookie);
+
+/*
+	fz_run_annot: Run an annotation through a device.
+
+	page: Page obtained from fz_load_page.
+
+	annot: an annotation.
+
+	dev: Device obtained from fz_new_*_device.
+
+	transform: Transform to apply to page. May include for example
+	scaling and rotation, see fz_scale, fz_rotate and fz_concat.
+	Set to fz_identity if no transformation is desired.
+
+	cookie: Communication mechanism between caller and library
+	rendering the page. Intended for multi-threaded applications,
+	while single-threaded applications set cookie to NULL. The
+	caller may abort an ongoing rendering of a page. Cookie also
+	communicates progress information back to the caller. The
+	fields inside cookie are continually updated while the page is
+	rendering.
+*/
+void fz_run_annot(fz_document *doc, fz_page *page, fz_annot *annot, fz_device *dev, const fz_matrix *transform, fz_cookie *cookie);
 
 /*
 	fz_free_page: Free a loaded page.
@@ -2536,6 +2908,395 @@ enum
 	FZ_META_INFO = 4,
 };
 
+/*
+	fz_page_presentation: Get the presentation details for a given page.
+
+	duration: NULL, or a pointer to a place to set the page duration in
+	seconds. (Will be set to 0 if unspecified).
+
+	Returns: a pointer to a transition structure, or NULL if there isn't
+	one.
+
+	Does not throw exceptions.
+*/
+fz_transition *fz_page_presentation(fz_document *doc, fz_page *page, float *duration);
+
+/* Interactive features */
+
+/* Types of widget */
+enum
+{
+	FZ_WIDGET_TYPE_NOT_WIDGET = -1,
+	FZ_WIDGET_TYPE_PUSHBUTTON,
+	FZ_WIDGET_TYPE_CHECKBOX,
+	FZ_WIDGET_TYPE_RADIOBUTTON,
+	FZ_WIDGET_TYPE_TEXT,
+	FZ_WIDGET_TYPE_LISTBOX,
+	FZ_WIDGET_TYPE_COMBOBOX
+};
+
+/* Types of text widget content */
+enum
+{
+	FZ_WIDGET_CONTENT_UNRESTRAINED,
+	FZ_WIDGET_CONTENT_NUMBER,
+	FZ_WIDGET_CONTENT_SPECIAL,
+	FZ_WIDGET_CONTENT_DATE,
+	FZ_WIDGET_CONTENT_TIME
+};
+
+/* Types of UI event */
+enum
+{
+	FZ_EVENT_TYPE_POINTER,
+};
+
+/* Types of pointer event */
+enum
+{
+	FZ_POINTER_DOWN,
+	FZ_POINTER_UP,
+};
+
+/*
+	Interface supported by some types of documents,
+	via which interactions (such as filling in forms)
+	can be achieved.
+*/
+typedef struct fz_interactive_s fz_interactive;
+
+/*
+	UI events that can be passed to an interactive document.
+*/
+typedef struct fz_ui_event_s
+{
+	int etype;
+	union
+	{
+		struct
+		{
+			int ptype;
+			fz_point pt;
+		} pointer;
+	} event;
+} fz_ui_event;
+
+/*
+	Widgets that may appear in PDF forms
+*/
+typedef struct fz_widget_s fz_widget;
+
+/*
+	Obtain an interface for interaction from a document.
+	For document types that don't support interaction, NULL
+	is returned.
+*/
+fz_interactive *fz_interact(fz_document *doc);
+
+/*
+	Determine whether changes have been made since the
+	document was opened or last saved.
+*/
+int fz_has_unsaved_changes(fz_interactive *idoc);
+
+/*
+	fz_pass_event: Pass a UI event to an interactive
+	document.
+
+	Returns a boolean indication of whether the ui_event was
+	handled. Example of use for the return value: when considering
+	passing the events that make up a drag, if the down event isn't
+	accepted then don't send the move events or the up event.
+*/
+int fz_pass_event(fz_interactive *idoc, fz_page *page, fz_ui_event *ui_event);
+
+/*
+	fz_update_page: update a page for the sake of changes caused by a call
+	to fz_pass_event. fz_update_page regenerates any appearance streams that
+	are out of date, checks for cases where different appearance streams
+	should be selected because of state changes, and records internally
+	each annotation that has changed appearance. The list of chagned annotations
+	is then available via fz_poll_changed_annotation. Note that a call to
+	fz_pass_event for one page may lead to changes on any other, so an app
+	should call fz_update_page for every page it currently displays. Also
+	it is important that the fz_page object is the one used to last render
+	the page. If instead the app were to drop the page and reload it then
+	a call to fz_update_page would not reliably be able to report all changed
+	areas.
+*/
+void fz_update_page(fz_interactive *idoc, fz_page *page);
+
+/*
+	fz_poll_changed_annot: enumerate the changed annotations recoreded
+	by a call to fz_update_page.
+*/
+fz_annot *fz_poll_changed_annot(fz_interactive *idoc, fz_page *page);
+
+/*
+	fz_init_ui_pointer_event: Set up a pointer event
+*/
+void fz_init_ui_pointer_event(fz_ui_event *event, int type, float x, float y);
+
+/*
+	fz_focused_widget: returns the currently focussed widget
+
+	Widgets can become focussed as a result of passing in ui events.
+	NULL is returned if there is no currently focussed widget. An
+	app may wish to create a native representative of the focussed
+	widget, e.g., to collect the text for a text widget, rather than
+	routing key strokes through fz_pass_event.
+*/
+fz_widget *fz_focused_widget(fz_interactive *idoc);
+
+/*
+	fz_first_widget: get first widget when enumerating
+*/
+fz_widget *fz_first_widget(fz_interactive *idoc, fz_page *page);
+
+/*
+	fz_next_widget: get next widget when enumerating
+*/
+fz_widget *fz_next_widget(fz_interactive *idoc, fz_widget *previous);
+
+/*
+	fz_widget_get_type: find out the type of a widget.
+
+	The type determines what widget subclass the widget
+	can safely be cast to.
+*/
+int fz_widget_get_type(fz_widget *widget);
+
+/*
+	fz_bound_widget: get the bounding box of a widget.
+*/
+fz_rect *fz_bound_widget(fz_widget *widget, fz_rect *);
+
+/*
+	fz_text_widget_text: Get the text currently displayed in
+	a text widget.
+*/
+char *fz_text_widget_text(fz_interactive *idoc, fz_widget *tw);
+
+/*
+	fz_widget_text_max_len: get the maximum number of
+	characters permitted in a text widget
+*/
+int fz_text_widget_max_len(fz_interactive *idoc, fz_widget *tw);
+
+/*
+	fz_text_widget_content_type: get the type of content
+	required by a text widget
+*/
+int fz_text_widget_content_type(fz_interactive *idoc, fz_widget *tw);
+
+/*
+	fz_text_widget_set_text: Update the text of a text widget.
+	The text is first validated and accepted only if it passes. The
+	function returns whether validation passed.
+*/
+int fz_text_widget_set_text(fz_interactive *idoc, fz_widget *tw, char *text);
+
+/*
+	fz_choice_widget_options: get the list of options for a list
+	box or combo box. Returns the number of options and fills in their
+	names within the supplied array. Should first be called with a
+	NULL array to find out how big the array should be.
+*/
+int fz_choice_widget_options(fz_interactive *idoc, fz_widget *tw, char *opts[]);
+
+/*
+	fz_choice_widget_is_multiselect: returns whether a list box or
+	combo box supports selection of multiple options
+*/
+int fz_choice_widget_is_multiselect(fz_interactive *idoc, fz_widget *tw);
+
+/*
+	fz_choice_widget_value: get the value of a choice widget.
+	Returns the number of options curently selected and fills in
+	the supplied array with their strings. Should first be called
+	with NULL as the array to find out how big the array need to
+	be. The filled in elements should not be freed by the caller.
+*/
+int fz_choice_widget_value(fz_interactive *idoc, fz_widget *tw, char *opts[]);
+
+/*
+	fz_widget_set_value: set the value of a choice widget. The
+	caller should pass the number of options selected and an
+	array of their names
+*/
+void fz_choice_widget_set_value(fz_interactive *idoc, fz_widget *tw, int n, char *opts[]);
+
+/*
+	Document events: the objects via which MuPDF informs the calling app
+	of occurrences emanating from the document, possibly from user interaction
+	or javascript execution. MuPDF informs the app of document events via a
+	callback.
+*/
+
+/*
+	Document event structures are mostly opaque to the app. Only the type
+	is visible to the app.
+*/
+typedef struct fz_doc_event_s fz_doc_event;
+
+struct fz_doc_event_s
+{
+	int type;
+};
+
+/*
+	The various types of document events
+*/
+enum
+{
+	FZ_DOCUMENT_EVENT_ALERT,
+	FZ_DOCUMENT_EVENT_PRINT,
+	FZ_DOCUMENT_EVENT_LAUNCH_URL,
+	FZ_DOCUMENT_EVENT_MAIL_DOC,
+	FZ_DOCUMENT_EVENT_SUBMIT,
+	FZ_DOCUMENT_EVENT_EXEC_MENU_ITEM,
+	FZ_DOCUMENT_EVENT_EXEC_DIALOG
+};
+
+/*
+	fz_doc_event_cb: the type of function via which the app receives
+	document events.
+*/
+typedef void (fz_doc_event_cb)(fz_doc_event *event, void *data);
+
+/*
+	fz_set_doc_event_callback: set the function via which to receive
+	document events.
+*/
+void fz_set_doc_event_callback(fz_interactive *idoc, fz_doc_event_cb *fn, void *data);
+
+/*
+	fz_alert_event: details of an alert event. In response the app should
+	display an alert dialog with the bittons specified by "button_type_group".
+	If "check_box_message" is non-NULL, a checkbox should be displayed in
+	the lower-left corned along with the messsage.
+
+	"finally_checked" and "button_pressed" should be set by the app
+	before returning from the callback. "finally_checked" need be set
+	only if "check_box_message" is non-NULL.
+*/
+typedef struct
+{
+	char *message;
+	int icon_type;
+	int button_group_type;
+	char *title;
+	char *check_box_message;
+	int initially_checked;
+	int finally_checked;
+	int button_pressed;
+} fz_alert_event;
+
+/* Possible values of icon_type */
+enum
+{
+	FZ_ALERT_ICON_ERROR,
+	FZ_ALERT_ICON_WARNING,
+	FZ_ALERT_ICON_QUESTION,
+	FZ_ALERT_ICON_STATUS
+};
+
+/* Possible values of button_group_type */
+enum
+{
+	FZ_ALERT_BUTTON_GROUP_OK,
+	FZ_ALERT_BUTTON_GROUP_OK_CANCEL,
+	FZ_ALERT_BUTTON_GROUP_YES_NO,
+	FZ_ALERT_BUTTON_GROUP_YES_NO_CANCEL
+};
+
+/* Possible values of button_pressed */
+enum
+{
+	FZ_ALERT_BUTTON_NONE,
+	FZ_ALERT_BUTTON_OK,
+	FZ_ALERT_BUTTON_CANCEL,
+	FZ_ALERT_BUTTON_NO,
+	FZ_ALERT_BUTTON_YES
+};
+
+/*
+	fz_access_alert_event: access the details of an alert event
+	The returned pointer and all the data referred to by the
+	structire are owned by mupdf and need not be freed by the
+	caller.
+*/
+fz_alert_event *fz_access_alert_event(fz_doc_event *event);
+
+/*
+	fz_access_exec_menu_item_event: access the details of am execMenuItem
+	event, which consists of just the name of the menu item
+*/
+char *fz_access_exec_menu_item_event(fz_doc_event *event);
+
+/*
+	fz_submit_event: details of a submit event. The app should submit
+	the specified data to the specified url. "get" determines whether
+	to use the GET or POST method.
+*/
+typedef struct
+{
+	char *url;
+	char *data;
+	int data_len;
+	int get;
+} fz_submit_event;
+
+/*
+	fz_access_submit_event: access the details of a submit event
+	The returned pointer and all data referred to by the structure are
+	owned by mupdf and need not be freed by the caller.
+*/
+fz_submit_event *fz_access_submit_event(fz_doc_event *event);
+
+/*
+	fz_launch_url_event: details of a launch-url event. The app should
+	open the url, either in a new frame or in the current window.
+*/
+typedef struct
+{
+	char *url;
+	int new_frame;
+} fz_launch_url_event;
+
+/*
+	fz_access_launch_url_event: access the details of a launch-url
+	event. The returned pointer and all data referred to by the structure
+	are owned by mupdf and need not be freed by the caller.
+*/
+fz_launch_url_event *fz_access_launch_url_event(fz_doc_event *event);
+
+/*
+	fz_mail_doc_event: details of a mail_doc event. The app should save
+	the current state of the document and email it using the specified
+	parameters.
+*/
+typedef struct
+{
+	int ask_user;
+	char *to;
+	char *cc;
+	char *bcc;
+	char *subject;
+	char *message;
+} fz_mail_doc_event;
+
+/*
+	fz_acccess_mail_doc_event: access the details of a mail-doc event.
+*/
+fz_mail_doc_event *fz_access_mail_doc_event(fz_doc_event *event);
+
+/*
+	fz_javascript_supported: test whether a version of mupdf with
+	a javascript engine is in use.
+*/
+int fz_javascript_supported();
+
 typedef struct fz_write_options_s fz_write_options;
 
 /*
@@ -2545,14 +3306,17 @@ typedef struct fz_write_options_s fz_write_options;
 */
 struct fz_write_options_s
 {
-	int do_ascii;    /*	If non-zero then attempt (where possible) to
-				make the output ascii. */
-	int do_expand;	/*	Bitflags; each non zero bit indicates an aspect
+	int do_ascii; /* If non-zero then attempt (where possible) to make
+				the output ascii. */
+	int do_expand; /* Bitflags; each non zero bit indicates an aspect
 				of the file that should be 'expanded' on
 				writing. */
-	int do_garbage;	/*	If non-zero then attempt (where possible) to
+	int do_garbage; /* If non-zero then attempt (where possible) to
 				garbage collect the file before writing. */
-	int do_linear;   /*	If non-zero then write linearised. */
+	int do_linear; /* If non-zero then write linearised. */
+	int continue_on_error; /* If non-zero, errors are (optionally)
+					counted and writing continues. */
+	int *errors; /* Pointer to a place to store a count of errors */
 };
 
 /*	An enumeration of bitflags to use in the above 'do_expand' field of
@@ -2599,15 +3363,17 @@ pdf_obj *pdf_new_null(fz_context *ctx);
 pdf_obj *pdf_new_bool(fz_context *ctx, int b);
 pdf_obj *pdf_new_int(fz_context *ctx, int i);
 pdf_obj *pdf_new_real(fz_context *ctx, float f);
-pdf_obj *fz_new_name(fz_context *ctx, char *str);
-pdf_obj *pdf_new_string(fz_context *ctx, char *str, int len);
+pdf_obj *pdf_new_name(fz_context *ctx, const char *str);
+pdf_obj *pdf_new_string(fz_context *ctx, const char *str, int len);
 pdf_obj *pdf_new_indirect(fz_context *ctx, int num, int gen, void *doc);
 pdf_obj *pdf_new_array(fz_context *ctx, int initialcap);
 pdf_obj *pdf_new_dict(fz_context *ctx, int initialcap);
-pdf_obj *pdf_new_rect(fz_context *ctx, fz_rect *rect);
-pdf_obj *pdf_new_matrix(fz_context *ctx, fz_matrix *mtx);
+pdf_obj *pdf_new_rect(fz_context *ctx, const fz_rect *rect);
+pdf_obj *pdf_new_matrix(fz_context *ctx, const fz_matrix *mtx);
 pdf_obj *pdf_copy_array(fz_context *ctx, pdf_obj *array);
 pdf_obj *pdf_copy_dict(fz_context *ctx, pdf_obj *dict);
+
+pdf_obj *pdf_new_obj_from_str(fz_context *ctx, const char *src);
 
 pdf_obj *pdf_keep_obj(pdf_obj *obj);
 void pdf_drop_obj(pdf_obj *obj);
@@ -2626,10 +3392,10 @@ int pdf_is_stream(pdf_document *doc, int num, int gen);
 
 int pdf_objcmp(pdf_obj *a, pdf_obj *b);
 
-/* dict marking and unmarking functions - to avoid infinite recursions */
-int pdf_dict_marked(pdf_obj *obj);
-int pdf_dict_mark(pdf_obj *obj);
-void pdf_dict_unmark(pdf_obj *obj);
+/* obj marking and unmarking functions - to avoid infinite recursions. */
+int pdf_obj_marked(pdf_obj *obj);
+int pdf_obj_mark(pdf_obj *obj);
+void pdf_obj_unmark(pdf_obj *obj);
 
 /* safe, silent failure, no error reporting on type mismatches */
 int pdf_to_bool(pdf_obj *obj);
@@ -2646,6 +3412,7 @@ int pdf_array_len(pdf_obj *array);
 pdf_obj *pdf_array_get(pdf_obj *array, int i);
 void pdf_array_put(pdf_obj *array, int i, pdf_obj *obj);
 void pdf_array_push(pdf_obj *array, pdf_obj *obj);
+void pdf_array_push_drop(pdf_obj *array, pdf_obj *obj);
 void pdf_array_insert(pdf_obj *array, pdf_obj *obj);
 int pdf_array_contains(pdf_obj *array, pdf_obj *obj);
 
@@ -2653,14 +3420,16 @@ int pdf_dict_len(pdf_obj *dict);
 pdf_obj *pdf_dict_get_key(pdf_obj *dict, int idx);
 pdf_obj *pdf_dict_get_val(pdf_obj *dict, int idx);
 pdf_obj *pdf_dict_get(pdf_obj *dict, pdf_obj *key);
-pdf_obj *pdf_dict_gets(pdf_obj *dict, char *key);
-pdf_obj *pdf_dict_getp(pdf_obj *dict, char *key);
-pdf_obj *pdf_dict_getsa(pdf_obj *dict, char *key, char *abbrev);
+pdf_obj *pdf_dict_gets(pdf_obj *dict, const char *key);
+pdf_obj *pdf_dict_getp(pdf_obj *dict, const char *key);
+pdf_obj *pdf_dict_getsa(pdf_obj *dict, const char *key, const char *abbrev);
 void pdf_dict_put(pdf_obj *dict, pdf_obj *key, pdf_obj *val);
-void pdf_dict_puts(pdf_obj *dict, char *key, pdf_obj *val);
-void pdf_dict_putp(pdf_obj *dict, char *key, pdf_obj *val);
+void pdf_dict_puts(pdf_obj *dict, const char *key, pdf_obj *val);
+void pdf_dict_puts_drop(pdf_obj *dict, const char *key, pdf_obj *val);
+void pdf_dict_putp(pdf_obj *dict, const char *key, pdf_obj *val);
+void pdf_dict_putp_drop(pdf_obj *dict, const char *key, pdf_obj *val);
 void pdf_dict_del(pdf_obj *dict, pdf_obj *key);
-void pdf_dict_dels(pdf_obj *dict, char *key);
+void pdf_dict_dels(pdf_obj *dict, const char *key);
 void pdf_sort_dict(pdf_obj *dict);
 
 int pdf_fprint_obj(FILE *fp, pdf_obj *obj, int tight);
@@ -2670,13 +3439,14 @@ void pdf_print_obj(pdf_obj *obj);
 void pdf_print_ref(pdf_obj *obj);
 #endif
 
-char *pdf_to_utf8(fz_context *ctx, pdf_obj *src);
-unsigned short *pdf_to_ucs2(fz_context *ctx, pdf_obj *src); /* sumatrapdf */
-pdf_obj *pdf_to_utf8_name(fz_context *ctx, pdf_obj *src);
-char *pdf_from_ucs2(fz_context *ctx, unsigned short *str);
+char *pdf_to_utf8(pdf_document *xref, pdf_obj *src);
+unsigned short *pdf_to_ucs2(pdf_document *xref, pdf_obj *src); /* sumatrapdf */
+pdf_obj *pdf_to_utf8_name(pdf_document *xref, pdf_obj *src);
+char *pdf_from_ucs2(pdf_document *xref, unsigned short *str);
+void pdf_to_ucs2_buf(unsigned short *buffer, pdf_obj *src);
 
-fz_rect pdf_to_rect(fz_context *ctx, pdf_obj *array);
-fz_matrix pdf_to_matrix(fz_context *ctx, pdf_obj *array);
+fz_rect *pdf_to_rect(fz_context *ctx, pdf_obj *array, fz_rect *rect);
+fz_matrix *pdf_to_matrix(fz_context *ctx, pdf_obj *array, fz_matrix *mat);
 
 int pdf_count_objects(pdf_document *doc);
 pdf_obj *pdf_resolve_indirect(pdf_obj *ref);
@@ -2717,6 +3487,13 @@ void pdf_update_object(pdf_document *xref, int num, pdf_obj *obj);
 void pdf_update_stream(pdf_document *xref, int num, fz_buffer *buf);
 
 /*
+	pdf_new_pdf_device: Create a pdf device. Rendering to the device creates
+	new pdf content. WARNING: this device is work in progress. It doesn't
+	currently support all rendering cases.
+*/
+fz_device *pdf_new_pdf_device(pdf_document *doc, pdf_obj *contents, pdf_obj *resources, const fz_matrix *ctm);
+
+/*
 	pdf_write_document: Write out the document to a file with all changes finalised.
 */
 void pdf_write_document(pdf_document *doc, char *filename, fz_write_options *opts);
@@ -2749,7 +3526,7 @@ pdf_document *pdf_open_document(fz_context *ctx, const char *filename);
 	fz_open_file_w or fz_open_fd for opening a stream, and
 	fz_close for closing an open stream.
 */
-pdf_document *pdf_open_document_with_stream(fz_stream *file);
+pdf_document *pdf_open_document_with_stream(fz_context *ctx, fz_stream *file);
 
 /*
 	pdf_close_document: Closes and frees an opened PDF document.
@@ -2808,7 +3585,7 @@ fz_link *pdf_load_links(pdf_document *doc, pdf_page *page);
 
 	Does not throw exceptions.
 */
-fz_rect pdf_bound_page(pdf_document *doc, pdf_page *page);
+fz_rect *pdf_bound_page(pdf_document *doc, pdf_page *page, fz_rect *);
 
 /*
 	pdf_free_page: Frees a page and its resources.
@@ -2816,6 +3593,29 @@ fz_rect pdf_bound_page(pdf_document *doc, pdf_page *page);
 	Does not throw exceptions.
 */
 void pdf_free_page(pdf_document *doc, pdf_page *page);
+
+typedef struct pdf_annot_s pdf_annot;
+
+/*
+	pdf_first_annot: Return the first annotation on a page.
+
+	Does not throw exceptions.
+*/
+pdf_annot *pdf_first_annot(pdf_document *doc, pdf_page *page);
+
+/*
+	pdf_next_annot: Return the next annotation on a page.
+
+	Does not throw exceptions.
+*/
+pdf_annot *pdf_next_annot(pdf_document *doc, pdf_annot *annot);
+
+/*
+	pdf_bound_annot: Return the rectangle for an annotation on a page.
+
+	Does not throw exceptions.
+*/
+fz_rect *pdf_bound_annot(pdf_document *doc, pdf_annot *annot, fz_rect *rect);
 
 /*
 	pdf_run_page: Interpret a loaded page and render it on a device.
@@ -2827,27 +3627,54 @@ void pdf_free_page(pdf_document *doc, pdf_page *page);
 	ctm: A transformation matrix applied to the objects on the page,
 	e.g. to scale or rotate the page contents as desired.
 */
-void pdf_run_page(pdf_document *doc, pdf_page *page, fz_device *dev, fz_matrix ctm, fz_cookie *cookie);
+void pdf_run_page(pdf_document *doc, pdf_page *page, fz_device *dev, const fz_matrix *ctm, fz_cookie *cookie);
 
-void pdf_run_page_with_usage(pdf_document *doc, pdf_page *page, fz_device *dev, fz_matrix ctm, char *event, fz_cookie *cookie);
+void pdf_run_page_with_usage(pdf_document *doc, pdf_page *page, fz_device *dev, const fz_matrix *ctm, char *event, fz_cookie *cookie);
+
+/*
+	pdf_run_page_contents: Interpret a loaded page and render it on a device.
+	Just the main page contents without the annotations
+
+	page: A page loaded by pdf_load_page.
+
+	dev: Device used for rendering, obtained from fz_new_*_device.
+
+	ctm: A transformation matrix applied to the objects on the page,
+	e.g. to scale or rotate the page contents as desired.
+*/
+void pdf_run_page_contents(pdf_document *xref, pdf_page *page, fz_device *dev, const fz_matrix *ctm, fz_cookie *cookie);
+
+/*
+	pdf_run_annot: Interpret an annotation and render it on a device.
+
+	page: A page loaded by pdf_load_page.
+
+	annot: an annotation.
+
+	dev: Device used for rendering, obtained from fz_new_*_device.
+
+	ctm: A transformation matrix applied to the objects on the page,
+	e.g. to scale or rotate the page contents as desired.
+*/
+void pdf_run_annot(pdf_document *xref, pdf_page *page, pdf_annot *annot, fz_device *dev, const fz_matrix *ctm, fz_cookie *cookie);
 
 /*
 	Metadata interface.
 */
 int pdf_meta(pdf_document *doc, int key, void *ptr, int size);
 
-#endif // MUPDF_H
-
+/*
+	Presentation interface.
+*/
+fz_transition *pdf_page_presentation(pdf_document *doc, pdf_page *page, float *duration);
 
 
 #ifndef MUPDF_INTERNAL_H
 #define MUPDF_INTERNAL_H
 
-// #include "mupdf.h"
 #ifndef FITZ_INTERNAL_H
 #define FITZ_INTERNAL_H
 
-// #include "fitz.h"
 
 #ifdef _WIN32 /* Microsoft Visual C++ */
 
@@ -2917,13 +3744,183 @@ fz_unlock(fz_context *ctx, int lock)
 	ctx->locks->unlock(ctx->locks->user, lock);
 }
 
+/* ARM assembly specific defines */
+
+#ifdef ARCH_ARM
+#ifdef NDK_PROFILER
+extern void __gnu_mcount_nc(void);
+#define ENTER_PG "push {lr}\nbl __gnu_mcount_nc\n"
+#else
+#define ENTER_PG
+#endif
+
+/* If we're compiling as thumb code, then we need to tell the compiler
+ * to enter and exit ARM mode around our assembly sections. If we move
+ * the ARM functions to a separate file and arrange for it to be compiled
+ * without thumb mode, we can save some time on entry.
+ */
+#ifdef ARCH_THUMB
+#define ENTER_ARM ".balign 4\nmov r12,pc\nbx r12\n0:.arm\n" ENTER_PG
+#define ENTER_THUMB "9:.thumb\n" ENTER_PG
+#else
+#define ENTER_ARM
+#define ENTER_THUMB
+#endif
+#endif
 
 /*
  * Basic runtime and utility functions
  */
 
+#ifdef CLUSTER
+#define LOCAL_TRIG_FNS
+#endif
+
+#ifdef LOCAL_TRIG_FNS
+/*
+ * Trig functions
+ */
+static float
+my_atan_table[258] =
+{
+0.0000000000f, 0.00390623013f,0.00781234106f,0.0117182136f,
+0.0156237286f, 0.0195287670f, 0.0234332099f, 0.0273369383f,
+0.0312398334f, 0.0351417768f, 0.0390426500f, 0.0429423347f,
+0.0468407129f, 0.0507376669f, 0.0546330792f, 0.0585268326f,
+0.0624188100f, 0.0663088949f, 0.0701969711f, 0.0740829225f,
+0.0779666338f, 0.0818479898f, 0.0857268758f, 0.0896031775f,
+0.0934767812f, 0.0973475735f, 0.1012154420f, 0.1050802730f,
+0.1089419570f, 0.1128003810f, 0.1166554350f, 0.1205070100f,
+0.1243549950f, 0.1281992810f, 0.1320397620f, 0.1358763280f,
+0.1397088740f, 0.1435372940f, 0.1473614810f, 0.1511813320f,
+0.1549967420f, 0.1588076080f, 0.1626138290f, 0.1664153010f,
+0.1702119250f, 0.1740036010f, 0.1777902290f, 0.1815717110f,
+0.1853479500f, 0.1891188490f, 0.1928843120f, 0.1966442450f,
+0.2003985540f, 0.2041471450f, 0.2078899270f, 0.2116268090f,
+0.2153577000f, 0.2190825110f, 0.2228011540f, 0.2265135410f,
+0.2302195870f, 0.2339192060f, 0.2376123140f, 0.2412988270f,
+0.2449786630f, 0.2486517410f, 0.2523179810f, 0.2559773030f,
+0.2596296290f, 0.2632748830f, 0.2669129880f, 0.2705438680f,
+0.2741674510f, 0.2777836630f, 0.2813924330f, 0.2849936890f,
+0.2885873620f, 0.2921733830f, 0.2957516860f, 0.2993222020f,
+0.3028848680f, 0.3064396190f, 0.3099863910f, 0.3135251230f,
+0.3170557530f, 0.3205782220f, 0.3240924700f, 0.3275984410f,
+0.3310960770f, 0.3345853220f, 0.3380661230f, 0.3415384250f,
+0.3450021770f, 0.3484573270f, 0.3519038250f, 0.3553416220f,
+0.3587706700f, 0.3621909220f, 0.3656023320f, 0.3690048540f,
+0.3723984470f, 0.3757830650f, 0.3791586690f, 0.3825252170f,
+0.3858826690f, 0.3892309880f, 0.3925701350f, 0.3959000740f,
+0.3992207700f, 0.4025321870f, 0.4058342930f, 0.4091270550f,
+0.4124104420f, 0.4156844220f, 0.4189489670f, 0.4222040480f,
+0.4254496370f, 0.4286857080f, 0.4319122350f, 0.4351291940f,
+0.4383365600f, 0.4415343100f, 0.4447224240f, 0.4479008790f,
+0.4510696560f, 0.4542287350f, 0.4573780990f, 0.4605177290f,
+0.4636476090f, 0.4667677240f, 0.4698780580f, 0.4729785980f,
+0.4760693300f, 0.4791502430f, 0.4822213240f, 0.4852825630f,
+0.4883339510f, 0.4913754780f, 0.4944071350f, 0.4974289160f,
+0.5004408130f, 0.5034428210f, 0.5064349340f, 0.5094171490f,
+0.5123894600f, 0.5153518660f, 0.5183043630f, 0.5212469510f,
+0.5241796290f, 0.5271023950f, 0.5300152510f, 0.5329181980f,
+0.5358112380f, 0.5386943730f, 0.5415676050f, 0.5444309400f,
+0.5472843810f, 0.5501279330f, 0.5529616020f, 0.5557853940f,
+0.5585993150f, 0.5614033740f, 0.5641975770f, 0.5669819340f,
+0.5697564530f, 0.5725211450f, 0.5752760180f, 0.5780210840f,
+0.5807563530f, 0.5834818390f, 0.5861975510f, 0.5889035040f,
+0.5915997100f, 0.5942861830f, 0.5969629370f, 0.5996299860f,
+0.6022873460f, 0.6049350310f, 0.6075730580f, 0.6102014430f,
+0.6128202020f, 0.6154293530f, 0.6180289120f, 0.6206188990f,
+0.6231993300f, 0.6257702250f, 0.6283316020f, 0.6308834820f,
+0.6334258830f, 0.6359588250f, 0.6384823300f, 0.6409964180f,
+0.6435011090f, 0.6459964250f, 0.6484823880f, 0.6509590190f,
+0.6534263410f, 0.6558843770f, 0.6583331480f, 0.6607726790f,
+0.6632029930f, 0.6656241120f, 0.6680360620f, 0.6704388650f,
+0.6728325470f, 0.6752171330f, 0.6775926450f, 0.6799591110f,
+0.6823165550f, 0.6846650020f, 0.6870044780f, 0.6893350100f,
+0.6916566220f, 0.6939693410f, 0.6962731940f, 0.6985682070f,
+0.7008544080f, 0.7031318220f, 0.7054004770f, 0.7076604000f,
+0.7099116190f, 0.7121541600f, 0.7143880520f, 0.7166133230f,
+0.7188300000f, 0.7210381110f, 0.7232376840f, 0.7254287490f,
+0.7276113330f, 0.7297854640f, 0.7319511710f, 0.7341084830f,
+0.7362574290f, 0.7383980370f, 0.7405303370f, 0.7426543560f,
+0.7447701260f, 0.7468776740f, 0.7489770290f, 0.7510682220f,
+0.7531512810f, 0.7552262360f, 0.7572931160f, 0.7593519510f,
+0.7614027700f, 0.7634456020f, 0.7654804790f, 0.7675074280f,
+0.7695264800f, 0.7715376650f, 0.7735410110f, 0.7755365500f,
+0.7775243100f, 0.7795043220f, 0.7814766150f, 0.7834412190f,
+0.7853981630f, 0.7853981630f /* Extended by 1 for interpolation */
+};
+
+static inline float my_sinf(float x)
+{
+	float x2, xn;
+	int i;
+	/* Map x into the -PI to PI range. We could do this using:
+	 * x = fmodf(x, (float)(2.0 * M_PI));
+	 * but that's C99, and seems to misbehave with negative numbers
+	 * on some platforms. */
+	x -= (float)M_PI;
+	i = x / (float)(2.0f * M_PI);
+	x -= i * (float)(2.0f * M_PI);
+	if (x < 0.0f)
+		x += (float)(2.0f * M_PI);
+	x -= (float)M_PI;
+	if (x <= (float)(-M_PI/2.0))
+		x = -(float)M_PI-x;
+	else if (x >= (float)(M_PI/2.0))
+		x = (float)M_PI-x;
+	x2 = x*x;
+	xn = x*x2/6.0f;
+	x -= xn;
+	xn *= x2/20.0f;
+	x += xn;
+	xn *= x2/42.0f;
+	x -= xn;
+	xn *= x2/72.0f;
+	x += xn;
+	return x;
+}
+
+static inline float my_atan2f(float o, float a)
+{
+	int negate = 0, flip = 0, i;
+	float r, s;
+	if (o == 0.0f)
+	{
+		if (a > 0)
+			return 0.0f;
+		else
+			return (float)M_PI;
+	}
+	if (o < 0)
+		o = -o, negate = 1;
+	if (a < 0)
+		a = -a, flip = 1;
+	if (o < a)
+		i = (int)(65536.0f*o/a + 0.5f);
+	else
+		i = (int)(65536.0f*a/o + 0.5f);
+	r = my_atan_table[i>>8];
+	s = my_atan_table[(i>>8)+1];
+	r += (s-r)*(i&255)/256.0f;
+	if (o >= a)
+		r = (float)(M_PI/2.0f) - r;
+	if (flip)
+		r = (float)M_PI - r;
+	if (negate)
+		r = -r;
+	return r;
+}
+
+#define sinf(x) my_sinf(x)
+#define cosf(x) my_sinf(((float)(M_PI/2.0f)) + (x))
+#define atan2f(x,y) my_atan2f((x),(y))
+#endif
+
 /* Range checking atof */
 float fz_atof(const char *s);
+
+/* atoi that copes with NULL */
+int fz_atoi(const char *s);
 
 /*
  * Generic hash-table with fixed-length keys.
@@ -2976,7 +3973,7 @@ static inline int fz_mul255(int a, int b)
 #define FZ_BLEND(SRC, DST, AMOUNT) ((((SRC)-(DST))*(AMOUNT) + ((DST)<<8))>>8)
 
 void fz_gridfit_matrix(fz_matrix *m);
-float fz_matrix_max_expansion(fz_matrix m);
+float fz_matrix_max_expansion(const fz_matrix *m);
 
 /*
  * Basic crypto functions.
@@ -3033,7 +4030,7 @@ struct fz_sha512_s
 
 void fz_sha512_init(fz_sha512 *state);
 void fz_sha512_update(fz_sha512 *state, const unsigned char *input, unsigned int inlen);
-void fz_sha512_final(fz_sha512 *state, unsigned char digest[32]);
+void fz_sha512_final(fz_sha512 *state, unsigned char digest[64]);
 
 /* sha-384 digests */
 
@@ -3041,7 +4038,7 @@ typedef struct fz_sha512_s fz_sha384;
 
 void fz_sha384_init(fz_sha384 *state);
 void fz_sha384_update(fz_sha384 *state, const unsigned char *input, unsigned int inlen);
-void fz_sha384_final(fz_sha384 *state, unsigned char digest[32]);
+void fz_sha384_final(fz_sha384 *state, unsigned char digest[64]);
 
 /* arc4 crypto */
 
@@ -3071,8 +4068,8 @@ struct fz_aes_s
 	unsigned long buf[68]; /* unaligned data */
 };
 
-void aes_setkey_enc( fz_aes *ctx, const unsigned char *key, int keysize );
-void aes_setkey_dec( fz_aes *ctx, const unsigned char *key, int keysize );
+int aes_setkey_enc( fz_aes *ctx, const unsigned char *key, int keysize );
+int aes_setkey_dec( fz_aes *ctx, const unsigned char *key, int keysize );
 void aes_crypt_cbc( fz_aes *ctx, int mode, int length,
 	unsigned char iv[16],
 	const unsigned char *input,
@@ -3305,20 +4302,39 @@ void fz_grow_buffer(fz_context *ctx, fz_buffer *buf);
 */
 void fz_trim_buffer(fz_context *ctx, fz_buffer *buf);
 
+/*
+	fz_buffer_cat: Concatenate buffers
+
+	buf: first to concatenate and the holder of the result
+	extra: second to concatenate
+
+	May throw exception on failure to allocate.
+*/
+void fz_buffer_cat(fz_context *ctx, fz_buffer *buf, fz_buffer *extra);
+
 void fz_write_buffer(fz_context *ctx, fz_buffer *buf, unsigned char *data, int len);
 
 void fz_write_buffer_byte(fz_context *ctx, fz_buffer *buf, int val);
+
+void fz_write_buffer_rune(fz_context *ctx, fz_buffer *buf, int val);
 
 void fz_write_buffer_bits(fz_context *ctx, fz_buffer *buf, int val, int bits);
 
 void fz_write_buffer_pad(fz_context *ctx, fz_buffer *buf);
 
 /*
-	fz_buffer_printf: print formatted to a buffer. The buffer will
-	grow, but the caller must ensure that no more than 256 bytes are
-	added to the buffer per call.
+	fz_buffer_printf: print formatted to a buffer. The buffer will grow
+	as required.
 */
-void fz_buffer_printf(fz_context *ctx, fz_buffer *buffer, char *fmt, ...);
+int fz_buffer_printf(fz_context *ctx, fz_buffer *buffer, const char *fmt, ...);
+int fz_buffer_vprintf(fz_context *ctx, fz_buffer *buffer, const char *fmt, va_list args);
+
+/*
+	fz_buffer_printf: print a string formatted as a pdf string to a buffer.
+	The buffer will grow.
+*/
+void
+fz_buffer_cat_pdf_string(fz_context *ctx, fz_buffer *buffer, const char *text);
 
 struct fz_stream_s
 {
@@ -3340,6 +4356,21 @@ struct fz_stream_s
 fz_stream *fz_new_stream(fz_context *ctx, void*, int(*)(fz_stream*, unsigned char*, int), void(*)(fz_context *, void *));
 fz_stream *fz_keep_stream(fz_stream *stm);
 void fz_fill_buffer(fz_stream *stm);
+
+/*
+	fz_read_best: Attempt to read a stream into a buffer. If truncated
+	is NULL behaves as fz_read_all, otherwise does not throw exceptions
+	in the case of failure, but instead sets a truncated flag.
+
+	stm: The stream to read from.
+
+	initial: Suggested initial size for the buffer.
+
+	truncated: Flag to store success/failure indication in.
+
+	Returns a buffer created from reading from the stream.
+*/
+fz_buffer *fz_read_best(fz_stream *stm, int initial, int *truncated);
 
 void fz_read_line(fz_stream *stm, char *buf, int max);
 
@@ -3436,7 +4467,7 @@ fz_stream *fz_open_a85d(fz_stream *chain);
 fz_stream *fz_open_ahxd(fz_stream *chain);
 fz_stream *fz_open_rld(fz_stream *chain);
 fz_stream *fz_open_dctd(fz_stream *chain, int color_transform);
-fz_stream *fz_open_resized_dctd(fz_stream *chain, int color_transform, int factor);
+fz_stream *fz_open_resized_dctd(fz_stream *chain, int color_transform, int l2factor);
 fz_stream *fz_open_faxd(fz_stream *chain,
 	int k, int end_of_line, int encoded_byte_align,
 	int columns, int rows, int end_of_block, int black_is_1);
@@ -3513,15 +4544,90 @@ struct fz_pixmap_s
 
 void fz_free_pixmap_imp(fz_context *ctx, fz_storable *pix);
 
-void fz_clear_pixmap_rect_with_value(fz_context *ctx, fz_pixmap *pix, int value, fz_bbox r);
-void fz_copy_pixmap_rect(fz_context *ctx, fz_pixmap *dest, fz_pixmap *src, fz_bbox r);
+void fz_copy_pixmap_rect(fz_context *ctx, fz_pixmap *dest, fz_pixmap *src, const fz_irect *r);
 void fz_premultiply_pixmap(fz_context *ctx, fz_pixmap *pix);
 fz_pixmap *fz_alpha_from_gray(fz_context *ctx, fz_pixmap *gray, int luminosity);
 unsigned int fz_pixmap_size(fz_context *ctx, fz_pixmap *pix);
 
-fz_pixmap *fz_scale_pixmap(fz_context *ctx, fz_pixmap *src, float x, float y, float w, float h, fz_bbox *clip);
+fz_pixmap *fz_scale_pixmap(fz_context *ctx, fz_pixmap *src, float x, float y, float w, float h, fz_irect *clip);
 
-fz_bbox fz_pixmap_bbox_no_ctx(fz_pixmap *src);
+typedef struct fz_scale_cache_s fz_scale_cache;
+
+fz_scale_cache *fz_new_scale_cache(fz_context *ctx);
+void fz_free_scale_cache(fz_context *ctx, fz_scale_cache *cache);
+fz_pixmap *fz_scale_pixmap_cached(fz_context *ctx, fz_pixmap *src, float x, float y, float w, float h, const fz_irect *clip, fz_scale_cache *cache_x, fz_scale_cache *cache_y);
+
+void fz_subsample_pixmap(fz_context *ctx, fz_pixmap *tile, int factor);
+
+fz_irect *fz_pixmap_bbox_no_ctx(fz_pixmap *src, fz_irect *bbox);
+
+typedef struct fz_compression_params_s fz_compression_params;
+
+typedef struct fz_compressed_buffer_s fz_compressed_buffer;
+unsigned int fz_compressed_buffer_size(fz_compressed_buffer *buffer);
+
+fz_stream *fz_open_compressed_buffer(fz_context *ctx, fz_compressed_buffer *);
+fz_stream *fz_open_image_decomp_stream(fz_context *ctx, fz_compressed_buffer *, int *l2factor);
+
+enum
+{
+	FZ_IMAGE_UNKNOWN = 0,
+	FZ_IMAGE_JPEG = 1,
+	FZ_IMAGE_JPX = 2, /* Placeholder until supported */
+	FZ_IMAGE_FAX = 3,
+	FZ_IMAGE_JBIG2 = 4, /* Placeholder until supported */
+	FZ_IMAGE_RAW = 5,
+	FZ_IMAGE_RLD = 6,
+	FZ_IMAGE_FLATE = 7,
+	FZ_IMAGE_LZW = 8
+};
+
+struct fz_compression_params_s
+{
+	int type;
+	union {
+		struct {
+			int color_transform;
+		} jpeg;
+		struct {
+			int smask_in_data;
+		} jpx;
+		struct {
+			int columns;
+			int rows;
+			int k;
+			int end_of_line;
+			int encoded_byte_align;
+			int end_of_block;
+			int black_is_1;
+			int damaged_rows_before_error;
+		} fax;
+		struct
+		{
+			int columns;
+			int colors;
+			int predictor;
+			int bpc;
+		}
+		flate;
+		struct
+		{
+			int columns;
+			int colors;
+			int predictor;
+			int bpc;
+			int early_change;
+		} lzw;
+	} u;
+};
+
+struct fz_compressed_buffer_s
+{
+	fz_compression_params params;
+	fz_buffer *buffer;
+};
+
+void fz_free_compressed_buffer(fz_context *ctx, fz_compressed_buffer *buf);
 
 struct fz_image_s
 {
@@ -3568,6 +4674,22 @@ void fz_free_colorspace_imp(fz_context *ctx, fz_storable *colorspace);
 
 void fz_convert_color(fz_context *ctx, fz_colorspace *dsts, float *dstv, fz_colorspace *srcs, float *srcv);
 
+typedef struct fz_color_converter_s fz_color_converter;
+
+/* This structure is public because it allows us to avoid dynamic allocations.
+ * Callers should only rely on the convert entry - the rest of the structure
+ * is subject to change without notice.
+ */
+struct fz_color_converter_s
+{
+	void (*convert)(fz_color_converter *, float *, float *);
+	fz_context *ctx;
+	fz_colorspace *ds;
+	fz_colorspace *ss;
+};
+
+void fz_find_color_converter(fz_color_converter *cc, fz_context *ctx, fz_colorspace *ds, fz_colorspace *ss);
+
 /*
  * Fonts come in two variants:
  *	Regular fonts are handled by FreeType.
@@ -3595,10 +4717,11 @@ struct fz_font_s
 	fz_matrix t3matrix;
 	void *t3resources;
 	fz_buffer **t3procs; /* has 256 entries if used */
+	fz_display_list **t3lists; /* has 256 entries if used */
 	float *t3widths; /* has 256 entries if used */
 	char *t3flags; /* has 256 entries if used */
 	void *t3doc; /* a pdf_document for the callback */
-	void (*t3run)(void *doc, void *resources, fz_buffer *contents, fz_device *dev, fz_matrix ctm, void *gstate);
+	void (*t3run)(void *doc, void *resources, fz_buffer *contents, fz_device *dev, const fz_matrix *ctm, void *gstate, int nestedDepth);
 	void (*t3freeres)(void *doc, void *resources);
 
 	fz_rect bbox;	/* font bbox is used only for t3 fonts */
@@ -3617,7 +4740,7 @@ void fz_new_font_context(fz_context *ctx);
 fz_font_context *fz_keep_font_context(fz_context *ctx);
 void fz_drop_font_context(fz_context *ctx);
 
-fz_font *fz_new_type3_font(fz_context *ctx, char *name, fz_matrix matrix);
+fz_font *fz_new_type3_font(fz_context *ctx, char *name, const fz_matrix *matrix);
 
 fz_font *fz_new_font_from_memory(fz_context *ctx, char *name, unsigned char *data, int len, int index, int use_glyph_bbox);
 fz_font *fz_new_font_from_file(fz_context *ctx, char *name, char *path, int index, int use_glyph_bbox);
@@ -3626,7 +4749,7 @@ fz_font *fz_keep_font(fz_context *ctx, fz_font *font);
 void fz_drop_font(fz_context *ctx, fz_font *font);
 
 void fz_set_font_bbox(fz_context *ctx, fz_font *font, float xmin, float ymin, float xmax, float ymax);
-fz_rect fz_bound_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix trm);
+fz_rect *fz_bound_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, fz_rect *r);
 int fz_glyph_cacheable(fz_context *ctx, fz_font *font, int gid);
 
 #ifndef NDEBUG
@@ -3706,12 +4829,12 @@ void fz_curvetoy(fz_context*,fz_path*, float, float, float, float);
 void fz_closepath(fz_context*,fz_path*);
 void fz_free_path(fz_context *ctx, fz_path *path);
 
-void fz_transform_path(fz_context *ctx, fz_path *path, fz_matrix transform);
+void fz_transform_path(fz_context *ctx, fz_path *path, const fz_matrix *transform);
 
 fz_path *fz_clone_path(fz_context *ctx, fz_path *old);
 
-fz_rect fz_bound_path(fz_context *ctx, fz_path *path, fz_stroke_state *stroke, fz_matrix ctm);
-void fz_adjust_rect_for_stroke(fz_rect *r, fz_stroke_state *stroke, fz_matrix *ctm);
+fz_rect *fz_bound_path(fz_context *ctx, fz_path *path, fz_stroke_state *stroke, const fz_matrix *ctm, fz_rect *r);
+fz_rect *fz_adjust_rect_for_stroke(fz_rect *r, fz_stroke_state *stroke, const fz_matrix *ctm);
 
 fz_stroke_state *fz_new_stroke_state(fz_context *ctx);
 fz_stroke_state *fz_new_stroke_state_with_len(fz_context *ctx, int len);
@@ -3733,14 +4856,33 @@ fz_glyph_cache *fz_keep_glyph_cache(fz_context *ctx);
 void fz_drop_glyph_cache_context(fz_context *ctx);
 void fz_purge_glyph_cache(fz_context *ctx);
 
-fz_path *fz_outline_ft_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix trm);
-fz_path *fz_outline_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix ctm);
-fz_pixmap *fz_render_ft_glyph(fz_context *ctx, fz_font *font, int cid, fz_matrix trm, int aa);
-fz_pixmap *fz_render_t3_glyph(fz_context *ctx, fz_font *font, int cid, fz_matrix trm, fz_colorspace *model, fz_bbox scissor);
-fz_pixmap *fz_render_ft_stroked_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix trm, fz_matrix ctm, fz_stroke_state *state);
-fz_pixmap *fz_render_glyph(fz_context *ctx, fz_font*, int, fz_matrix, fz_colorspace *model, fz_bbox scissor);
-fz_pixmap *fz_render_stroked_glyph(fz_context *ctx, fz_font*, int, fz_matrix, fz_matrix, fz_stroke_state *stroke, fz_bbox scissor);
-void fz_render_t3_glyph_direct(fz_context *ctx, fz_device *dev, fz_font *font, int gid, fz_matrix trm, void *gstate);
+fz_path *fz_outline_ft_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm);
+fz_path *fz_outline_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *ctm);
+fz_pixmap *fz_render_ft_glyph(fz_context *ctx, fz_font *font, int cid, const fz_matrix *trm, int aa);
+fz_pixmap *fz_render_t3_glyph(fz_context *ctx, fz_font *font, int cid, const fz_matrix *trm, fz_colorspace *model, fz_irect scissor);
+fz_pixmap *fz_render_ft_stroked_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, const fz_matrix *ctm, fz_stroke_state *state);
+fz_pixmap *fz_render_glyph(fz_context *ctx, fz_font*, int, const fz_matrix *, fz_colorspace *model, fz_irect scissor);
+fz_pixmap *fz_render_stroked_glyph(fz_context *ctx, fz_font*, int, const fz_matrix *, const fz_matrix *, fz_stroke_state *stroke, fz_irect scissor);
+void fz_render_t3_glyph_direct(fz_context *ctx, fz_device *dev, fz_font *font, int gid, const fz_matrix *trm, void *gstate, int nestedDepth);
+void fz_prepare_t3_glyph(fz_context *ctx, fz_font *font, int gid, int nestedDepth);
+
+typedef enum
+{
+	FZ_ANNOT_STRIKEOUT
+} fz_annot_type;
+
+/*
+	fz_create_annot: create a new annotation of the specified type on the
+	specified page. The returned pdf_annot structure is owned by the page
+	and does not need to be freed.
+*/
+fz_annot *fz_create_annot(fz_interactive *idoc, fz_page *page, fz_annot_type type);
+
+/*
+	fz_set_annot_appearance: update the appearance of an annotation based
+	on a display list.
+*/
+void fz_set_annot_appearance(fz_interactive *idoc, fz_annot *annot, fz_display_list *disp_list);
 
 /*
  * Text buffer.
@@ -3773,10 +4915,10 @@ struct fz_text_s
 	fz_text_item *items;
 };
 
-fz_text *fz_new_text(fz_context *ctx, fz_font *face, fz_matrix trm, int wmode);
+fz_text *fz_new_text(fz_context *ctx, fz_font *face, const fz_matrix *trm, int wmode);
 void fz_add_text(fz_context *ctx, fz_text *text, int gid, int ucs, float x, float y);
 void fz_free_text(fz_context *ctx, fz_text *text);
-fz_rect fz_bound_text(fz_context *ctx, fz_text *text, fz_matrix ctm);
+fz_rect *fz_bound_text(fz_context *ctx, fz_text *text, const fz_matrix *ctm, fz_rect *r);
 fz_text *fz_clone_text(fz_context *ctx, fz_text *old);
 void fz_print_text(fz_context *ctx, FILE *out, fz_text*);
 
@@ -3786,9 +4928,13 @@ void fz_print_text(fz_context *ctx, FILE *out, fz_text*);
 
 enum
 {
-	FZ_LINEAR,
-	FZ_RADIAL,
-	FZ_MESH,
+	FZ_FUNCTION_BASED = 1,
+	FZ_LINEAR = 2,
+	FZ_RADIAL = 3,
+	FZ_MESH_TYPE4 = 4,
+	FZ_MESH_TYPE5 = 5,
+	FZ_MESH_TYPE6 = 6,
+	FZ_MESH_TYPE7 = 7
 };
 
 typedef struct fz_shade_s fz_shade;
@@ -3807,20 +4953,69 @@ struct fz_shade_s
 	int use_function;
 	float function[256][FZ_MAX_COLORS + 1];
 
-	int type; /* linear, radial, mesh */
-	int extend[2];
+	int type; /* function, linear, radial, mesh */
+	union
+	{
+		struct
+		{
+			int extend[2];
+			float coords[2][3]; /* (x,y,r) twice */
+		} l_or_r;
+		struct
+		{
+			int vprow;
+			int bpflag;
+			int bpcoord;
+			int bpcomp;
+			float x0, x1;
+			float y0, y1;
+			float c0[FZ_MAX_COLORS];
+			float c1[FZ_MAX_COLORS];
+		} m;
+		struct
+		{
+			fz_matrix matrix;
+			int xdivs;
+			int ydivs;
+			float domain[2][2];
+			float *fn_vals;
+		} f;
+	} u;
 
-	int mesh_len;
-	int mesh_cap;
-	float *mesh; /* [x y 0], [x y r], [x y t] or [x y c1 ... cn] */
+	fz_compressed_buffer *buffer;
 };
 
 fz_shade *fz_keep_shade(fz_context *ctx, fz_shade *shade);
 void fz_drop_shade(fz_context *ctx, fz_shade *shade);
 void fz_free_shade_imp(fz_context *ctx, fz_storable *shade);
 
-fz_rect fz_bound_shade(fz_context *ctx, fz_shade *shade, fz_matrix ctm);
-void fz_paint_shade(fz_context *ctx, fz_shade *shade, fz_matrix ctm, fz_pixmap *dest, fz_bbox bbox);
+fz_rect *fz_bound_shade(fz_context *ctx, fz_shade *shade, const fz_matrix *ctm, fz_rect *r);
+void fz_paint_shade(fz_context *ctx, fz_shade *shade, const fz_matrix *ctm, fz_pixmap *dest, const fz_irect *bbox);
+
+/*
+ *	Handy routine for processing mesh based shades
+ */
+typedef struct fz_vertex_s fz_vertex;
+
+struct fz_vertex_s
+{
+	fz_point p;
+	float c[FZ_MAX_COLORS];
+};
+
+typedef struct fz_mesh_processor_s fz_mesh_processor;
+
+typedef void (fz_mesh_process_fn)(void *arg, fz_vertex *av, fz_vertex *bv, fz_vertex *cv);
+
+struct fz_mesh_processor_s {
+	fz_context *ctx;
+	fz_shade *shade;
+	fz_mesh_process_fn *process;
+	void *process_arg;
+};
+
+void fz_process_mesh(fz_context *ctx, fz_shade *shade, const fz_matrix *ctm,
+			fz_mesh_process_fn *process, void *process_arg);
 
 #ifndef NDEBUG
 void fz_print_shade(fz_context *ctx, FILE *out, fz_shade *shade);
@@ -3834,17 +5029,17 @@ typedef struct fz_gel_s fz_gel;
 
 fz_gel *fz_new_gel(fz_context *ctx);
 void fz_insert_gel(fz_gel *gel, float x0, float y0, float x1, float y1);
-void fz_reset_gel(fz_gel *gel, fz_bbox clip);
+void fz_reset_gel(fz_gel *gel, const fz_irect *clip);
 void fz_sort_gel(fz_gel *gel);
-fz_bbox fz_bound_gel(fz_gel *gel);
+fz_irect *fz_bound_gel(const fz_gel *gel, fz_irect *bbox);
 void fz_free_gel(fz_gel *gel);
 int fz_is_rect_gel(fz_gel *gel);
 
-void fz_scan_convert(fz_gel *gel, int eofill, fz_bbox clip, fz_pixmap *pix, unsigned char *colorbv);
+void fz_scan_convert(fz_gel *gel, int eofill, const fz_irect *clip, fz_pixmap *pix, unsigned char *colorbv);
 
-void fz_flatten_fill_path(fz_gel *gel, fz_path *path, fz_matrix ctm, float flatness);
-void fz_flatten_stroke_path(fz_gel *gel, fz_path *path, fz_stroke_state *stroke, fz_matrix ctm, float flatness, float linewidth);
-void fz_flatten_dash_path(fz_gel *gel, fz_path *path, fz_stroke_state *stroke, fz_matrix ctm, float flatness, float linewidth);
+void fz_flatten_fill_path(fz_gel *gel, fz_path *path, const fz_matrix *ctm, float flatness);
+void fz_flatten_stroke_path(fz_gel *gel, fz_path *path, fz_stroke_state *stroke, const fz_matrix *ctm, float flatness, float linewidth);
+void fz_flatten_dash_path(fz_gel *gel, fz_path *path, fz_stroke_state *stroke, const fz_matrix *ctm, float flatness, float linewidth);
 
 /*
  * The device interface.
@@ -3884,57 +5079,58 @@ struct fz_device_s
 	void (*free_user)(fz_device *);
 	fz_context *ctx;
 
-	void (*fill_path)(fz_device *, fz_path *, int even_odd, fz_matrix, fz_colorspace *, float *color, float alpha);
-	void (*stroke_path)(fz_device *, fz_path *, fz_stroke_state *, fz_matrix, fz_colorspace *, float *color, float alpha);
-	void (*clip_path)(fz_device *, fz_path *, fz_rect *rect, int even_odd, fz_matrix);
-	void (*clip_stroke_path)(fz_device *, fz_path *, fz_rect *rect, fz_stroke_state *, fz_matrix);
+	void (*fill_path)(fz_device *, fz_path *, int even_odd, const fz_matrix *, fz_colorspace *, float *color, float alpha);
+	void (*stroke_path)(fz_device *, fz_path *, fz_stroke_state *, const fz_matrix *, fz_colorspace *, float *color, float alpha);
+	void (*clip_path)(fz_device *, fz_path *, const fz_rect *rect, int even_odd, const fz_matrix *);
+	void (*clip_stroke_path)(fz_device *, fz_path *, const fz_rect *rect, fz_stroke_state *, const fz_matrix *);
 
-	void (*fill_text)(fz_device *, fz_text *, fz_matrix, fz_colorspace *, float *color, float alpha);
-	void (*stroke_text)(fz_device *, fz_text *, fz_stroke_state *, fz_matrix, fz_colorspace *, float *color, float alpha);
-	void (*clip_text)(fz_device *, fz_text *, fz_matrix, int accumulate);
-	void (*clip_stroke_text)(fz_device *, fz_text *, fz_stroke_state *, fz_matrix);
-	void (*ignore_text)(fz_device *, fz_text *, fz_matrix);
+	void (*fill_text)(fz_device *, fz_text *, const fz_matrix *, fz_colorspace *, float *color, float alpha);
+	void (*stroke_text)(fz_device *, fz_text *, fz_stroke_state *, const fz_matrix *, fz_colorspace *, float *color, float alpha);
+	void (*clip_text)(fz_device *, fz_text *, const fz_matrix *, int accumulate);
+	void (*clip_stroke_text)(fz_device *, fz_text *, fz_stroke_state *, const fz_matrix *);
+	void (*ignore_text)(fz_device *, fz_text *, const fz_matrix *);
 
-	void (*fill_shade)(fz_device *, fz_shade *shd, fz_matrix ctm, float alpha);
-	void (*fill_image)(fz_device *, fz_image *img, fz_matrix ctm, float alpha);
-	void (*fill_image_mask)(fz_device *, fz_image *img, fz_matrix ctm, fz_colorspace *, float *color, float alpha);
-	void (*clip_image_mask)(fz_device *, fz_image *img, fz_rect *rect, fz_matrix ctm);
+	void (*fill_shade)(fz_device *, fz_shade *shd, const fz_matrix *ctm, float alpha);
+	void (*fill_image)(fz_device *, fz_image *img, const fz_matrix *ctm, float alpha);
+	void (*fill_image_mask)(fz_device *, fz_image *img, const fz_matrix *ctm, fz_colorspace *, float *color, float alpha);
+	void (*clip_image_mask)(fz_device *, fz_image *img, const fz_rect *rect, const fz_matrix *ctm);
 
 	void (*pop_clip)(fz_device *);
 
-	void (*begin_mask)(fz_device *, fz_rect, int luminosity, fz_colorspace *, float *bc);
+	void (*begin_mask)(fz_device *, const fz_rect *, int luminosity, fz_colorspace *, float *bc);
 	void (*end_mask)(fz_device *);
-	void (*begin_group)(fz_device *, fz_rect, int isolated, int knockout, int blendmode, float alpha);
+	void (*begin_group)(fz_device *, const fz_rect *, int isolated, int knockout, int blendmode, float alpha);
 	void (*end_group)(fz_device *);
 
-	void (*begin_tile)(fz_device *, fz_rect area, fz_rect view, float xstep, float ystep, fz_matrix ctm);
+	void (*begin_tile)(fz_device *, const fz_rect *area, const fz_rect *view, float xstep, float ystep, const fz_matrix *ctm);
 	void (*end_tile)(fz_device *);
+
+	int error_depth;
+	char errmess[256];
 };
 
-void fz_fill_path(fz_device *dev, fz_path *path, int even_odd, fz_matrix ctm, fz_colorspace *colorspace, float *color, float alpha);
-void fz_stroke_path(fz_device *dev, fz_path *path, fz_stroke_state *stroke, fz_matrix ctm, fz_colorspace *colorspace, float *color, float alpha);
-void fz_clip_path(fz_device *dev, fz_path *path, fz_rect *rect, int even_odd, fz_matrix ctm);
-void fz_clip_stroke_path(fz_device *dev, fz_path *path, fz_rect *rect, fz_stroke_state *stroke, fz_matrix ctm);
-void fz_fill_text(fz_device *dev, fz_text *text, fz_matrix ctm, fz_colorspace *colorspace, float *color, float alpha);
-void fz_stroke_text(fz_device *dev, fz_text *text, fz_stroke_state *stroke, fz_matrix ctm, fz_colorspace *colorspace, float *color, float alpha);
-void fz_clip_text(fz_device *dev, fz_text *text, fz_matrix ctm, int accumulate);
-void fz_clip_stroke_text(fz_device *dev, fz_text *text, fz_stroke_state *stroke, fz_matrix ctm);
-void fz_ignore_text(fz_device *dev, fz_text *text, fz_matrix ctm);
+void fz_fill_path(fz_device *dev, fz_path *path, int even_odd, const fz_matrix *ctm, fz_colorspace *colorspace, float *color, float alpha);
+void fz_stroke_path(fz_device *dev, fz_path *path, fz_stroke_state *stroke, const fz_matrix *ctm, fz_colorspace *colorspace, float *color, float alpha);
+void fz_clip_path(fz_device *dev, fz_path *path, const fz_rect *rect, int even_odd, const fz_matrix *ctm);
+void fz_clip_stroke_path(fz_device *dev, fz_path *path, const fz_rect *rect, fz_stroke_state *stroke, const fz_matrix *ctm);
+void fz_fill_text(fz_device *dev, fz_text *text, const fz_matrix *ctm, fz_colorspace *colorspace, float *color, float alpha);
+void fz_stroke_text(fz_device *dev, fz_text *text, fz_stroke_state *stroke, const fz_matrix *ctm, fz_colorspace *colorspace, float *color, float alpha);
+void fz_clip_text(fz_device *dev, fz_text *text, const fz_matrix *ctm, int accumulate);
+void fz_clip_stroke_text(fz_device *dev, fz_text *text, fz_stroke_state *stroke, const fz_matrix *ctm);
+void fz_ignore_text(fz_device *dev, fz_text *text, const fz_matrix *ctm);
 void fz_pop_clip(fz_device *dev);
-void fz_fill_shade(fz_device *dev, fz_shade *shade, fz_matrix ctm, float alpha);
-void fz_fill_image(fz_device *dev, fz_image *image, fz_matrix ctm, float alpha);
-void fz_fill_image_mask(fz_device *dev, fz_image *image, fz_matrix ctm, fz_colorspace *colorspace, float *color, float alpha);
-void fz_clip_image_mask(fz_device *dev, fz_image *image, fz_rect *rect, fz_matrix ctm);
-void fz_begin_mask(fz_device *dev, fz_rect area, int luminosity, fz_colorspace *colorspace, float *bc);
+void fz_fill_shade(fz_device *dev, fz_shade *shade, const fz_matrix *ctm, float alpha);
+void fz_fill_image(fz_device *dev, fz_image *image, const fz_matrix *ctm, float alpha);
+void fz_fill_image_mask(fz_device *dev, fz_image *image, const fz_matrix *ctm, fz_colorspace *colorspace, float *color, float alpha);
+void fz_clip_image_mask(fz_device *dev, fz_image *image, const fz_rect *rect, const fz_matrix *ctm);
+void fz_begin_mask(fz_device *dev, const fz_rect *area, int luminosity, fz_colorspace *colorspace, float *bc);
 void fz_end_mask(fz_device *dev);
-void fz_begin_group(fz_device *dev, fz_rect area, int isolated, int knockout, int blendmode, float alpha);
+void fz_begin_group(fz_device *dev, const fz_rect *area, int isolated, int knockout, int blendmode, float alpha);
 void fz_end_group(fz_device *dev);
-void fz_begin_tile(fz_device *dev, fz_rect area, fz_rect view, float xstep, float ystep, fz_matrix ctm);
+void fz_begin_tile(fz_device *dev, const fz_rect *area, const fz_rect *view, float xstep, float ystep, const fz_matrix *ctm);
 void fz_end_tile(fz_device *dev);
 
 fz_device *fz_new_device(fz_context *ctx, void *user);
-
-
 
 /*
  * Plotting functions.
@@ -3950,12 +5146,12 @@ void fz_paint_solid_color(unsigned char * restrict dp, int n, int w, unsigned ch
 void fz_paint_span(unsigned char * restrict dp, unsigned char * restrict sp, int n, int w, int alpha);
 void fz_paint_span_with_color(unsigned char * restrict dp, unsigned char * restrict mp, int n, int w, unsigned char *color);
 
-void fz_paint_image(fz_pixmap *dst, fz_bbox scissor, fz_pixmap *shape, fz_pixmap *img, fz_matrix ctm, int alpha);
-void fz_paint_image_with_color(fz_pixmap *dst, fz_bbox scissor, fz_pixmap *shape, fz_pixmap *img, fz_matrix ctm, unsigned char *colorbv);
+void fz_paint_image(fz_pixmap *dst, const fz_irect *scissor, fz_pixmap *shape, fz_pixmap *img, const fz_matrix *ctm, int alpha);
+void fz_paint_image_with_color(fz_pixmap *dst, const fz_irect *scissor, fz_pixmap *shape, fz_pixmap *img, const fz_matrix *ctm, unsigned char *colorbv);
 
 void fz_paint_pixmap(fz_pixmap *dst, fz_pixmap *src, int alpha);
 void fz_paint_pixmap_with_mask(fz_pixmap *dst, fz_pixmap *src, fz_pixmap *msk);
-void fz_paint_pixmap_with_rect(fz_pixmap *dst, fz_pixmap *src, int alpha, fz_bbox bbox);
+void fz_paint_pixmap_with_bbox(fz_pixmap *dst, fz_pixmap *src, int alpha, fz_irect bbox);
 
 void fz_blend_pixmap(fz_pixmap *dst, fz_pixmap *src, int alpha, int blendmode, int isolated, fz_pixmap *shape);
 void fz_blend_pixel(unsigned char dp[3], unsigned char bp[3], unsigned char sp[3], int blendmode);
@@ -3997,11 +5193,17 @@ struct fz_document_s
 	int (*count_pages)(fz_document *doc);
 	fz_page *(*load_page)(fz_document *doc, int number);
 	fz_link *(*load_links)(fz_document *doc, fz_page *page);
-	fz_rect (*bound_page)(fz_document *doc, fz_page *page);
-	void (*run_page)(fz_document *doc, fz_page *page, fz_device *dev, fz_matrix transform, fz_cookie *cookie);
+	fz_rect *(*bound_page)(fz_document *doc, fz_page *page, fz_rect *);
+	void (*run_page_contents)(fz_document *doc, fz_page *page, fz_device *dev, const fz_matrix *transform, fz_cookie *cookie);
+	void (*run_annot)(fz_document *doc, fz_page *page, fz_annot *annot, fz_device *dev, const fz_matrix *transform, fz_cookie *cookie);
 	void (*free_page)(fz_document *doc, fz_page *page);
 	int (*meta)(fz_document *doc, int key, void *ptr, int size);
+	fz_transition *(*page_presentation)(fz_document *doc, fz_page *page, float *duration);
+	fz_interactive *(*interact)(fz_document *doc);
 	void (*write)(fz_document *doc, char *filename, fz_write_options *opts);
+	fz_annot *(*first_annot)(fz_document *doc, fz_page *page);
+	fz_annot *(*next_annot)(fz_document *doc, fz_annot *annot);
+	fz_rect *(*bound_annot)(fz_document *doc, fz_annot *annot, fz_rect *rect);
 };
 
 #endif
@@ -4014,52 +5216,6 @@ void pdf_set_int(pdf_obj *obj, int i);
  * PDF Images
  */
 
-typedef struct pdf_image_params_s pdf_image_params;
-
-struct pdf_image_params_s
-{
-	int type;
-	fz_colorspace *colorspace;
-	union
-	{
-		struct
-		{
-			int columns;
-			int rows;
-			int k;
-			int eol;
-			int eba;
-			int eob;
-			int bi1;
-		}
-		fax;
-		struct
-		{
-			int ct;
-		}
-		jpeg;
-		struct
-		{
-			int columns;
-			int colors;
-			int predictor;
-			int bpc;
-		}
-		flate;
-		struct
-		{
-			int columns;
-			int colors;
-			int predictor;
-			int bpc;
-			int ec;
-		}
-		lzw;
-	}
-	u;
-};
-
-
 typedef struct pdf_image_s pdf_image;
 
 struct pdf_image_s
@@ -4067,8 +5223,7 @@ struct pdf_image_s
 	fz_image base;
 	fz_pixmap *tile;
 	int n, bpc;
-	pdf_image_params params;
-	fz_buffer *buffer;
+	fz_compressed_buffer *buffer;
 	int colorkey[FZ_MAX_COLORS * 2];
 	float decode[FZ_MAX_COLORS * 2];
 	int imagemask;
@@ -4076,22 +5231,11 @@ struct pdf_image_s
 	int usecolorkey;
 };
 
-enum
-{
-	PDF_IMAGE_RAW,
-	PDF_IMAGE_FAX,
-	PDF_IMAGE_JPEG,
-	PDF_IMAGE_RLD,
-	PDF_IMAGE_FLATE,
-	PDF_IMAGE_LZW,
-	PDF_IMAGE_JPX
-};
-
 /*
  * tokenizer and low-level object parser
  */
 
-enum
+typedef enum
 {
 	PDF_TOK_ERROR, PDF_TOK_EOF,
 	PDF_TOK_OPEN_ARRAY, PDF_TOK_CLOSE_ARRAY,
@@ -4103,7 +5247,7 @@ enum
 	PDF_TOK_STREAM, PDF_TOK_ENDSTREAM,
 	PDF_TOK_XREF, PDF_TOK_TRAILER, PDF_TOK_STARTXREF,
 	PDF_NUM_TOKENS
-};
+} pdf_token;
 
 enum
 {
@@ -4167,6 +5311,7 @@ struct pdf_xref_entry_s
 typedef struct pdf_crypt_s pdf_crypt;
 typedef struct pdf_ocg_descriptor_s pdf_ocg_descriptor;
 typedef struct pdf_ocg_entry_s pdf_ocg_entry;
+typedef struct pdf_hotspot_s pdf_hotspot;
 
 struct pdf_ocg_entry_s
 {
@@ -4182,6 +5327,21 @@ struct pdf_ocg_descriptor_s
 	pdf_obj *intent;
 };
 
+enum
+{
+	HOTSPOT_POINTER_DOWN = 0x1,
+	HOTSPOT_POINTER_OVER = 0x2
+};
+
+struct pdf_hotspot_s
+{
+	int num;
+	int gen;
+	int state;
+};
+
+typedef struct pdf_js_s pdf_js;
+
 struct pdf_document_s
 {
 	fz_document super;
@@ -4195,6 +5355,7 @@ struct pdf_document_s
 	pdf_crypt *crypt;
 	pdf_obj *trailer;
 	pdf_ocg_descriptor *ocg;
+	pdf_hotspot hotspot;
 
 	int len;
 	pdf_xref_entry *table;
@@ -4203,23 +5364,35 @@ struct pdf_document_s
 	int page_cap;
 	pdf_obj **page_objs;
 	pdf_obj **page_refs;
+	int resources_localised;
 
 	pdf_lexbuf_large lexbuf;
+
+	pdf_annot *focus;
+	pdf_obj *focus_obj;
+
+	pdf_js *js;
+	int recalculating;
+	int dirty;
+
+	fz_doc_event_cb *event_cb;
+	void *event_cb_data;
 };
 
 pdf_document *pdf_open_document_no_run(fz_context *ctx, const char *filename);
-pdf_document *pdf_open_document_no_run_with_stream(fz_stream *file);
+pdf_document *pdf_open_document_no_run_with_stream(fz_context *ctx, fz_stream *file);
+
+void pdf_localise_page_resources(pdf_document *xref);
 
 void pdf_cache_object(pdf_document *doc, int num, int gen);
 
-fz_stream *pdf_open_inline_stream(pdf_document *doc, pdf_obj *stmobj, int length, fz_stream *chain, pdf_image_params *params);
-fz_buffer *pdf_load_image_stream(pdf_document *doc, int num, int gen, int orig_num, int orig_gen, pdf_image_params *params);
-fz_stream *pdf_open_image_stream(pdf_document *doc, int num, int gen, int orig_num, int orig_gen, pdf_image_params *params);
+fz_stream *pdf_open_inline_stream(pdf_document *doc, pdf_obj *stmobj, int length, fz_stream *chain, fz_compression_params *params);
+fz_compressed_buffer *pdf_load_compressed_stream(pdf_document *doc, int num, int gen);
 fz_stream *pdf_open_stream_with_offset(pdf_document *doc, int num, int gen, pdf_obj *dict, int stm_ofs);
-fz_stream *pdf_open_image_decomp_stream(fz_context *ctx, fz_buffer *, pdf_image_params *params, int *factor);
+fz_stream *pdf_open_compressed_stream(fz_context *ctx, fz_compressed_buffer *);
 fz_stream *pdf_open_contents_stream(pdf_document *xref, pdf_obj *obj);
 fz_buffer *pdf_load_raw_renumbered_stream(pdf_document *doc, int num, int gen, int orig_num, int orig_gen);
-fz_buffer *pdf_load_renumbered_stream(pdf_document *doc, int num, int gen, int orig_num, int orig_gen);
+fz_buffer *pdf_load_renumbered_stream(pdf_document *doc, int num, int gen, int orig_num, int orig_gen, int *truncated);
 fz_stream *pdf_open_raw_renumbered_stream(pdf_document *doc, int num, int gen, int orig_num, int orig_gen);
 
 void pdf_repair_xref(pdf_document *doc, pdf_lexbuf *buf);
@@ -4311,14 +5484,16 @@ struct pdf_xobject_s
 	pdf_obj *resources;
 	pdf_obj *contents;
 	pdf_obj *me;
+	int iteration;
 };
 
 pdf_xobject *pdf_load_xobject(pdf_document *doc, pdf_obj *obj);
-pdf_obj *pdf_new_xobject(pdf_document *doc, fz_rect *bbox, fz_matrix *mat);
+pdf_obj *pdf_new_xobject(pdf_document *doc, const fz_rect *bbox, const fz_matrix *mat);
 pdf_xobject *pdf_keep_xobject(fz_context *ctx, pdf_xobject *xobj);
 void pdf_drop_xobject(fz_context *ctx, pdf_xobject *xobj);
-void pdf_update_xobject_contents(pdf_document *xref, pdf_xobject *from, fz_buffer *buffer);
+void pdf_update_xobject_contents(pdf_document *xref, pdf_xobject *form, fz_buffer *buffer);
 
+void pdf_update_appearance(pdf_document *doc, pdf_obj *obj);
 
 /*
  * CMap
@@ -4503,7 +5678,8 @@ unsigned char *pdf_lookup_substitute_font(int mono, int serif, int bold, int ita
 unsigned char *pdf_lookup_substitute_cjk_font(int ros, int serif, unsigned int *len);
 
 pdf_font_desc *pdf_load_type3_font(pdf_document *doc, pdf_obj *rdb, pdf_obj *obj);
-pdf_font_desc *pdf_load_font(pdf_document *doc, pdf_obj *rdb, pdf_obj *obj);
+void pdf_load_type3_glyphs(pdf_document *doc, pdf_font_desc *fontdesc, int nestedDepth);
+pdf_font_desc *pdf_load_font(pdf_document *doc, pdf_obj *rdb, pdf_obj *obj, int nestedDepth);
 
 pdf_font_desc *pdf_new_font_desc(fz_context *ctx);
 pdf_font_desc *pdf_keep_font(fz_context *ctx, pdf_font_desc *fontdesc);
@@ -4513,19 +5689,25 @@ void pdf_drop_font(fz_context *ctx, pdf_font_desc *font);
 void pdf_print_font(fz_context *ctx, pdf_font_desc *fontdesc);
 #endif
 
+fz_rect *pdf_measure_text(fz_context *ctx, pdf_font_desc *fontdesc, unsigned char *buf, int len, fz_rect *rect);
+float pdf_text_stride(fz_context *ctx, pdf_font_desc *fontdesc, float fontsize, unsigned char *buf, int len, float room, int *count);
+
 /*
  * Interactive features
  */
 
-typedef struct pdf_annot_s pdf_annot;
-
 struct pdf_annot_s
 {
+	pdf_page *page;
 	pdf_obj *obj;
 	fz_rect rect;
+	fz_rect pagerect;
 	pdf_xobject *ap;
+	int ap_iteration;
 	fz_matrix matrix;
 	pdf_annot *next;
+	pdf_annot *next_changed;
+	int type;
 };
 
 fz_link_dest pdf_parse_link_dest(pdf_document *doc, pdf_obj *dest);
@@ -4534,10 +5716,25 @@ pdf_obj *pdf_lookup_dest(pdf_document *doc, pdf_obj *needle);
 pdf_obj *pdf_lookup_name(pdf_document *doc, char *which, pdf_obj *needle);
 pdf_obj *pdf_load_name_tree(pdf_document *doc, char *which);
 
-fz_link *pdf_load_link_annots(pdf_document *, pdf_obj *annots, fz_matrix page_ctm);
+fz_link *pdf_load_link_annots(pdf_document *, pdf_obj *annots, const fz_matrix *page_ctm);
 
-pdf_annot *pdf_load_annots(pdf_document *, pdf_obj *annots);
+pdf_annot *pdf_load_annots(pdf_document *, pdf_obj *annots, pdf_page *page);
+void pdf_update_annot(pdf_document *, pdf_annot *annot);
 void pdf_free_annot(fz_context *ctx, pdf_annot *link);
+
+int pdf_field_type(pdf_document *doc, pdf_obj *field);
+char *pdf_field_value(pdf_document *doc, pdf_obj *field);
+int pdf_field_set_value(pdf_document *doc, pdf_obj *field, char *text);
+char *pdf_field_border_style(pdf_document *doc, pdf_obj *field);
+void pdf_field_set_border_style(pdf_document *doc, pdf_obj *field, char *text);
+void pdf_field_set_button_caption(pdf_document *doc, pdf_obj *field, char *text);
+void pdf_field_set_fill_color(pdf_document *doc, pdf_obj *field, pdf_obj *col);
+void pdf_field_set_text_color(pdf_document *doc, pdf_obj *field, pdf_obj *col);
+int pdf_field_display(pdf_document *doc, pdf_obj *field);
+char *pdf_field_name(pdf_document *doc, pdf_obj *field);
+void pdf_field_set_display(pdf_document *doc, pdf_obj *field, int d);
+pdf_obj *pdf_lookup_field(pdf_obj *form, char *name);
+void pdf_field_reset(pdf_document *doc, pdf_obj *field);
 
 /*
  * Page tree, pages and related objects
@@ -4553,20 +5750,124 @@ struct pdf_page_s
 	pdf_obj *contents;
 	fz_link *links;
 	pdf_annot *annots;
+	pdf_annot *changed_annots;
+	pdf_obj *me;
+	float duration;
+	int transition_present;
+	fz_transition transition;
 };
 
 /*
  * Content stream parsing
  */
 
-void pdf_run_glyph(pdf_document *doc, pdf_obj *resources, fz_buffer *contents, fz_device *dev, fz_matrix ctm, void *gstate);
+void pdf_run_glyph(pdf_document *doc, pdf_obj *resources, fz_buffer *contents, fz_device *dev, const fz_matrix *ctm, void *gstate, int nestedDepth);
 
 /*
  * PDF interface to store
  */
-
 void pdf_store_item(fz_context *ctx, pdf_obj *key, void *val, unsigned int itemsize);
 void *pdf_find_item(fz_context *ctx, fz_store_free_fn *free, pdf_obj *key);
 void pdf_remove_item(fz_context *ctx, fz_store_free_fn *free, pdf_obj *key);
 
-#endif // MUPDF_INTERNAL_H
+/*
+ * PDF interaction interface
+ */
+int pdf_has_unsaved_changes(pdf_document *doc);
+int pdf_pass_event(pdf_document *doc, pdf_page *page, fz_ui_event *ui_event);
+void pdf_update_page(pdf_document *doc, pdf_page *page);
+pdf_annot *pdf_poll_changed_annot(pdf_document *idoc, pdf_page *page);
+fz_widget *pdf_focused_widget(pdf_document *doc);
+fz_widget *pdf_first_widget(pdf_document *doc, pdf_page *page);
+fz_widget *pdf_next_widget(fz_widget *previous);
+char *pdf_text_widget_text(pdf_document *doc, fz_widget *tw);
+int pdf_text_widget_max_len(pdf_document *doc, fz_widget *tw);
+int pdf_text_widget_content_type(pdf_document *doc, fz_widget *tw);
+int pdf_text_widget_set_text(pdf_document *doc, fz_widget *tw, char *text);
+int pdf_choice_widget_options(pdf_document *doc, fz_widget *tw, char *opts[]);
+int pdf_choice_widget_is_multiselect(pdf_document *doc, fz_widget *tw);
+int pdf_choice_widget_value(pdf_document *doc, fz_widget *tw, char *opts[]);
+void pdf_choice_widget_set_value(pdf_document *doc, fz_widget *tw, int n, char *opts[]);
+pdf_annot *pdf_create_annot(pdf_document *doc, pdf_page *page, fz_annot_type type);
+void pdf_set_annot_appearance(pdf_document *doc, pdf_annot *annot, fz_display_list *disp_list);
+void pdf_set_doc_event_callback(pdf_document *doc, fz_doc_event_cb *event_cb, void *data);
+
+void pdf_event_issue_alert(pdf_document *doc, fz_alert_event *event);
+void pdf_event_issue_print(pdf_document *doc);
+void pdf_event_issue_exec_menu_item(pdf_document *doc, char *item);
+void pdf_event_issue_exec_dialog(pdf_document *doc);
+void pdf_event_issue_launch_url(pdf_document *doc, char *url, int new_frame);
+void pdf_event_issue_mail_doc(pdf_document *doc, fz_mail_doc_event *event);
+
+/*
+ * Javascript handler
+ */
+typedef struct pdf_js_event_s
+{
+	pdf_obj *target;
+	char *value;
+	int rc;
+} pdf_js_event;
+
+int pdf_js_supported();
+pdf_js *pdf_new_js(pdf_document *doc);
+void pdf_drop_js(pdf_js *js);
+void pdf_js_load_document_level(pdf_js *js);
+void pdf_js_setup_event(pdf_js *js, pdf_js_event *e);
+pdf_js_event *pdf_js_get_event(pdf_js *js);
+void pdf_js_execute(pdf_js *js, char *code);
+void pdf_js_execute_count(pdf_js *js, char *code, int count);
+
+/*
+ * Javascript engine interface
+ */
+typedef struct pdf_jsimp_s pdf_jsimp;
+typedef struct pdf_jsimp_type_s pdf_jsimp_type;
+typedef struct pdf_jsimp_obj_s pdf_jsimp_obj;
+
+typedef void (pdf_jsimp_dtr)(void *jsctx, void *obj);
+typedef pdf_jsimp_obj *(pdf_jsimp_method)(void *jsctx, void *obj, int argc, pdf_jsimp_obj *args[]);
+typedef pdf_jsimp_obj *(pdf_jsimp_getter)(void *jsctx, void *obj);
+typedef void (pdf_jsimp_setter)(void *jsctx, void *obj, pdf_jsimp_obj *val);
+
+enum
+{
+	JS_TYPE_UNKNOWN,
+	JS_TYPE_NULL,
+	JS_TYPE_STRING,
+	JS_TYPE_NUMBER,
+	JS_TYPE_ARRAY,
+	JS_TYPE_BOOLEAN
+};
+
+pdf_jsimp *pdf_new_jsimp(fz_context *ctx, void *jsctx);
+void pdf_drop_jsimp(pdf_jsimp *imp);
+
+pdf_jsimp_type *pdf_jsimp_new_type(pdf_jsimp *imp, pdf_jsimp_dtr *dtr);
+void pdf_jsimp_drop_type(pdf_jsimp *imp, pdf_jsimp_type *type);
+void pdf_jsimp_addmethod(pdf_jsimp *imp, pdf_jsimp_type *type, char *name, pdf_jsimp_method *meth);
+void pdf_jsimp_addproperty(pdf_jsimp *imp, pdf_jsimp_type *type, char *name, pdf_jsimp_getter *get, pdf_jsimp_setter *set);
+void pdf_jsimp_set_global_type(pdf_jsimp *imp, pdf_jsimp_type *type);
+
+pdf_jsimp_obj *pdf_jsimp_new_obj(pdf_jsimp *imp, pdf_jsimp_type *type, void *obj);
+void pdf_jsimp_drop_obj(pdf_jsimp *imp, pdf_jsimp_obj *obj);
+
+int pdf_jsimp_to_type(pdf_jsimp *imp, pdf_jsimp_obj *obj);
+
+pdf_jsimp_obj *pdf_jsimp_from_string(pdf_jsimp *imp, char *str);
+char *pdf_jsimp_to_string(pdf_jsimp *imp, pdf_jsimp_obj *obj);
+
+pdf_jsimp_obj *pdf_jsimp_from_number(pdf_jsimp *imp, double num);
+double pdf_jsimp_to_number(pdf_jsimp *imp, pdf_jsimp_obj *obj);
+
+int pdf_jsimp_array_len(pdf_jsimp *imp, pdf_jsimp_obj *obj);
+pdf_jsimp_obj *pdf_jsimp_array_item(pdf_jsimp *imp, pdf_jsimp_obj *obj, int i);
+
+pdf_jsimp_obj *pdf_jsimp_property(pdf_jsimp *imp, pdf_jsimp_obj *obj, char *prop);
+
+void pdf_jsimp_execute(pdf_jsimp *imp, char *code);
+void pdf_jsimp_execute_count(pdf_jsimp *imp, char *code, int count);
+
+#endif  /* MUPDF INTERNAL */
+
+#endif /* MUPDF */

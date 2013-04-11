@@ -25,27 +25,38 @@ static int valid_numerical_char(int c);
 
 /*
 ** Return file count
+** NEW BEHAVIOR (v1.65 and up):
+** setvals==1 to set all values based on options
+**        ==2 to set only ansi, user interface, exit on complete
+**            (also still sets and counts files.)
+**
+** OLD BEHAVIOR (PRE v1.65):
 ** setvals==1 to set all values based on options
 **        ==2 to set only ansi, user interface, exit on complete
 **        ==0 to not set any values
 ** procfiles == 1 to process files
 **           == 0 to count files only
 */
-int parse_cmd_args(K2PDFOPT_SETTINGS *k2settings,STRBUF *env,STRBUF *cmdline,
-                   STRBUF *usermenu,int setvals,int procfiles)
+int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
+                   STRBUF *usermenu,int setvals)
 
     {
     CMDLINEINPUT _cl,*cl;
     STRBUF *allopts,_allopts;
-    int filecount,readnext;
+    int readnext;
+    K2PDFOPT_SETTINGS *k2settings;
 
+    k2settings=&k2conv->k2settings;
+    k2pdfopt_files_clear(&k2conv->k2files);
     allopts=&_allopts;
     strbuf_init(allopts);
-    strbuf_cpy(allopts,env->s);
-    strbuf_cat(allopts,cmdline->s);
-    strbuf_cat(allopts,usermenu->s);
+    if (env!=NULL)
+        strbuf_cat(allopts,env->s);
+    if (cmdline!=NULL)
+        strbuf_cat(allopts,cmdline->s);
+    if (usermenu!=NULL)
+        strbuf_cat(allopts,usermenu->s);
     cl=&_cl;
-    filecount=0;
     cmdlineinput_init(cl,0,NULL,allopts->s);
     readnext=1;
     while (1)
@@ -137,7 +148,7 @@ int parse_cmd_args(K2PDFOPT_SETTINGS *k2settings,STRBUF *env,STRBUF *cmdline,
             if (setvals==1)
                 {
                 if (!k2pdfopt_settings_set_to_device(k2settings,devprofile_get(cl->cmdarg)))
-                    aprintf(TTEXT_WARN "\aDevice profile '%s' not known." TTEXT_NORMAL "\n",cl->cmdarg);
+                    k2printf(TTEXT_WARN "\aDevice profile '%s' not known." TTEXT_NORMAL "\n",cl->cmdarg);
                 }
             continue;
             }
@@ -272,7 +283,7 @@ int parse_cmd_args(K2PDFOPT_SETTINGS *k2settings,STRBUF *env,STRBUF *cmdline,
                     k2settings->dst_mar=k2settings->dst_marleft=k2settings->dst_martop=k2settings->dst_marright=k2settings->dst_marbot=0.02;
                     }
                 else
-                    aprintf(TTEXT_WARN "\a\n** Unknown mode:  %s **\n\n" TTEXT_NORMAL,
+                    k2printf(TTEXT_WARN "\a\n** Unknown mode:  %s **\n\n" TTEXT_NORMAL,
                              cl->cmdarg);
                 }
             continue;
@@ -463,6 +474,16 @@ int parse_cmd_args(K2PDFOPT_SETTINGS *k2settings,STRBUF *env,STRBUF *cmdline,
 #endif
             continue;
             }
+        if (!stricmp(cl->cmdarg,"-ocrcol"))
+            {
+            if (cmdlineinput_next(cl)==NULL)
+                break;
+#ifdef HAVE_OCR_LIB
+            if (setvals==1)
+                k2settings->ocr_max_columns=atoi(cl->cmdarg);
+#endif
+            continue;
+            }
         if (!stricmp(cl->cmdarg,"-ocrhmax"))
             {
             if (cmdlineinput_next(cl)==NULL)
@@ -480,7 +501,7 @@ int parse_cmd_args(K2PDFOPT_SETTINGS *k2settings,STRBUF *env,STRBUF *cmdline,
                 {
                 static int warned=0;
                 if (!warned)
-                aprintf(TTEXT_WARN "\a\n** No OCR capability in this compile of k2pdfopt! **\n\n"
+                k2printf(TTEXT_WARN "\a\n** No OCR capability in this compile of k2pdfopt! **\n\n"
                         TTEXT_NORMAL);
                 warned=1;
                 }
@@ -539,6 +560,12 @@ int parse_cmd_args(K2PDFOPT_SETTINGS *k2settings,STRBUF *env,STRBUF *cmdline,
             {
             if (setvals==1)
                 k2settings->dst_sharpen=(cl->cmdarg[2]=='-') ? 0 : 1;
+            continue;
+            }
+        if (!stricmp(cl->cmdarg,"-as-"))
+            {
+            if (setvals==1)
+                k2settings->src_autostraighten=-1.;
             continue;
             }
         if (!stricmp(cl->cmdarg,"-as"))
@@ -726,6 +753,14 @@ int parse_cmd_args(K2PDFOPT_SETTINGS *k2settings,STRBUF *env,STRBUF *cmdline,
                 break;
             if (setvals==1)
                 k2settings->max_column_gap_inches=atof(cl->cmdarg);
+            continue;
+            }
+        if (!stricmp(cl->cmdarg,"-rsf"))
+            {
+            if (cmdlineinput_next(cl)==NULL)
+                break;
+            if (setvals==1)
+                k2settings->row_split_fom=atof(cl->cmdarg);
             continue;
             }
         if (!stricmp(cl->cmdarg,"-gtr"))
@@ -1099,7 +1134,8 @@ int parse_cmd_args(K2PDFOPT_SETTINGS *k2settings,STRBUF *env,STRBUF *cmdline,
                 k2settings->little_piece_threshold_inches=atof(cl->cmdarg);
             continue;
             }
-        filecount++;
+        /* Add command arg to file list */
+        k2pdfopt_files_add_file(&k2conv->k2files,cl->cmdarg);
         /*
         if (filecount==1 && firstfile!=NULL)
             {
@@ -1107,11 +1143,13 @@ int parse_cmd_args(K2PDFOPT_SETTINGS *k2settings,STRBUF *env,STRBUF *cmdline,
             firstfile[255]='\0';
             }
         */
+        /*
         if (procfiles)
             k2pdfopt_proc_wildarg(k2settings,cl->cmdarg);
+        */
         }
     strbuf_free(allopts);
-    return(filecount);
+    return(k2conv->k2files.n);
     }
 
 

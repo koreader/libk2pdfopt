@@ -64,7 +64,7 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
     static int display_order=0;
     int i,n,nn,r,g,b;
 #ifndef K2PDFOPT_KINDLEPDFVIEWER
-    int shownum,fontsize;
+    int shownum,nval,fontsize;
     char num[16];
 #endif
     BMPREGION *region,_region;
@@ -98,15 +98,17 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
     if (region->r2 <= region->r1 || region->c2 <= region->c1)
         return;
 
-    /* printf("@mark_source_page(display_order=%d)\n",display_order); */
+    /* k2printf("@mark_source_page(display_order=%d)\n",display_order); */
 #ifndef K2PDFOPT_KINDLEPDFVIEWER
     shownum=0;
+    nval=0;
 #endif
     if (caller_id==1)
         {
         display_order++;
 #ifndef K2PDFOPT_KINDLEPDFVIEWER
         shownum=1;
+        nval=display_order;
 #endif
         n=(int)(region->dpi/60.+0.5);
         if (n<5)
@@ -136,6 +138,17 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
         r=255;
         g=0;
         b=255;
+        }
+    else if (caller_id>=100 && caller_id<=199)
+        {
+#ifndef K2PDFOPT_KINDLEPDFVIEWER
+        shownum=1;
+        nval=caller_id-100;
+#endif
+        n=3;
+        r=255;
+        g=90;
+        b=40;
         }
     else
         {
@@ -226,9 +239,9 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
     fontrender_set_pixel_size(fontsize);
     fontrender_set_justification(4);
     fontrender_set_or(1);
-    sprintf(num,"%d",display_order);
+    sprintf(num,"%d",nval);
     fontrender_render(region->marked,(double)(region->c1+region->c2)/2.,
                       (double)(region->marked->height-((region->r1+region->r2)/2.)),num,0,NULL);    
 #endif
-    /* printf("    done mark_source_page.\n"); */
+    /* k2printf("    done mark_source_page.\n"); */
     }
