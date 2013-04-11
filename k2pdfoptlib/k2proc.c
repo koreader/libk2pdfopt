@@ -713,7 +713,10 @@ k2printf("tw=%d, region_width_inches=%g, max_region_width_inches=%g\n",allow_tex
             nocr=1;
         tmp=&_tmp;
         bmp_init(tmp);
-        bmp_resample(tmp,bmp,(double)0.,(double)0.,(double)bmp->width,(double)bmp->height,w,h);
+        if (fabs((double)w/bmp->width - 1.0) < 0.01)
+        	bmp_copy(tmp,bmp);
+        else
+        	bmp_resample(tmp,bmp,(double)0.,(double)0.,(double)bmp->width,(double)bmp->height,w,h);
         bmp_free(bmp);
 /*
 {

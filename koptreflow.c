@@ -118,8 +118,8 @@ static void k2pdfopt_settings_init_from_koptcontext(
 	k2settings->preserve_indentation = kctx->indent;
 	k2settings->max_columns = kctx->columns;
 	k2settings->src_rot = kctx->rotate;
-	k2settings->src_dpi = (int) 300 * kctx->quality;
-	k2settings->user_src_dpi = (double) 300 * kctx->quality;
+	k2settings->src_dpi = kctx->dev_dpi*kctx->quality;
+	k2settings->user_src_dpi = kctx->dev_dpi*kctx->quality;
 	k2settings->defect_size_pts = kctx->defect_size;
 	k2settings->dst_gamma = kctx->contrast;
 
