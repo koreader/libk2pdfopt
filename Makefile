@@ -7,7 +7,7 @@ WILLUSLIB_DIR = willuslib
 K2PDFOPTLIB_DIR = k2pdfoptlib
 WILLUSLIB_SRC = $(filter-out $(WILLUSLIB_DIR)/ocrtess.c, $(wildcard $(WILLUSLIB_DIR)/*.c))
 K2PDFOPTLIB_SRC = $(wildcard $(K2PDFOPTLIB_DIR)/*.c)
-KOPTREFLOW_SRC = koptreflow.c
+KOPTREFLOW_SRC = setting.c koptreflow.c koptcrop.c
 
 OBJS:=$(KOPTREFLOW_SRC:%.c=%.o) $(K2PDFOPTLIB_SRC:%.c=%.o) $(WILLUSLIB_SRC:%.c=%.o)
 K2PDFOPT_O= $(OBJS)

@@ -1,5 +1,7 @@
 /*
- ** koptreflow.h  page reflow api for koreader.
+ ** setting.h   K2pdfopt optimizes PDF/DJVU files for mobile e-readers
+ **              (e.g. the Kindle) and smartphones. It works well on
+ **              multi-column PDF/DJVU files. K2pdfopt is freeware.
  **
  ** Copyright (C) 2012  http://willus.com
  **
@@ -18,13 +20,13 @@
  **
  */
 
-#ifndef _KOPTREEFLOW_H
-#define _KOPTRREFLOW_H
+#ifndef _KOPTSETTING_H
+#define _KOPTSETTING_H
 
 #include "k2pdfopt.h"
 #include "context.h"
 
-void k2pdfopt_reflow_bmp(KOPTContext *kctx);
+void k2pdfopt_settings_init_from_koptcontext(K2PDFOPT_SETTINGS *k2settings, KOPTContext *kctx);
 
 #endif
 

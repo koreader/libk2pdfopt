@@ -1,5 +1,5 @@
 /*
- ** koptreflow.h  page reflow api for koreader.
+ ** koptcrop.h   page crop api for koreader.
  **
  ** Copyright (C) 2012  http://willus.com
  **
@@ -18,13 +18,13 @@
  **
  */
 
-#ifndef _KOPTREEFLOW_H
-#define _KOPTRREFLOW_H
+#ifndef _KOPTCROP_H
+#define _KOPTCROP_H
 
 #include "k2pdfopt.h"
 #include "context.h"
 
-void k2pdfopt_reflow_bmp(KOPTContext *kctx);
+void k2pdfopt_crop_bmp(KOPTContext *kctx);
 
 #endif
 
