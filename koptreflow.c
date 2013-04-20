@@ -34,9 +34,9 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 	static K2PDFOPT_SETTINGS _k2settings, *k2settings;
 	static MASTERINFO _masterinfo, *masterinfo;
 	WILLUSBITMAP _srcgrey, *srcgrey;
-	WILLUSBITMAP *src;
+	WILLUSBITMAP *src, *dst;
 	BMPREGION region;
-	int initgap;
+	int i, bw, martop, marbot;
 
 	src = &kctx->src;
 	srcgrey = &_srcgrey;
@@ -65,10 +65,20 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 				k2settings->dst_gamma);
 
 	/* copy master bitmap to context dst bitmap */
-	bmp_copy(&kctx->dst, &masterinfo->bmp);
+	dst = &kctx->dst;
+	martop = (int)(k2settings->dst_dpi*k2settings->dst_martop+.5);
+	marbot = (int)(k2settings->dst_dpi*k2settings->dst_marbot+.5);
+	dst->bpp = masterinfo->bmp.bpp;
+	dst->width = masterinfo->bmp.width;
+	dst->height = masterinfo->rows + martop + marbot;
+	bmp_alloc(dst);
+	bmp_fill(dst,255,255,255);
+	bw = bmp_bytewidth(&masterinfo->bmp);
+	for (i=0; i<masterinfo->rows; i++)
+	    memcpy(bmp_rowptr_from_top(dst,i+martop), bmp_rowptr_from_top(&masterinfo->bmp,i), bw);
 
-	kctx->page_width = masterinfo->bmp.width;
-	kctx->page_height = masterinfo->rows;
+	kctx->page_width = kctx->dst.width;
+	kctx->page_height = kctx->dst.height;
 	kctx->precache = 0;
 
 	bmp_free(src);
