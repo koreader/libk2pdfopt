@@ -33,13 +33,12 @@
 void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 	static K2PDFOPT_SETTINGS _k2settings, *k2settings;
 	static MASTERINFO _masterinfo, *masterinfo;
-	static int master_bmp_inited = 0;
 	WILLUSBITMAP _srcgrey, *srcgrey;
 	WILLUSBITMAP *src;
 	BMPREGION region;
 	int initgap;
 
-	src = kctx->src;
+	src = &kctx->src;
 	srcgrey = &_srcgrey;
 	bmp_init(srcgrey);
 
@@ -49,15 +48,10 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 	k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
 	k2pdfopt_settings_sanity_check(k2settings);
 	/* Init master output structure */
-	if (master_bmp_inited == 0) {
-		masterinfo_init(masterinfo, k2settings);
-		master_bmp_inited = 1;
-	}
-	bmp_free(&masterinfo->bmp);
+	masterinfo_init(masterinfo, k2settings);
 	bmp_init(&masterinfo->bmp);
 	masterinfo->bmp.width = 0;
 	masterinfo->bmp.height = 0;
-	wrapbmp_free(&masterinfo->wrapbmp);
 	wrapbmp_init(&masterinfo->wrapbmp, k2settings->dst_color);
 	/* Init new source bitmap */
 	masterinfo_new_source_page_init(masterinfo, k2settings, src, srcgrey, NULL,
@@ -66,15 +60,18 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 	bmpregion_source_page_add(&region, k2settings, masterinfo, 1, 0, (int)(0.25*k2settings->src_dpi+.5));
 	wrapbmp_flush(masterinfo,k2settings,0,0);
 
-	bmp_free(src);
-	bmp_free(srcgrey);
-
 	if (fabs(k2settings->dst_gamma - 1.0) > .001)
 		bmp_gamma_correct(&masterinfo->bmp, &masterinfo->bmp,
 				k2settings->dst_gamma);
 
+	/* copy master bitmap to context dst bitmap */
+	bmp_copy(&kctx->dst, &masterinfo->bmp);
+
 	kctx->page_width = masterinfo->bmp.width;
 	kctx->page_height = masterinfo->rows;
-	kctx->data = masterinfo->bmp.data;
 	kctx->precache = 0;
+
+	bmp_free(src);
+	bmp_free(srcgrey);
+	masterinfo_free(masterinfo, k2settings);
 }

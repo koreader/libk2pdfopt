@@ -41,7 +41,7 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	int i,j;
 	float margin;
 
-	src = kctx->src;
+	src = &kctx->src;
 	srcgrey = &_srcgrey;
 	bmp_init(srcgrey);
 

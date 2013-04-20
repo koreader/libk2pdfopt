@@ -25,8 +25,6 @@
 
 #include "k2pdfopt.h"
 
-typedef unsigned char  uint8_t;
-
 typedef struct {
 	float x0, y0;
 	float x1, y1;
@@ -61,8 +59,8 @@ typedef struct KOPTContext {
 
 	int precache;
 	BBox bbox;
-	uint8_t *data;
-	WILLUSBITMAP *src;
+	WILLUSBITMAP dst;
+	WILLUSBITMAP src;
 
 } KOPTContext;
 
