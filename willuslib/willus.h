@@ -221,13 +221,14 @@ typedef double  real;
 #ifndef HAVE_GOCR_LIB
 #define HAVE_GOCR_LIB
 #endif
+*/
 #ifndef HAVE_LEPTONICA_LIB
 #define HAVE_LEPTONICA_LIB
 #endif
 #ifndef HAVE_TESSERACT_LIB
 #define HAVE_TESSERACT_LIB
 #endif
-*/
+
 /*
 ** Defines for presence of Jasper and GSL (Gnu Scientific Library).
 ** Define these if you have these libs.  Default is not to define them.

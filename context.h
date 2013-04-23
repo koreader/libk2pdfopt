@@ -24,6 +24,7 @@
 #define _CONTEXT_H
 
 #include "k2pdfopt.h"
+#include "leptonica.h"
 
 typedef struct {
 	float x0, y0;
@@ -58,6 +59,9 @@ typedef struct KOPTContext {
 	double shrink_factor;
 
 	int precache;
+	int debug;
+	BOXA *boxa;
+	NUMA *nai;
 	BBox bbox;
 	WILLUSBITMAP dst;
 	WILLUSBITMAP src;
