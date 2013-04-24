@@ -66,20 +66,36 @@ K2PDFOPT_SO= $(TARGET_SONAME)
 # Target file rules.
 ##############################################################################
 leptonica:
+ifdef EMULATE_READER
 	cd $(LEPTONICA_DIR) && ./configure \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(CFLAGS)' \
 		--disable-static --enable-shared \
 		&& make
+else
+	cd $(LEPTONICA_DIR) && ./configure --host $(HOST) \
+		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(CFLAGS)' \
+		--disable-static --enable-shared \
+		&& make
+endif
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept.so* ./
 	
 tesseract: leptonica
 	cp $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/
+ifdef EMULATE_READER
 	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure \
 		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
 		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
 		--with-extra-libraries=$(CURDIR) \
 		--disable-static --enable-shared \
 		&& make
+else
+	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure --host $(HOST) \
+		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
+		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
+		--with-extra-libraries=$(CURDIR) \
+		--disable-static --enable-shared \
+		&& make
+endif
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract.so* ./
 	
 tesseract_capi: $(TESSERACT_MOD)/tesscapi.cpp tesseract
