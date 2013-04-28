@@ -36,6 +36,19 @@ l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs, l_int32 maxsize,
 		l_int32 reduction, l_int32 minwidth, l_int32 minheight,
 		l_int32 maxwidth, l_int32 maxheight, BOXA **pboxad, NUMA **pnai);
 
+void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
+		int x, int y, int w, int h,
+		char *word, int max_length,
+		char *datadir, char *lang, char *ocr_type,
+		int allow_spaces, int std_proc) {
+	ocrtess_init(datadir, lang, 0, NULL);
+	ocrtess_single_word_from_bmp8(
+			word, max_length, src,
+			x, y, x + w, y + h,
+			ocr_type, allow_spaces, std_proc, NULL);
+	ocrtess_end();
+}
+
 void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 		int x, int y, int w, int h,
 		int reduction, int min_w, int min_h, int max_w, int max_h) {

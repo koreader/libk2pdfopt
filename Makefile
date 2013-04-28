@@ -20,8 +20,8 @@ TESSCAPI_CFLAGS = -I$(MOD_INC) -I$(LEPTONICA_DIR)/src \
 
 OBJS:=$(KOPT_SRC:%.c=%.o) \
 	$(K2PDFOPTLIB_SRC:%.c=%.o) \
-	$(WILLUSLIB_SRC:%.c=%.o) \
-	$(TESSERACT_API:%.cpp=%.o)
+	$(WILLUSLIB_SRC:%.c=%.o)
+
 K2PDFOPT_O= $(OBJS)
 K2PDFOPT_DYNO= $(OBJS:.o=_dyn.o)
 TESSERACT_API_O= $(TESSERACT_MOD)/tesscapi.o
@@ -59,8 +59,10 @@ K2PDFOPT_SO= $(TARGET_SONAME)
 # Object file rules.
 ##############################################################################
 %.o: %.c
-	$(TARGET_CC) $(CFLAGS) -c -I$(MOD_INC) -I$(WILLUSLIB_DIR) -I$(K2PDFOPTLIB_DIR) -o $@ $<
-	$(TARGET_DYNCC) $(CFLAGS) -c -I$(MOD_INC) -I$(WILLUSLIB_DIR) -I$(K2PDFOPTLIB_DIR) -o $(@:.o=_dyn.o) $<
+	$(TARGET_CC) $(CFLAGS) -c -I$(MOD_INC) -I$(WILLUSLIB_DIR) \
+		-I$(K2PDFOPTLIB_DIR) -o $@ $<
+	$(TARGET_DYNCC) $(CFLAGS) -c -I$(MOD_INC) -I$(WILLUSLIB_DIR) \
+		-I$(K2PDFOPTLIB_DIR) -o $(@:.o=_dyn.o) $<
 	
 ##############################################################################
 # Target file rules.
@@ -107,7 +109,7 @@ $(K2PDFOPT_A): $(K2PDFOPT_O) tesseract_capi
 
 $(K2PDFOPT_SO): $(K2PDFOPT_O) tesseract_capi
 	$(CC) $(TARGET_ASHLDFLAGS) -o $@ $(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS)
-	ln -s $(K2PDFOPT_SO) libk2pdfopt.so
+	ln -sf $(K2PDFOPT_SO) libk2pdfopt.so
 	
 all: tesseract $(TARGET)
 
