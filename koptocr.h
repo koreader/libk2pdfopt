@@ -26,6 +26,10 @@
 #include "leptonica.h"
 #include "tesseract.h"
 
+void k2pdfopt_tocr_init(char *datadir, char *lang);
+
+void k2pdfopt_tocr_end();
+
 void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 		int x, int y, int w, int h,
 		char *word, int max_length,
