@@ -119,6 +119,7 @@ clean:
 	rm -rf *.so*
 	cd $(WILLUSLIB_DIR) && rm -rf *.o
 	cd $(K2PDFOPTLIB_DIR) && rm -rf *.o
+	cd $(TESSERACT_MOD) && rm -rf *.o
 	cd $(LEPTONICA_DIR) && make clean
 	cd $(TESSERACT_DIR) && make clean
 
