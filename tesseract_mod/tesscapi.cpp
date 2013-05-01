@@ -45,6 +45,8 @@
 #include "params.h"
 #include "blobs.h"
 #include "notdll.h"
+#include <exception>
+#include <new>
 
 /* C Wrappers */
 #include "tesseract.h"
@@ -98,13 +100,26 @@ int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out)
     */
 
     api.SetOutputName(NULL);
-    status=api.Init(datapath,lang,
-             ocr_type==0 ? tesseract::OEM_DEFAULT :
-                (ocr_type==1 ? tesseract::OEM_TESSERACT_ONLY :
-                   (ocr_type==2 ? tesseract::OEM_CUBE_ONLY :
-                                  (tesseract::OEM_TESSERACT_CUBE_COMBINED))));
-    if (status)
-        return(status);
+    /* hotfix:
+     * see http://sourceforge.net/p/djvu/discussion/103285/thread/7e6563e3/
+     * For short, djvulibre overloads new operator and eat up bad_alloc
+     * exception. So we will disable the overloading.
+     */
+    std::set_new_handler(0);
+    try {
+		status=api.Init(datapath,lang,
+				 ocr_type==0 ? tesseract::OEM_DEFAULT :
+					(ocr_type==1 ? tesseract::OEM_TESSERACT_ONLY :
+					   (ocr_type==2 ? tesseract::OEM_CUBE_ONLY :
+									  (tesseract::OEM_TESSERACT_CUBE_COMBINED))));
+		if (status)
+			return(status);
+
+    } catch (const std::bad_alloc& ba) {
+    	if (out!=NULL)
+    	    fprintf(out,"tesscapi:  Error during initiating. %s\n", ba.what());
+    	return -1;
+    }
     /*
     api.Init("tesscapi",lang,tesseract::OEM_DEFAULT,
            &(argv[arg]), argc - arg, NULL, NULL, false);
@@ -136,14 +151,21 @@ int tess_capi_get_ocr(PIX *pix,char *outstr,int maxlen,FILE *out)
 
     {
     STRING text_out;
-    if (!api.ProcessPage(pix,0,NULL,NULL,0,&text_out))
-        {
-        /* pixDestroy(&pix); */
-        if (out!=NULL)
-            fprintf(out,"tesscapi:  Error during bitmap processing.\n");
-        api.Clear();
-        return(-1);
-        }
+    try {
+		if (!api.ProcessPage(pix,0,NULL,NULL,0,&text_out))
+			{
+			/* pixDestroy(&pix); */
+			if (out!=NULL)
+				fprintf(out,"tesscapi:  Error during bitmap processing.\n");
+			api.Clear();
+			return(-1);
+			}
+    } catch (const std::exception& ex) {
+    	if (out!=NULL)
+    	    fprintf(out,"tesscapi:  Error during bitmap processing. %s\n", ex.what());
+    	api.Clear();
+    	return -1;
+    }
     strncpy(outstr,text_out.string(),maxlen-1);
     outstr[maxlen-1]='\0';
     api.Clear();
