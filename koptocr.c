@@ -42,8 +42,11 @@ void k2pdfopt_tocr_init(char *datadir, char *lang) {
 	if (!k2pdfopt_tocr_inited) {
 		printf("start tesseract OCR engine in %s for %s language\n",
 				datadir, lang);
-		ocrtess_init(datadir, lang, 0, NULL);
-		k2pdfopt_tocr_inited = 1;
+		if (ocrtess_init(datadir, lang, 0, stderr) == 0 ) {
+				k2pdfopt_tocr_inited = 1;
+		} else {
+			printf("fail to start tesseract OCR engine\n");
+		}
 	}
 }
 
@@ -53,10 +56,12 @@ void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 		char *datadir, char *lang, char *ocr_type,
 		int allow_spaces, int std_proc) {
 	k2pdfopt_tocr_init(datadir, lang);
-	ocrtess_single_word_from_bmp8(
-			word, max_length, src,
-			x, y, x + w, y + h,
-			ocr_type, allow_spaces, std_proc, NULL);
+	if (k2pdfopt_tocr_inited) {
+		ocrtess_single_word_from_bmp8(
+				word, max_length, src,
+				x, y, x + w, y + h,
+				ocr_type, allow_spaces, std_proc, stderr);
+	}
 }
 
 void k2pdfopt_tocr_end() {
