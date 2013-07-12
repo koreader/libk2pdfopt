@@ -2645,25 +2645,46 @@ static void resample_1d(double *dst,double *src,double x1,double x2,
 static double resample_single(double *y,double x1,double x2)
 
     {
-    int i,i1,i2;
-    double dx,dx1,dx2,sum;
+#ifndef USE_FIXED_POINT
+	int i,i1,i2;
+	double dx,dx1,dx2,sum;
 
-    i1=floor(x1);
-    i2=floor(x2);
-    if (i1==i2)
-        return(y[i1]);
-    dx=x2-x1;
-    if (dx>1.)
-        dx=1.;
-    dx1= 1.-(x1-i1);
-    dx2= x2-i2;
-    sum=0.;
-    if (dx1 > 1e-8*dx)
-        sum += dx1*y[i1];
-    if (dx2 > 1e-8*dx)
-        sum += dx2*y[i2];
-    for (i=i1+1;i<=i2-1;sum+=y[i],i++);
-    return(sum/(x2-x1));
+	i1=floor(x1);
+	i2=floor(x2);
+	if (i1==i2)
+		return(y[i1]);
+	dx=x2-x1;
+	if (dx>1.)
+		dx=1.;
+	dx1= 1.-(x1-i1);
+	dx2= x2-i2;
+	sum=0.;
+	if (dx1 > 1e-8*dx)
+		sum += dx1*y[i1];
+	if (dx2 > 1e-8*dx)
+		sum += dx2*y[i2];
+	for (i=i1+1;i<=i2-1;sum+=y[i],i++);
+	return(sum/(x2-x1));
+#else
+	int fix_x1, fix_x2;
+	int i,i1,i2;
+	int dx,dx1,dx2,sum=0;
+
+	fix_x1=(int)(x1*1024);
+	fix_x2=(int)(x2*1024);
+	i1    =fix_x1>>10;
+	i2    =fix_x2>>10;
+	if (i1>=i2)
+		return(y[i1]);
+
+	dx1  = 1024 - (fix_x1-i1*1024);
+	dx2  = fix_x2 - i2*1024;
+
+	sum += dx1*(int)(y[i1]);
+	sum += dx2*(int)(y[i2]);
+	for (i=i1+1; i<=i2-1; sum+=1024*(int)(y[i]),i++);
+	return((double)(sum/(fix_x2-fix_x1)));
+#endif
     }
 
 
