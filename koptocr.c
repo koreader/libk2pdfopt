@@ -39,6 +39,9 @@ l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs, l_int32 maxsize,
 static int k2pdfopt_tocr_inited = 0;
 
 void k2pdfopt_tocr_init(char *datadir, char *lang) {
+	if (!strncmp(lang, k2pdfopt_tocr_get_language, 32)) {
+		k2pdfopt_tocr_end();
+	}
 	if (!k2pdfopt_tocr_inited) {
 		printf("start tesseract OCR engine in %s for %s language\n",
 				datadir, lang);
@@ -64,6 +67,10 @@ void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 	}
 }
 
+const char* k2pdfopt_tocr_get_language() {
+	return tess_capi_get_init_language();
+}
+
 void k2pdfopt_tocr_end() {
 	if (k2pdfopt_tocr_inited) {
 		printf("stop tesseract OCR engine\n");
@@ -73,11 +80,11 @@ void k2pdfopt_tocr_end() {
 }
 
 void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
-		int x, int y, int w, int h,
-		int reduction, int min_w, int min_h, int max_w, int max_h) {
+		int x, int y, int w, int h) {
 	static K2PDFOPT_SETTINGS _k2settings, *k2settings;
 	PIX *pixs, *pixt, *pixb;
 	int words;
+	BOXA *boxa;
 
 	/* Initialize settings */
 	k2settings = &_k2settings;
@@ -88,19 +95,15 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 		assert(x + w <= src->width);
 		assert(y + h <= src->height);
 		pixs = bitmap2pix(src, x, y, w, h);
-		pixb = pixConvertTo1(pixs, 128);
-		k2pdfopt_pixGetWordBoxesInTextlines(pixb,
-				7*kctx->dev_dpi/150, reduction,
-				min_w, min_h, max_w, max_h,
+		k2pdfopt_get_word_boxes_from_tesseract(pixs, kctx->cjkchar,
 				&kctx->boxa, &kctx->nai);
 		if (kctx->debug == 1) {
-			//pixt = pixDrawBoxaRandom(pixs, kctx->boxa, 2);
-			//pixWrite("junkpixt", pixt, IFF_PNG);
-			//pixDestroy(&pixt);
+			pixt = pixDrawBoxaRandom(pixs, kctx->boxa, 2);
+			pixWrite("junkpixt", pixt, IFF_PNG);
+			pixDestroy(&pixt);
 		}
 	}
 	pixDestroy(&pixs);
-	pixDestroy(&pixb);
 }
 
 PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h) {
@@ -114,6 +117,36 @@ PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h) {
 		}
 	}
 	return pix;
+}
+
+int k2pdfopt_get_word_boxes_from_tesseract(PIX *pixs, int is_cjk,
+		BOXA **pboxad, NUMA **pnai) {
+	BOXA *boxa, *boxad;
+	BOXAA *baa;
+	NUMA *nai;
+
+	PROCNAME("k2pdfopt_get_word_boxes_from_tesseract");
+
+	if (!pboxad || !pnai)
+		return ERROR_INT("&boxad and &nai not both defined", procName, 1);
+	*pboxad = NULL;
+	*pnai = NULL;
+	if (!pixs)
+		return ERROR_INT("pixs not defined", procName, 1);
+
+	tess_capi_get_word_boxes(pixs, &boxa, is_cjk, stderr);
+	/* 2D sort the bounding boxes of these words. */
+	baa = boxaSort2d(boxa, NULL, 3, -5, 5);
+
+	/* Flatten the boxaa, saving the boxa index for each box */
+	boxad = boxaaFlattenToBoxa(baa, &nai, L_CLONE);
+
+	*pnai = nai;
+	*pboxad = boxad;
+
+	boxaDestroy(&boxa);
+	boxaaDestroy(&baa);
+	return 0;
 }
 
 // modified version of leptonica pixGetWordBoxesInTextlines
@@ -176,4 +209,3 @@ l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs,
 	boxaaDestroy(&baa);
 	return 0;
 }
-

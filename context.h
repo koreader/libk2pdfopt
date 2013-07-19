@@ -60,9 +60,11 @@ typedef struct KOPTContext {
 
 	int precache;
 	int debug;
+	int cjkchar;
 	BOXA *boxa;
 	NUMA *nai;
 	BBox bbox;
+	char *language;
 	WILLUSBITMAP dst;
 	WILLUSBITMAP src;
 

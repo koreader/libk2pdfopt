@@ -30,6 +30,8 @@ void k2pdfopt_tocr_init(char *datadir, char *lang);
 
 void k2pdfopt_tocr_end();
 
+const char* k2pdfopt_tocr_get_language();
+
 void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 		int x, int y, int w, int h,
 		char *word, int max_length,
@@ -37,8 +39,7 @@ void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 		int allow_spaces, int std_proc);
 
 void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
-		int x, int y, int w, int h,
-		int reduction, int min_w, int min_h, int max_w, int max_h);
+		int x, int y, int w, int h);
 
 #endif
 

@@ -172,6 +172,35 @@ int tess_capi_get_ocr(PIX *pix,char *outstr,int maxlen,FILE *out)
     return(0);
     }
 
+int tess_capi_get_word_boxes(PIX *pix, BOXA **out_boxa, int is_cjk, FILE *out)
+
+    {
+    try {
+		api.InitForAnalysePage();
+		api.SetPageSegMode(tesseract::PSM_AUTO);
+		api.SetImage(pix);
+		if (is_cjk) {
+			api.SetVariable("textord_use_cjk_fp_model","1");
+			*out_boxa = api.GetConnectedComponents(NULL);
+		} else {
+			api.SetVariable("textord_use_cjk_fp_model","0");
+			*out_boxa = api.GetWords(NULL);
+		}
+    } catch (const std::exception& ex) {
+    	if (out!=NULL)
+    	    fprintf(out,"tesscapi:  Error during page segmentation. %s\n", ex.what());
+    	api.Clear();
+    	return -1;
+    }
+    printf("engine inited in %s\n", api.GetInitLanguagesAsString());
+    api.ClearAdaptiveClassifier();
+    api.Clear();
+    return(0);
+    }
+
+const char* tess_capi_get_init_language() {
+	return api.GetInitLanguagesAsString();
+}
 
 void tess_capi_end(void)
 
