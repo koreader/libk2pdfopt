@@ -72,6 +72,7 @@ ifdef EMULATE_READER
 	cd $(LEPTONICA_DIR) && ./configure \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(CFLAGS)' \
 		--disable-static --enable-shared \
+		--without-zlib --without-libpng --without-jpeg --without-giflib --without-libtiff \
 		&& make
 else
 	cd $(LEPTONICA_DIR) && ./configure --host $(HOST) \
@@ -87,6 +88,7 @@ ifdef EMULATE_READER
 	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure \
 		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
 		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
+		LDFLAGS='-Wl,-rpath,\$$$$ORIGIN' \
 		--with-extra-libraries=$(CURDIR) \
 		--disable-static --enable-shared \
 		&& make
@@ -94,6 +96,7 @@ else
 	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure --host $(HOST) \
 		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
 		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
+		LDFLAGS='-Wl,-rpath,\$$$$ORIGIN' \
 		--with-extra-libraries=$(CURDIR) \
 		--disable-static --enable-shared \
 		&& make
