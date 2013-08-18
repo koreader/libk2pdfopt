@@ -366,8 +366,8 @@ printf("@k2pdfopt_settings_set_margins_and_devsize(region=%p,trimmed=%d)\n",regi
             if (swidth_in < 1.0)
                 swidth_in = 1.0;
             sheight_in = (double)(region->r2-region->r1+1) / region->dpi;
-            if (sheight_in < 1.0)
-                sheight_in = 1.0;
+            if (sheight_in < 0.3)
+                sheight_in = 0.3;
             if (region->c2-region->c1<=0 || region->r2-region->r1<=0)
                 zeroarea=1;
             }

@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -79,6 +79,24 @@ typedef struct
     } NEWWIN;
 #define MAXNEWWIN 4
 static NEWWIN newwin[MAXNEWWIN];
+
+
+void *win_activewin(void)
+
+    {
+    return((void *)GetActiveWindow());
+    }
+
+
+/*
+** Returns HINSTANCE of calling module.  Good for stand-alone programs--may not
+** work as intended for DLLs.
+*/
+void *win_hinstance(void)
+
+    {
+    return((void *)GetModuleHandle(NULL));
+    }
 
 
 char *win_full_exe_name(char *s)
@@ -2207,5 +2225,6 @@ break;
     CloseHandle(h);
     return(ppid);
     }
+
 
 #endif /* WIN32 */

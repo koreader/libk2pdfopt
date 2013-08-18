@@ -509,7 +509,8 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings0,char *filename,do
         if (k2settings->show_marked_source)
             mark_source_page(k2settings,NULL,0,0xf);
         if (k2settings->dst_fit_to_page!=-2)
-            masterinfo_publish(masterinfo,k2settings,k2settings->dst_break_pages>0 ? 1 : 0);
+            masterinfo_publish(masterinfo,k2settings,
+                               k2settings->dst_break_pages>0 ? k2settings->dst_break_pages : 0);
         if (k2settings->show_marked_source)
             publish_marked_page(mpdf,k2settings->dst_color ? marked : src,k2settings->src_dpi);
         k2printf("%d new pages saved.\n",masterinfo->published_pages-pw);

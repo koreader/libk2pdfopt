@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -58,6 +58,20 @@ void clean_line(char *buf)
             buf[j]=buf[i];
         buf[j]='\0';
         }
+    }
+
+
+/*
+** Clean only the end of the line (not the beginning)
+*/
+void clean_line_end(char *buf)
+
+    {
+    int     i;
+
+    for (i=0;buf[i]!='\n' && buf[i]!='\r' && buf[i]!='\0';i++);
+    for (i--;i>=0 && (buf[i]==' ' || buf[i]=='\t');i--);
+    buf[i+1]='\0';
     }
 
 

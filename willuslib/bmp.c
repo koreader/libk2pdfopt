@@ -1328,6 +1328,31 @@ void bmp_crop(WILLUSBITMAP *bmp,int x0,int y0_from_top,int width,int height)
     }
 
 
+void bmp_crop_ex(WILLUSBITMAP *dst,WILLUSBITMAP *src,int x0,int y0_from_top,int width,int height)
+
+    {
+    int     i,bpp,bpr;
+
+    bpp=src->bpp==24 ? 3 : 1;
+    dst->width=width;
+    dst->height=height;
+    dst->type=src->type;
+    dst->bpp=src->bpp;
+    bmp_alloc(dst);
+    memcpy(dst->red,src->red,256);
+    memcpy(dst->green,src->green,256);
+    memcpy(dst->blue,src->blue,256);
+    bpr=bmp_bytewidth(dst);
+    for (i=0;i<height;i++)
+        {
+        unsigned char *psrc,*pdst;
+        psrc=bmp_rowptr_from_top(src,y0_from_top+i)+x0*bpp;
+        pdst=bmp_rowptr_from_top(dst,i);
+        memcpy(pdst,psrc,bpr);
+        }
+    }
+
+
 void bmp_rotate_fast(WILLUSBITMAP *bmp,double degrees,int expand)
 
     {

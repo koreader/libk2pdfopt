@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -81,7 +81,7 @@ void strbuf_cat_no_spaces(STRBUF *sbuf,char *s)
 void strbuf_cpy(STRBUF *sbuf,char *s)
 
     {
-    if (s!=NULL && s[0]!='\0')
+    if (s!=NULL)
         {
         strbuf_ensure(sbuf,strlen(s)+1);
         strcpy(sbuf->s,s);
@@ -135,6 +135,30 @@ void strbuf_sprintf(STRBUF *sbuf,char *fmt,...)
         vsprintf(buf,fmt,args);
         va_end(args);
         strbuf_cat(sbuf,buf);
+        willus_mem_free((double **)&buf,funcname);
+        }
+    }
+
+
+void strbuf_sprintf_no_space(STRBUF *sbuf,char *fmt,...)
+
+    {
+    static char *funcname="strbuf_sprintf";
+
+    if (sbuf!=NULL)
+        {
+        va_list args;
+        char *buf;
+
+        willus_mem_alloc_warn((void **)&buf,1024,funcname,10);
+        va_start(args,fmt);
+        vsprintf(buf,fmt,args);
+        va_end(args);
+        if (buf[0]!='\0')
+            {
+            strbuf_ensure(sbuf,(sbuf->s==NULL?0:strlen(sbuf->s))+strlen(buf)+2);
+            strcat(sbuf->s,buf);
+            }
         willus_mem_free((double **)&buf,funcname);
         }
     }

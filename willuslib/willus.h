@@ -228,7 +228,6 @@ typedef double  real;
 #ifndef HAVE_TESSERACT_LIB
 #define HAVE_TESSERACT_LIB
 #endif
-
 /*
 ** Defines for presence of Jasper and GSL (Gnu Scientific Library).
 ** Define these if you have these libs.  Default is not to define them.
@@ -402,6 +401,7 @@ int  bmp_alloc(WILLUSBITMAP *bmap);
 int  bmp_bytewidth(WILLUSBITMAP *bmp);
 unsigned char *bmp_rowptr_from_top(WILLUSBITMAP *bmp,int row);
 void bmp_crop(WILLUSBITMAP *bmp,int x0,int y0_from_top,int width,int height);
+void bmp_crop_ex(WILLUSBITMAP *dst,WILLUSBITMAP *src,int x0,int y0_from_top,int width,int height);
 void bmp_rotate_fast(WILLUSBITMAP *dst,double degrees,int expand);
 int  bmp_rotate_right_angle(WILLUSBITMAP *bmp,int degrees);
 int  bmp_rotate_90(WILLUSBITMAP *bmp);
@@ -513,6 +513,8 @@ void   sortxyzwd     (double *x,double *y,double *z,double *w,int n);
 void   sortxyzwvd    (double *x,double *y,double *z,double *w,double *v,int n);
 void   sort8d        (double *x,double *y,double *z,double *a,double *b,
                       double *c,double *e,double *f,int n);
+void   sort9d        (double *x,double *y,double *z,double *a,double *b,
+                      double *c,double *e,double *f,double *g,int n);
 void   compressxy    (double *x,double *y,int *n);
 void   compressxyz   (double *x,double *y,double *z,int *n);
 void   compressx     (double *x,int *n);
@@ -528,8 +530,11 @@ double point_distance_3d(double x1,double y1,double z1,
 double point_distance_2d(double x1,double y1,double x2,double y2);
 double interp_high_order(double x0,double *x,double *y,int n,int order,
                          int nlocal);
+double interp_high_order_float(double x0,float *x,float *y,int n,int order,
+                               int nlocal);
 double interp_high_order_dx(double x0,double *x,double *y,int n,int order,
                             double dx);
+double interp_high_order_dx_float(double x0,float *x,float *y,int n,int order,double dx);
 double interp_high_order_dx_ex(double x0,double *x,double *y,int n,int order,
                                double dx);
 double interp_high_order_dxf(double x0,float *x,float *y,int n,int order,
@@ -565,6 +570,7 @@ void willus_mem_free(double **ptr,char *name);
 
 /* string.c */
 void   clean_line    (char *buf);
+void   clean_line_end(char *buf);
 char  *get_line      (char *buf,int max,FILE *f);
 char  *get_line_cf   (char *buf,int max,FILE *f);
 int   mem_get_line_cf(char *buf,int maxlen,char *cptr,long *cindex,long csize);
@@ -793,6 +799,8 @@ WZFILE *wzuncompressed(FILE *out);
     
 /* win.c */
 #ifdef WIN32
+void *win_activewin(void);
+void *win_hinstance(void);
 char *win_full_exe_name(char *s);
 char *win_lasterror(void);
 int win_grant_full_file_access(char *filename);
@@ -997,6 +1005,9 @@ void filelist_write_7zstyle_list(FILELIST *fl,FILE *out);
 int filelist_add_entry(FILELIST *fl,FLENTRY *entry);
 void filelist_new_entry_name(FILELIST *fl,int index,char *newname);
 void filelist_filter(FILELIST *fl,char *include[],char *exclude[]);
+void filelist_add_path_dirs(FILELIST *fl);
+void filelist_add_dirs_only(FILELIST *fl,char *wildspec);
+void filelist_fill_from_dirs(FILELIST *fl,FILELIST *dirlist,char *wildspec);
 void filelist_delete_entry(FILELIST *fl,int index);
 void filelist_copy_entry(FILELIST *fl,int index,FLENTRY *entry);
 void filelist_clear(FILELIST *fl);
@@ -1311,7 +1322,7 @@ void strbuf_clear(STRBUF *sbuf);
 void strbuf_ensure(STRBUF *sbuf,int n);
 void strbuf_free(STRBUF *sbuf);
 void strbuf_sprintf(STRBUF *sbuf,char *fmt,...);
-
+void strbuf_sprintf_no_space(STRBUF *sbuf,char *fmt,...);
 
 
 #ifdef PI

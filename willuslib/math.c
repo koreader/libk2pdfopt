@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -1145,44 +1145,52 @@ void sortxyzwd(double *x,double *y,double *z,double *w,int n)
     }
 
 
+void sort8d(double *x,double *y,double *z,double *a,double *b,double *c,double *e,double *f,int n)
+
+    {
+    sort9d(x,y,z,a,b,c,e,f,NULL,n);
+    }
+
+
 /*
 ** Generic sort from 1 to 8 double-precision arrays.  All double precision
 ** array arguments except the first one can be NULL.  Lots of if-statements,
 ** so slower than other sort functions in this module.
 */
-void sort8d(double *x,double *y,double *z,double *a,double *b,double *c,double *e,double *f,int n)
+void sort9d(double *x,double *y,double *z,double *a,double *b,double *c,double *e,double *f,
+            double *g,int n)
 
     {
     int     top,n1;
-    double  x0,y0,z0,a0,b0,c0,e0,f0;
+    double  x0,y0,z0,a0,b0,c0,e0,f0,g0;
  
-    x0=y0=z0=a0=b0=c0=e0=f0=0.; /* Avoid compiler warning */
+    x0=y0=z0=a0=b0=c0=e0=f0=g0=0.; /* Avoid compiler warning */
     if (n<2)
         return;
     if (x==NULL)
         return;
     /* Use faster sorts if available */
-    if (y==NULL && z==NULL && a==NULL && b==NULL && c==NULL && e==NULL && f==NULL)
+    if (y==NULL && z==NULL && a==NULL && b==NULL && c==NULL && e==NULL && f==NULL && g==NULL)
         {
         sortd(x,n);
         return;
         }
-    if (y!=NULL && z==NULL && a==NULL && b==NULL && c==NULL && e==NULL && f==NULL)
+    if (y!=NULL && z==NULL && a==NULL && b==NULL && c==NULL && e==NULL && f==NULL && g==NULL)
         {
         sortxyd(x,y,n);
         return;
         }
-    if (y!=NULL && z!=NULL && a==NULL && b==NULL && c==NULL && e==NULL && f==NULL)
+    if (y!=NULL && z!=NULL && a==NULL && b==NULL && c==NULL && e==NULL && f==NULL && g==NULL)
         {
         sortxyzd(x,y,z,n);
         return;
         }
-    if (y!=NULL && z!=NULL && a!=NULL && b==NULL && c==NULL && e==NULL && f==NULL)
+    if (y!=NULL && z!=NULL && a!=NULL && b==NULL && c==NULL && e==NULL && f==NULL && g==NULL)
         {
         sortxyzwd(x,y,z,a,n);
         return;
         }
-    if (y!=NULL && z!=NULL && a!=NULL && b!=NULL && c==NULL && e==NULL && f==NULL)
+    if (y!=NULL && z!=NULL && a!=NULL && b!=NULL && c==NULL && e==NULL && f==NULL && g==NULL)
         {
         sortxyzwvd(x,y,z,a,b,n);
         return;
@@ -1209,6 +1217,8 @@ void sort8d(double *x,double *y,double *z,double *a,double *b,double *c,double *
                 e0=e[top];
             if (f!=NULL)
                 f0=f[top];
+            if (g!=NULL)
+                g0=g[top];
             }
         else
             {
@@ -1227,6 +1237,8 @@ void sort8d(double *x,double *y,double *z,double *a,double *b,double *c,double *
                 e0=e[n1];
             if (f!=NULL)
                 f0=f[n1];
+            if (g!=NULL)
+                g0=g[n1];
             x[n1]=x[0];
             if (y!=NULL)
                 y[n1]=y[0];
@@ -1242,6 +1254,8 @@ void sort8d(double *x,double *y,double *z,double *a,double *b,double *c,double *
                 e[n1]=e[0];
             if (f!=NULL)
                 f[n1]=f[0];
+            if (g!=NULL)
+                g[n1]=g[0];
             n1--;
             if (!n1)
                 {
@@ -1260,6 +1274,8 @@ void sort8d(double *x,double *y,double *z,double *a,double *b,double *c,double *
                     e[0]=e0;
                 if (f!=NULL)
                     f[0]=f0;
+                if (g!=NULL)
+                    g[0]=g0;
                 return;
                 }
             }
@@ -1289,6 +1305,8 @@ void sort8d(double *x,double *y,double *z,double *a,double *b,double *c,double *
                     e[parent]=e[child];
                 if (f!=NULL)
                     f[parent]=f[child];
+                if (g!=NULL)
+                    g[parent]=g[child];
                 parent=child;
                 child+=(parent+1);
                 }
@@ -1310,6 +1328,8 @@ void sort8d(double *x,double *y,double *z,double *a,double *b,double *c,double *
             e[parent]=e0;
         if (f!=NULL)
             f[parent]=f0;
+        if (g!=NULL)
+            g[parent]=g0;
         }
         }
     }
