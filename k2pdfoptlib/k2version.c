@@ -1,4 +1,4 @@
-char *k2pdfopt_version = "v1.65";
+char *k2pdfopt_version = "v1.66";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
@@ -16,6 +16,30 @@ char *k2pdfopt_version = "v1.65";
 **
 ** You should have received a copy of the GNU Affero General Public License
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
+**
+** v1.66     23 JUNE 2013
+**           NEW FEATURES
+**           - Option -bp+ will break pages between the green regions as marked by
+**             the -sm option (feature request from 6-2-13 e-mail).
+**
+**           BUG FIXES
+**           - Option -mode def correctly sets margins to zero instead of 0.25.  It
+**             also now correctly turns off native mode and landscape mode.
+**           - Prevents infinite OCR font sizes from being written to PDF file.
+**             (5-26-2013 private message at mobileread.com about a problem
+**              converting a DjVu file.)
+**           - Fixed array-out-of-bounds issue when searching for the column
+**             divider, particularly with blank pages.  See "v1.66 fix" in
+**             k2proc.c.  Fixes these reported issues:
+**                 1. 4-27-13 e-mail (alice.pdf)
+**                 2. http://www.mobileread.com/forums/showthread.php?p=2558185
+**                 3. 7-10-13 e-mail (failed on pages 1, 2, and 14).
+**           - Fixed breakinfo_find_doubles() in breakinfo.c to avoid an infinite
+**             loop situation.  See "v1.66 fix" notes.  Fixes this reported issue:
+**                 1. 7-7-13 e-mail (pages 98 and 187 failed).
+**           - Fixed bug in MuPDF library when fz_ensure_buffer() is called with
+**             buf->cap==1 (results in infinite loop).  Reported in 6-18-13 e-mail
+**             on a conversion that hung with -mode fw.
 **
 ** v1.65     6 APRIL 2013
 **           NEW FEATURES / OPTIONS

@@ -1313,6 +1313,11 @@ static void ocrword_width_and_maxheight(OCRWORD *word,double *width,double *maxh
         if (Helvetica[c].abovebase > (*maxheight))
             (*maxheight)=Helvetica[c].abovebase;
         }
+    /* Limit checks -- 7-21-2013 */
+    if ((*width) < .01)
+        (*width) = .01;
+    if ((*maxheight) < .01)
+        (*maxheight) = .01;
     willus_mem_free((double **)&d,funcname);
     }
 
@@ -1325,6 +1330,11 @@ static double size_round_off(double size,double median_size,double log_size_incr
     if (size < .5)
         size = .5;
     rat=size / median_size;
+    /* limit to prevent overflow / infinity -- 7-21-2013  */
+    if (rat < 1e-3)
+        rat = 1e-3;
+    if (rat > 1e5)
+        rat = 1e5;
     lograt = floor(log10(rat)/log_size_increment+.5);
     return(median_size*pow(10.,lograt*log_size_increment));
     }
