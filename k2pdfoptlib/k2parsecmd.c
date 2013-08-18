@@ -272,14 +272,15 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                           || !stricmp(cl->cmdarg,"standard"))
                     {
                     k2pdfopt_settings_set_to_device(k2settings,devprofile_get("k2"));
-                    k2settings->use_crop_boxes=1;
+                    k2settings->use_crop_boxes=0;
+                    k2settings->dst_landscape=0;
                     k2settings->text_wrap=1;
                     k2settings->max_columns=2;
                     k2settings->vertical_break_threshold=1.75;
                     k2settings->src_rot=SRCROT_AUTO;
                     k2settings->src_trim=1;
                     k2settings->dst_fit_to_page=0;
-                    k2settings->mar_left=k2settings->mar_top=k2settings->mar_right=k2settings->mar_bot=0.25;
+                    k2settings->mar_left=k2settings->mar_top=k2settings->mar_right=k2settings->mar_bot=0.0;
                     k2settings->dst_mar=k2settings->dst_marleft=k2settings->dst_martop=k2settings->dst_marright=k2settings->dst_marbot=0.02;
                     }
                 else
@@ -384,12 +385,19 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                 k2settings->show_marked_source=(cl->cmdarg[3]=='-' ? 0 : 1);
             continue;
             }
-        if (!stricmp(cl->cmdarg,"-bp") || !stricmp(cl->cmdarg,"-bp-"))
+        if (!stricmp(cl->cmdarg,"-bp") || !stricmp(cl->cmdarg,"-bp-")
+                                       || !stricmp(cl->cmdarg,"-bp+"))
             {
             if (cl->cmdarg[3]=='-')
                 {
                 if (setvals==1)
                     k2settings->dst_break_pages=0;
+                continue;
+                }
+            if (cl->cmdarg[3]=='+')
+                {
+                if (setvals==1)
+                    k2settings->dst_break_pages=2;
                 continue;
                 }
             if (cmdlineinput_next(cl)==NULL)

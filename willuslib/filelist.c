@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -2071,6 +2071,113 @@ int filelist_add_entry(FILELIST *fl,FLENTRY *entry)
     fl->n++;
     fl->sorted=0;
     return(1);
+    }
+
+
+/*
+** Put all PATH directories into a file list.
+** fl->dir is expected to be empty (is ignored)--full directories are stored
+** as entry names.
+*/
+void filelist_add_path_dirs(FILELIST *fl)
+
+    {
+    char *p;
+    char buf[MAXFILENAMELEN];
+    int i,j,cdelim;
+    FLENTRY entry;
+
+#ifdef WIN32
+    cdelim=';';
+#else
+    cdelim=':';
+#endif
+    p=getenv("PATH");
+    if (p==NULL)
+        return;
+    for (i=0;1;)
+        {
+        for (j=0;j<MAXFILENAMELEN-1 && p[i]!='\0' && p[i]!=cdelim;i++)
+            buf[j++]=p[i];
+        if (p[i]!='\0' && p[i]!=cdelim)
+            for (;p[i]!='\0' && p[i]!=cdelim;i++);
+        buf[j]='\0';
+        clean_line(buf);
+        if (buf[0]=='\0' || wfile_status(buf)!=2)
+            {
+            if (p[i]=='\0')
+                break;
+            i++;
+            continue;
+            }
+        wfile_date(buf,&entry.date);
+        entry.attr = WFILE_DIR;
+        entry.size = wfile_size(buf);
+        entry.name = &buf[0];
+        filelist_add_entry(fl,&entry);
+        if (p[i]=='\0')
+            break;
+        i++;
+        }
+    }
+
+/*
+** Add full path names to directories that match "wildspec" to the filelist
+*/
+void filelist_add_dirs_only(FILELIST *fl,char *wildspec)
+
+    {
+    FILELIST *dirs,_dirs;
+    int i;
+
+    dirs=&_dirs;
+    filelist_init(dirs);
+    filelist_fill_from_disk_1(dirs,wildspec,0,1);
+    for (i=0;i<dirs->n;i++)
+        {
+        char fullname[MAXFILENAMELEN];
+        FLENTRY entry;
+
+        if (!(dirs->entry[i].attr & WFILE_DIR))
+            continue;
+        wfile_fullname(fullname,dirs->dir,dirs->entry[i].name);
+        entry=dirs->entry[i];
+        entry.name=&fullname[0];
+        filelist_add_entry(fl,&entry);
+        }
+    filelist_free(dirs);
+    }
+
+
+void filelist_fill_from_dirs(FILELIST *fl,FILELIST *dirlist,char *wildspec)
+
+    {
+    FILELIST _fl1,*fl1;
+    int i;
+
+    filelist_clear(fl);
+    fl->dir[0]='\0';
+    for (i=0;i<dirlist->n;i++)
+        {
+        char wild1[MAXFILENAMELEN];
+        FLENTRY entry;
+        int j;
+
+        fl1=&_fl1;
+        filelist_init(fl1);
+        wfile_fullname(wild1,dirlist->entry[i].name,wildspec);
+        filelist_fill_from_disk_1(fl1,wild1,0,0);
+        for (j=0;j<fl1->n;j++)
+            {
+            char fullname[MAXFILENAMELEN];
+
+            wfile_fullname(fullname,fl1->dir,fl1->entry[j].name);
+            entry=fl1->entry[j];
+            entry.name=&fullname[0];
+            filelist_add_entry(fl,&entry);
+            }
+        filelist_free(fl1);
+        }
     }
 
 

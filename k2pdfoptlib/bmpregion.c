@@ -428,11 +428,14 @@ static int append=0;
 FILE *f;
 int i;
 f=fopen("textrows.ep",append==0?"w":"a");
+if (f!=NULL)
+{
 append=1;
 for (i=region->r1;i<=region->r2;i++)
 fprintf(f,"%d %g\n",region->rowbase-i,(double)rowcount[i]/maxcount);
 fprintf(f,"//nc\n");
 fclose(f);
+}
 }
 #endif
         }

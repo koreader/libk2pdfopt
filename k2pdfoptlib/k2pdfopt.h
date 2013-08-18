@@ -36,7 +36,7 @@
 */
 
 /*
-#define WILLUSDEBUGX 512
+#define WILLUSDEBUGX 0xfff
 #define WILLUSDEBUG
 */
 

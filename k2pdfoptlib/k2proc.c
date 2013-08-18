@@ -872,11 +872,15 @@ static int bmpregion_find_multicolumn_divider(BMPREGION *region,
     if (willus_mem_alloc((double **)&pixel_count_array,sizeof(int)*(region->c2+2)*(region->r2+2),
                           funcname))
         {
-        int bw;
+        int bw,jmax;
 
         rows_per_column=region->r2+2;
         memset(pixel_count_array,0,sizeof(int)*(region->c2+2)+(region->r2+2));
         bw=bmp_bytewidth(region->bmp8);
+        jmax = region->r2+2;
+        /* Don't exceed bitmap height--v1.66 fix, 7-22-2013 */
+        if (jmax > region->bmp8->height)
+            jmax = region->bmp8->height;
         for (i=0;i<=region->c2+1;i++)
             {
             unsigned char *p;
@@ -888,7 +892,7 @@ static int bmpregion_find_multicolumn_divider(BMPREGION *region,
             cp=&pixel_count_array[i*rows_per_column];
             p=bmp_rowptr_from_top(region->bmp8,0)+i;
             cp[0] = (p[0]<region->bgcolor) ? 1 : 0;
-            for (p+=bw,cp++,j=1;j<region->r2+2;j++,p+=bw,cp++)
+            for (p+=bw,cp++,j=1;j<jmax;j++,p+=bw,cp++)
                 if (p[0]<region->bgcolor)
                     (*cp)=cp[-1]+1;
                 else
@@ -1183,6 +1187,8 @@ k2printf("    vertical_break_threshold=%g\n",k2settings->vertical_break_threshol
     */
     allow_text_wrapping=k2settings->text_wrap;
     allow_vertical_breaks=(k2settings->vertical_break_threshold > -1.5);
+    if (k2settings->dst_break_pages==2)
+        allow_vertical_breaks=0;
     justification_flags=0x8f; /* Don't know region justification status yet.  Use user settings. */
     rbdelta=-1;
     breakinfo=&_breakinfo;
@@ -1317,6 +1323,15 @@ k2printf("    region %d:  r1=%d, r2=%d\n",breakinfo->n,breakinfo->textrow[breaki
             marking_flags=(i1==0?0:1)|(i2==breakinfo->n-1?0:2);
             /* Green */
             mark_source_page(k2settings,bregion,3,marking_flags);
+            /* Every green region gets its own output page? */
+/*
+            if (k2settings->dst_break_pages==2)
+                {
+                if (k2settings->src_trim)
+                    bmpregion_trim_margins(bregion,k2settings,colcount,rowcount,0xf);
+                k2pdfopt_settings_set_margins_and_devsize(k2settings,bregion,masterinfo,1);
+                }
+*/
             /*
             ** Is this section not going to be re-flowed?
             */
@@ -1376,6 +1391,8 @@ k2printf("wrapflush1\n");
             bmpregion_add(bregion,k2settings,breakinfo,masterinfo,allow_text_wrapping,trim_flags,
                           allow_vertical_breaks,force_scale,justification_flags,caller_id,
                           colcount,rowcount,marking_flags,rbdelta);
+            if (k2settings->dst_break_pages==2)
+                masterinfo_flush(masterinfo,k2settings);
             regcount++;
             i1=i2+1;
             }

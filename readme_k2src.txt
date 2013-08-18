@@ -1,7 +1,7 @@
 K2pdfopt build help.
 http://willus.com
 Original: 7 September 2012
-Last updated: 6 April 2013 (v1.65)
+Last updated: 23 July 2013 (v1.66)
 
 This "read me" file describes the source code distribution for k2pdfopt.
 
@@ -83,6 +83,9 @@ Notes
       how to call the k2pdfopt library functions.  The k2view.c program
       is stand-alone.  If it is compiled without dependencies on third-party
       libraries, it will be quite small (~300 KiB in windows).
+
+5. If using MuPDF 1.2, you should replace the source file stm_buffer.c with
+   the one in my "mupdf_mod" folder.  Search for "willus.com" in the file.
 
 
 Build Steps for k2pdfopt on Windows

@@ -27,7 +27,7 @@ static void breakinfo_remove_small_col_gaps(BREAKINFO *breakinfo,int lcheight,do
 static void breakinfo_find_doubles(BREAKINFO *breakinfo,int *rowthresh,BMPREGION *region,
                                    K2PDFOPT_SETTINGS *k2settings,int *colcount,int *rowcount,
                                    int maxsize);
-static int  minval(int *x,int n,int dx,int *index,int index0);
+static int  minval(int *x,int n,int dx,int *index,int index0,int indexmin,int indexmax);
 static int  maxval(int *x,int n,int dx,int *index,int index0);
 static void textrow_assign_bmpregion(TEXTROW *textrow,BMPREGION *region);
 /*
@@ -703,8 +703,9 @@ printf("row[%2d].capheight = %3d\n",i,breakinfo->textrow[i].capheight);
         /* Make sure it's not too big */
         if (rh > 7*lch)
             rh = 7*lch;
-           
-        if (lch>0)
+
+        /* v1.66 fix -- r2-r1 must be > 5 */           
+        if (lch>0 && breakinfo->textrow[i].r2-breakinfo->textrow[i].r1>5)
            {
            int jbest,itry;
            double maxrat;
@@ -738,7 +739,10 @@ printf("Large gap:  row[%d] = rows %d - %d, capheight = %d, lch=%d, rh=%d\n",i,b
                for (ip=0;ip<j-1;ip++)
                    {
                    int rmin,c;
-                   c=minval(rowthresh,r2-r1+1,lch,&rmin,breakinfo->textrow[i].rowbase-(ip+1)*breakinfo->textrow[i].capheight/j-r1);
+                   /* v1.66 fix--bound the minval() search */
+                   c=minval(rowthresh,r2-r1+1,lch,&rmin,
+                        breakinfo->textrow[i].rowbase-(ip+1)*breakinfo->textrow[i].capheight/j-r1,
+                        breakinfo->textrow[i].r1+2-r1,breakinfo->textrow[i].r2-2-r1);
                    rb[ip]=rmin+r1;
 /* printf("        nadir point[%d of %d] = row %4d = %d\n",ip+1,j-1,rmin+r1,rowthresh[rmin]); */
                    if (c1<0 || c>c1)
@@ -808,15 +812,32 @@ printf("MAX RATIO (%d rows) = %g\n",jbest,maxrat);
     }
 
 
-static int minval(int *x,int n,int dx,int *index,int index0)
+/*
+** v1.66 fix -- pass indexmin and indexmax to bound the search.
+*/
+static int minval(int *x,int n,int dx,int *index,int index0,int indexmin,int indexmax)
 
     {
-    int i,imin,dx2;
+    int i,imin,dx2,index1,index2;
 
     dx2=dx/4;
     if (dx2<1)
         dx2=1;
-    for (imin=-1,i=index0-dx2;i<=index0+dx2;i++)
+    index1=index0-dx2;
+    index2=index0+dx2;
+    if (index1<indexmin)
+        {
+        index1=indexmin;
+        if (index2 <= index1)
+            index2=index1+1;
+        }
+    if (index2>indexmax)
+        {
+        index2=indexmax;
+        if (index1 >= index2)
+            index1=index2-1;
+        }
+    for (imin=-1,i=index1;i<=index2;i++)
         {
         if (i<0 || i>=n)
             continue;
