@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -57,6 +57,69 @@ void ocrwords_init(OCRWORDS *words)
     {
     words->word=NULL;
     words->n=words->na=0;
+    }
+
+
+int ocrwords_to_textfile(OCRWORDS *ocrwords,char *filename,int append)
+
+    {
+    FILE *out;
+    int i,newline;
+
+    out=fopen(filename,append ? "a":"w");
+    if (out==NULL)
+        return(-1);
+    for (i=0,newline=1;i<ocrwords->n;i++)
+        {
+        OCRWORD *word0;
+        OCRWORD *word;
+        int c,c0,r,r0;
+
+        if (i>0)
+            word0=&ocrwords->word[i-1];
+        word=&ocrwords->word[i];
+        if (word->text[0]=='\0')
+            continue;
+        if (word->rot==0)
+            {
+            c=word->c;
+            r=word->r;
+            if (i>0)
+                {
+                c0=word0->c;
+                r0=word0->r;
+                }
+            }
+        else
+            {
+            c=-word->r;
+            r=word->c;
+            if (i>0)
+                {
+                c0=-word0->r;
+                r0=word0->c;
+                }
+            }
+/*
+if (!strnicmp(word->text,"II.",3))
+printf("II. c=%d, r=%d, c0=%d, r0=%d, h=%d\n",c,r,c0,r0,word->h);
+*/
+        if (i>0 && (c<=c0 || r > r0+word->h*.75))
+            {
+            fprintf(out,"\n");
+            if (i>0 && r > r0 + word->h*2)
+                fprintf(out,"\n");
+            newline=1;
+            }
+        if (!newline)
+            fprintf(out," ");
+        fprintf(out,"%s",word->text);
+        newline=0;
+        }
+    if (!newline)
+        fprintf(out,"\n");
+    fclose(out);
+    return(0);
     }
 
 
@@ -145,6 +208,60 @@ void ocrwords_free(OCRWORDS *words)
     }
 
 
+void ocrwords_sort_by_pageno(OCRWORDS *ocrwords)
+
+    {
+    int top,n1,n;
+    OCRWORD x0,*x;
+ 
+    x=ocrwords->word;
+    n=ocrwords->n;
+    if (n<2)
+        return;
+    top=n/2;
+    n1=n-1;
+    while (1)
+        {
+        if (top>0)
+            {
+            top--;
+            x0=x[top];
+            }
+        else
+            {
+            x0=x[n1];
+            x[n1]=x[0];
+            n1--;
+            if (!n1)
+                {
+                x[0]=x0;
+                return;
+                }
+            }
+        {
+        int parent,child;
+
+        parent=top;
+        child=top*2+1;
+        while (child<=n1)
+            {
+            if (child<n1 && x[child].pageno<x[child+1].pageno)
+                child++;
+            if (x0.pageno<x[child].pageno)
+                {
+                x[parent]=x[child];
+                parent=child;
+                child+=(parent+1);
+                }
+            else
+                break;
+            }
+        x[parent]=x0;
+        }
+        }
+    }
+
+
 void ocrwords_offset(OCRWORDS *words,int dx,int dy)
 
     {
@@ -158,6 +275,9 @@ void ocrwords_offset(OCRWORDS *words,int dx,int dy)
     }
 
 
+/*
+** Don't want this affecting on the MuPDF vars.
+*/
 void ocrwords_scale(OCRWORDS *words,double srat)
 
     {
@@ -178,6 +298,9 @@ void ocrwords_scale(OCRWORDS *words,double srat)
     }
 
 
+/*
+** Don't want this affecting on the MuPDF vars.
+*/
 void ocrwords_int_scale(OCRWORDS *words,int ndiv)
 
     {

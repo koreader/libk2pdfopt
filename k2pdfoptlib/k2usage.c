@@ -57,6 +57,13 @@ static char *k2pdfopt_options=
 "                  Will rotate up to +/-<maxdegrees> degrees if a value is\n"
 "                  specified, otherwise defaults to 4 degrees max.  Use -1 to\n"
 "                  turn off. Default is off (-as -1 or -as-).\n"
+"-bmp[-] <pageno>  Generate [do not generate] a bitmap rendering of converted\n"
+"                  page number <pageno> and write it to file k2pdfopt_out.png.\n"
+"                  If this option is used, no other files are written, i.e. the\n"
+"                  complete conversion is NOT done--ONLY the bitmap file is\n"
+"                  written.  If -sm is also specified, then the bitmap is of\n"
+"                  marked source page <pageno>.  If -bmp-, then <pageno> is not\n"
+"                  necessary.  Default is -bmp-.\n"
 "-bp[+|-] [<inches>] Break [do not break] output pages at end of each input\n"
 "                  page.  Default is -bp-.  If a numeric value is put after -bp,\n"
 "                  then rather than breaking the output page at the end of each\n"
@@ -145,7 +152,7 @@ static char *k2pdfopt_options=
 "                  Note:  -f2p -2 will automatically also set -vb -2 to\n"
 "                  exactly preserve the spacing in the red-boxed region.  If\n"
 "                  you want to compress the vertical spacing in the red-boxed\n"
-"                  region, use -ftp -2 -vb -1.\n"
+"                  region, use -f2p -2 -vb -1.\n"
 "-fc[-]            For multiple column documents, fit [don't fit] columns to\n"
 "                  the width of the reader screen regardless of -odpi.\n"
 "                  Default is to fit the columns to the reader.\n"
@@ -182,6 +189,14 @@ static char *k2pdfopt_options=
 "                  Default = 0.006.  See also -rsf.\n"
 "-gtw <inches>     Threshold for detecting word gaps (expert mode).\n"
 "                  See -gtr.  Default = .0015.\n"
+#ifdef HAVE_K2GUI
+"-gui[-]           Use [don't use] graphical user interface (MS Windows only).\n"
+"                  If k2pdfopt is started from a console (command-line), the\n"
+"                  default is not to launch the gui unless there are no command-\n"
+"                  line options given.  If k2pdfopt is launched via its icon,\n"
+"                  then the default is to launch the GUI.\n"
+"-guimin[-]        Start the k2pdfopt GUI minimized.  Def = not minimized.\n"
+#endif
 "-h <height>[in|cm|s|t] Set height of output device in pixels, inches, cm,\n"
 "                  source page size (s) or trimmed source region size (t).\n"
 "                  The default units are pixels, and the default value is 735\n"
@@ -235,6 +250,7 @@ static char *k2pdfopt_options=
 "                  file smaller.  See also -png.\n"
 #ifdef HAVE_TESSERACT_LIB
 "-l <lang>         See -ocrlang.\n"
+"-lang <lang>      See -ocrlang.\n"
 #endif
 "-ls[-]            Set output to be in landscape [portrait] mode.  The\n"
 "                  default is portrait.\n"
@@ -266,8 +282,9 @@ static char *k2pdfopt_options=
 "                      2col   Same as -n -wrap- -col 2 -vb -2 -t.\n"
 "                             Optimizes for a 2-column scientific article with\n"
 "                             native PDF output.\n"
-"                      def    Default k2pdfopt mode: -n -wrap -col 2 -vb 1.75\n"
-"                             -dev k2 -rt auto -c- -t -f2p 0 -m 0 -om 0.02 -ls-.\n"
+"                      def    Default k2pdfopt mode: -wrap -n- -col 2 -vb 1.75\n"
+"                             -dev k2 -rt auto -c- -t -f2p 0 -m 0 -om 0.02\n"
+"                             -ls-.\n"
 "                  You can modify modes by overriding their options after\n"
 "                  specifying the mode, e.g. -mode fw -vb -1.\n"
 #ifdef HAVE_MUPDF_LIB
@@ -326,11 +343,16 @@ static char *k2pdfopt_options=
 "                  left, top, right, and bottom margins to 0.2, 0.3, 0.4, and\n"
 "                  0.5, respectively.\n"
 #ifdef HAVE_OCR_LIB
-"-ocr[-] [g|t]     Attempt [don't attempt] to use optical character\n"
+"-ocr[-] [g|t|m]   Attempt [don't attempt] to use optical character\n"
 "                  recognition (OCR) in order to embed searchable text into\n"
 "                  the output PDF document.  If followed by t or g, specifies\n"
-"                  the ocr engine to use (tesseract or gocr).  Default if not\n"
-"                  specified is tesseract.  See also -ocrvis and -ocrhmax.\n"
+"                  the ocr engine to use (tesseract or gocr).  If followed by\n"
+"                  m, and if the PDF document has text in it, then the MuPDF\n"
+"                  engine is used to extract the text (sort of a virtual OCR).\n"
+"                  If -ocr is specified with no argument, tesseract is used.\n"
+"                  If tesseract fails (e.g. no language files found), GOCR\n"
+"                  is used.  The overall default operation of k2pdfopt is\n"
+"                  -ocr m.  See also -ocrvis and -ocrhmax.\n"
 "                  NOTE:  Turning on OCR will disable native PDF output.\n"
 "                  DISCLAIMER:  The main intent of OCR isn't to improve the\n"
 "                      visual quality of the text at all--at least not the way\n"
@@ -366,7 +388,16 @@ static char *k2pdfopt_options=
 "                  k2pdfopt does not use any embedded fonts, but the text\n"
 "                  will convert to the correct Unicode values when copy /\n"
 "                  pasted.\n"
+"                  NOTE 2: Tesseract allows the specification of multiple\n"
+"                  language training files, e.g. -ocrlang eng+fra would\n"
+"                  specify English as the primary and French as the secondary\n"
+"                  OCR language.  In practice I have not found this to work\n"
+"                  very well.  Try multiple languages in different orders.\n"
 #endif
+"-ocrout[-] <namefmt>  Write [don't write] UTF-8 OCR text output to file\n"
+"                  <namefmt>.  See the -o option for more about how\n"
+"                  <namefmt> works.  Default extension is .txt.  Default is\n"
+"                  no output.\n"
 "-ocrvis <s|t|b>   Set OCR visibility flags.  Put 's' to show the source doc,\n"
 "                  't' to show the OCR text, and/or 'b' to put a box around\n"
 "                  each word.  Default is -ocrvis s.  To show both the source\n"
@@ -402,14 +433,15 @@ static char *k2pdfopt_options=
 "                  the height of all the others).  Increasing this value makes\n"
 "                  it harder for k2pdfopt to split a row.  Lowering it makes it\n"
 "                  easier.  Default value = 20.\n"
-"-rt <deg>|auto|aep  Rotate source page counter clockwise by <deg> degrees.\n"
+"-rt <deg>|auto[+]|aep  Rotate source page counterclockwise by <deg> degrees.\n"
 "                  Can be 90, 180, 270.  Or use \"-rt auto\" to examine up to\n"
 "                  10 pages of each file to determine the orientation used\n"
 "                  on the entire file (this is the default).  Or use \"-rt aep\"\n"
 "                  to auto-detect the rotation of every page.  If you have\n"
 "                  different pages that are rotated differently from each other\n"
 "                  within one file, you can use this option to try to auto-\n"
-"                  rotate each source page.\n"
+"                  rotate each source page.  Use -rt auto+ to turn on auto-\n"
+"                  detect even in preview mode (otherwise it is off).\n"
 /*
 "-rwmin <min>      Set min row width before the row can be considered for\n"
 "                  glueing to other rows (inches).\n"
@@ -425,6 +457,8 @@ static char *k2pdfopt_options=
 "                  Gray lines mark individual rows of text (top, bottom, and\n"
 "                  baseline).  Blue boxes show individual words (passed to OCR\n"
 "                  if -ocr is specified).\n"
+"-sp[-]            For each file on the command-line, just echo the number\n"
+"                  of pages--don't process.  Default = off (-sp-).\n"
 "-t[-]             Trim [don't trim] the white space from around the edges of\n"
 "                  any output region.  Default is to trim.  Using -t- is not\n"
 "                  recommended unless you want to exactly duplicate the source\n"
@@ -471,7 +505,7 @@ static char *k2pdfopt_options=
 "                  you use -wrap+, you may want to also specify -fc- so that\n"
 "                  narrow columns of text are not magnified to fit your device.\n"
 "                  Text wrapping disables native PDF output (see -n option).\n"
-"                  See also -ws, -j, -pi, -fc, -n.\n"
+"                  See also -ws, -j, -fc, -n.\n"
 /*
 "-whmax <height>   Max height allowed for wrapping a row (inches).\n"
 */
@@ -688,7 +722,7 @@ static int wait_enter(void)
 
     k2printf(TTEXT_BOLD2 "Press <ENTER> to continue (q to quit)." TTEXT_NORMAL);
     fflush(stdout);
-    fgets(buf,16,stdin);
+    k2gets(buf,16,"");
     if (tolower(buf[0])=='q')
         return(-1);
     return(0);

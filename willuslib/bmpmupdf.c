@@ -59,7 +59,7 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
     fz_set_aa_level(ctx,8);
 //    fz_accelerate();
 //    glyphcache=fz_new_glyph_cache();
-    colorspace=(bpp==8 ? fz_device_gray : fz_device_rgb);
+    colorspace=(bpp==8 ? fz_device_gray(ctx) : fz_device_rgb(ctx));
     fz_try(ctx) { doc=fz_open_document(ctx,filename); }
     fz_catch(ctx) 
         { 
@@ -94,7 +94,7 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
     fz_catch(ctx)
         {
         fz_free_device(dev);
-        fz_free_display_list(ctx,list);
+        fz_drop_display_list(ctx,list);
         fz_free_page(doc,page);
         fz_close_document(doc);
         fz_free_context(ctx);
@@ -136,14 +136,14 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
         {
         fz_free_device(dev);
         fz_drop_pixmap(ctx,pix);
-        fz_free_display_list(ctx,list);
+        fz_drop_display_list(ctx,list);
         fz_free_page(doc,page);
         fz_close_document(doc);
         fz_free_context(ctx);
         return(-5);
         }
     if (list)
-        fz_free_display_list(ctx,list);
+        fz_drop_display_list(ctx,list);
     fz_free_page(doc,page);
 //    pdf_free_xref(xref);
     fz_close_document(doc);
@@ -153,6 +153,73 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
 //    fz_flush_warnings();
     if (status<0)
         return(status-10);
+    return(0);
+    }
+
+/*
+** Returns 0 if got dimensions.
+*/
+int bmpmupdf_pdffile_width_and_height(char *filename,int pageno,double *width_in,double *height_in)
+
+    {
+    fz_context *ctx;
+    fz_document *doc;
+    fz_page *page;
+    fz_display_list *list;
+    fz_device *dev;
+    fz_rect bounds;
+    int np;
+
+    dev=NULL;
+    list=NULL;
+    page=NULL;
+    doc=NULL;
+    if (pageno<1)
+        return(-99);
+    ctx = fz_new_context(NULL,NULL,FZ_STORE_DEFAULT);
+    if (!ctx)
+        return(-1);
+    fz_set_aa_level(ctx,8);
+    fz_try(ctx) { doc=fz_open_document(ctx,filename); }
+    fz_catch(ctx) 
+        { 
+        fz_free_context(ctx);
+        return(-1);
+        }
+    np=fz_count_pages(doc);
+    if (pageno>np)
+        return(-99);
+    fz_try(ctx) { page = fz_load_page(doc,pageno-1); }
+    fz_catch(ctx) 
+        {
+        fz_close_document(doc);
+        fz_free_context(ctx);
+        return(-3);
+        }
+    fz_try(ctx) { list=fz_new_display_list(ctx);
+                  dev=fz_new_list_device(ctx,list);
+                  fz_run_page(doc,page,dev,&fz_identity,NULL);
+                }
+    fz_catch(ctx)
+        {
+        fz_free_device(dev);
+        fz_drop_display_list(ctx,list);
+        fz_free_page(doc,page);
+        fz_close_document(doc);
+        fz_free_context(ctx);
+        return(-4);
+        }
+    fz_free_device(dev);
+    dev=NULL;
+    fz_bound_page(doc,page,&bounds);
+    if (width_in!=NULL)
+        (*width_in)=fabs(bounds.x1-bounds.x0)/72.;
+    if (height_in!=NULL)
+        (*height_in)=fabs(bounds.y1-bounds.y0)/72.;
+    fz_drop_display_list(ctx,list);
+    fz_free_page(doc,page);
+    fz_close_document(doc);
+    fz_free_context(ctx);
     return(0);
     }
 

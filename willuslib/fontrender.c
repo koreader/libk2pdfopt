@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -50,6 +50,7 @@ typedef struct
     int font_index;
     int rot;
     int count;
+    double xoff,yoff;
     time_t last_used;
     } FONTLETTER;
 
@@ -275,14 +276,25 @@ wfile_written_info("font.jpg",stdout);
     */
     dh = (yj/2.)*hbox;
     dw = (-xj/2.)*wbox;
+/*
+printf("dh=%g, dw=%g\n",dh,dw);
+*/
     th = rot*PI/180.;
     sth = sin(th);
     cth = cos(th);
 /*
 render_partial_circle_pts(x/fontrender_pixels_per_point,y_from_bottom/fontrender_pixels_per_point,5.,0.,2.*PI,-1);
 */
+/*
+printf("Passed position: x,y = %g, %g\n",x,(bmp->height-y_from_bottom));
+*/
+    /* Convert to "upper left" of rotated box */
     y_from_bottom += dh*cth + dw*sth;
-    x += dw*cth - (dh+lheight)*sth;
+    /* x += dw*cth - (dh+lheight)*sth; */
+    x += dw*cth - dh*sth;
+/*
+printf("Top left corner including rot: x,y = %g, %g\n",x,(bmp->height-y_from_bottom));
+*/
 /*
 if (fabs(rot-90.)<1.)
 dprintf(NULL,"dh=%g, hbox=%g, (x',y')=(%g,%g)\n",dh,hbox,x,y_from_bottom);
@@ -556,6 +568,15 @@ static void fontrender_renderchar(WILLUSBITMAP *bmp,int *w,
     static int white[3]={255,255,255};
 //static int count=0;
 
+/*
+printf("Rendering char '%c' w/lower left at %6.1f, %6.1f\n",c,x,(bmp->height-y_from_bottom));
+{
+RENDER_COLOR red,white;
+red=render_color(1.,0.,0.);
+white=render_color(1.,1.,1.);
+render_circle(bmp,(double)x/bmp->width,(double)y_from_bottom/bmp->height,3./bmp->width,-1,&red,&white,RENDER_TYPE_ANTIALIASED);
+}
+*/
     fontletter=&_fontletter;
     fontletter->c=c;
     fontletter->rot=rot;
@@ -589,6 +610,10 @@ static void fontrender_renderchar(WILLUSBITMAP *bmp,int *w,
         nh--;
         y2-=w[0]/fontrender_size;
         }
+/*
+printf("bx0=%d, by0=%d\n",bx0,by0);
+printf("nw=%d, nh=%d\n",nw,nh);
+*/
     /*
     dw=nw;
     dh=nh;
@@ -600,6 +625,10 @@ static void fontrender_renderchar(WILLUSBITMAP *bmp,int *w,
                      nw,nh);
         if (rot)
             {
+            double cw,ch,th,sth,cth,xtl,ytl,xbl,ybl;
+
+            cw=charbmp->width;
+            ch=charbmp->height;
             while (rot<0)
                 rot += 360;
             rot=rot%360;
@@ -607,6 +636,45 @@ static void fontrender_renderchar(WILLUSBITMAP *bmp,int *w,
                 bmp_rotate_right_angle(charbmp,rot);
             else
                 bmp_rotate_fast(charbmp,(double)rot,1);
+            th=rot*PI/180.;
+            sth=sin(th);
+            cth=cos(th);
+            if (rot<90.)
+                {
+                xtl=0.;
+                ytl=cw*sth; /* from top */
+                }
+            else if (rot<180.)
+                {
+                xtl=nw*fabs(cth);
+                ytl=charbmp->height;
+                }
+            else if (rot<270.)
+                {
+                xtl=charbmp->width;
+                ytl=charbmp->height-cw*fabs(sth);
+                }
+            else
+                {
+                ytl=0.;
+                xtl=ch*fabs(sth);
+                }
+            xbl = xtl+ch*sth;
+            ybl = ytl+ch*cth;
+            /* Determine new position for lower-left of char */
+            /*
+            cx0=bx0+nw/2;
+            cy0=by0+nh/2;
+            bx0=cx0-cos(th)*nw/2+sin(th)*nh/2;
+            by0=cy0-cos(th)*nh/2-sin(th)*nw/2;
+            */
+            fontletter->xoff = -xbl;
+            fontletter->yoff = (ybl-charbmp->height);
+            }
+        else
+            {
+            fontletter->xoff = 0.;
+            fontletter->yoff = 0.;
             }
         bmp_convert_to_greyscale(charbmp);
         bmp_copy(&fontletter->bmp,charbmp);
@@ -614,6 +682,11 @@ static void fontrender_renderchar(WILLUSBITMAP *bmp,int *w,
         }
     else
         bmp_copy(charbmp,&fontletter->bmp);
+/*
+printf("xoff,yoff = %6.1f %6.1f\n",fontletter->xoff,fontletter->yoff);
+*/
+    bx0 += fontletter->xoff;
+    by0 += fontletter->yoff;
     bmp_promote_to_24(charbmp);
     if (fontrender_or)
         {
@@ -850,6 +923,8 @@ static WILLUSBITMAP *fontcache_cached_fontletter(FONTLETTER *fontletter)
             time(&fontcache->fontletter[i].last_used);
             fontletter->bmp = fontcache->fontletter[i].bmp;
             fontcache->sorted=0;
+            fontletter->xoff = fontcache->fontletter[i].xoff;
+            fontletter->yoff = fontcache->fontletter[i].yoff;
             return(&fontletter->bmp);
             }
         }

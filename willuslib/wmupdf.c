@@ -33,21 +33,22 @@
 static void wpdfbox_determine_original_source_position(WPDFBOX *box);
 static void wpdfbox_unrotate(WPDFBOX *box,double deg);
 static int wpdfbox_compare(WPDFBOX *b1,WPDFBOX *b2);
-static void info_update(fz_context *ctx,pdf_document *xref,char *producer);
-static void dict_put_string(fz_context *ctx,pdf_obj *dict,char *key,char *string);
+static void info_update(pdf_document *xref,char *producer);
+static void dict_put_string(pdf_document *doc,pdf_obj *dict,char *key,char *string);
 static void wmupdf_page_bbox(pdf_obj *srcpage,double *bbox_array);
 static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINFO *pageinfo,
                                   int use_forms,FILE *out);
 static void set_clip_array(double *xclip,double *yclip,double rot_deg,double width,double height);
 static void cat_pdf_double(char *buf,double x);
 static void wmupdf_convert_pages_to_forms(pdf_document *xref,fz_context *ctx,int *srcpageused);
-static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ctx,int pageno);
+static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ctx,
+                                               pdf_obj *srcpageref,int pageno);
 static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,
                           int *length);
 static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,
                                  pdf_obj *dict);
 static char *xobject_name(int pageno);
-static pdf_obj *start_new_destpage(fz_context *ctx,double width_pts,double height_pts);
+static pdf_obj *start_new_destpage(pdf_document *doc,double width_pts,double height_pts);
 static void wmupdf_preserve_old_dests(pdf_obj *olddests,fz_context *ctx,pdf_document *xref,
                                       pdf_obj *pages);
 static int new_stream_object(pdf_document *xref,fz_context *ctx,char *buf);
@@ -61,6 +62,22 @@ static void matrix_translate(double m[][3],double x,double y);
 static void matrix_mul(double dst[][3],double src[][3]);
 static void matrix_rotate(double m[][3],double deg);
 static void matrix_xymul(double m[][3],double *x,double *y);
+
+/* Character positions */
+static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_text_page *page);
+static void wtextchar_rotate_clockwise(WTEXTCHAR *wch,int rot,double page_width_pts,
+                                       double page_height_pts);
+static void point_sort(double *x1,double *x2);
+static void point_rotate(double *x,double *y,int rot,double page_width_pts,double page_height_pts);
+static void wtextchars_get_chars_inside(WTEXTCHARS *src,WTEXTCHARS *dst,double x1,double y1,
+                                        double x2,double y2);
+/*
+static int  wtextchars_index_by_yp(WTEXTCHARS *wtc,double yp,int type);
+static void wtextchars_sort_vertically_by_position(WTEXTCHARS *wtc,int type);
+static int  wtextchar_compare_vert(WTEXTCHAR *c1,WTEXTCHAR *c2,int type);
+*/
+static void wtextchars_sort_horizontally_by_position(WTEXTCHARS *wtc);
+static int  wtextchar_compare_horiz(WTEXTCHAR *c1,WTEXTCHAR *c2);
 
 
 int wmupdf_numpages(char *filename)
@@ -358,8 +375,8 @@ int wmupdf_info_field(char *infile,char *label,char *buf,int maxlen)
             fz_free_context(ctx);
             return(-3);
             }
-        if (xref->trailer!=NULL
-            && (info=pdf_dict_gets(xref->trailer,"Info"))!=NULL
+        if (pdf_trailer(xref)!=NULL
+            && (info=pdf_dict_gets(pdf_trailer(xref),"Info"))!=NULL
             && (obj=pdf_dict_gets(info,label))!=NULL
             && pdf_is_string(obj))
             {
@@ -394,10 +411,14 @@ int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_
     int status;
     int write_failed;
 
-    fzopts.do_garbage=1; /* 2 and 3 don't work for this. */
-    fzopts.do_expand=0;
+    memset(&fzopts,0,sizeof(fz_write_options));
+    fzopts.do_incremental=0;
     fzopts.do_ascii=0;
+    fzopts.do_expand=0;
     fzopts.do_linear=0;
+    fzopts.do_garbage=1; /* 2 and 3 don't work for this. */
+    fzopts.continue_on_error=0;
+    fzopts.errors=NULL;
     write_failed=0;
     wpdfpageinfo_sort(pageinfo);
     xref=NULL;
@@ -432,7 +453,7 @@ int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_
             nprintf(out,"wmupdf_remake_pdf:  Error re-paginating PDF file %s.\n",infile);
             return(status);
             }
-        info_update(ctx,xref,pageinfo->producer);
+        info_update(xref,pageinfo->producer);
         /* Write output */
         pdf_write_document(xref,outfile,&fzopts);
         }
@@ -454,7 +475,7 @@ int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_
     }
 
 
-static void info_update(fz_context *ctx,pdf_document *xref,char *producer)
+static void info_update(pdf_document *xref,char *producer)
 
     {
     char moddate[64];
@@ -463,7 +484,7 @@ static void info_update(fz_context *ctx,pdf_document *xref,char *producer)
     pdf_obj *info;
     int newinfo;
 
-    if (xref->trailer==NULL)
+    if (pdf_trailer(xref)==NULL)
         return;
     time(&now);
     date=(*localtime(&now));
@@ -471,30 +492,30 @@ static void info_update(fz_context *ctx,pdf_document *xref,char *producer)
            date.tm_year+1900,date.tm_mon+1,date.tm_mday,
            date.tm_hour,date.tm_min,date.tm_sec,
            wsys_utc_string());
-    info=pdf_dict_gets(xref->trailer,"Info");
+    info=pdf_dict_gets(pdf_trailer(xref),"Info");
     if (info==NULL)
         {
         newinfo=1;
-        info=pdf_new_dict(ctx,2);
+        info=pdf_new_dict(xref,2);
         }
     else
         newinfo=0;
-    dict_put_string(ctx,info,"Producer",producer);
-    dict_put_string(ctx,info,"ModDate",moddate);
+    dict_put_string(xref,info,"Producer",producer);
+    dict_put_string(xref,info,"ModDate",moddate);
     if (newinfo)
         {
-        pdf_dict_puts(xref->trailer,"Info",info);
+        pdf_dict_puts(pdf_trailer(xref),"Info",info);
         pdf_drop_obj(info);
         }
     }
 
 
-static void dict_put_string(fz_context *ctx,pdf_obj *dict,char *key,char *string)
+static void dict_put_string(pdf_document *doc,pdf_obj *dict,char *key,char *string)
 
     {
     pdf_obj *value;
 
-    value=pdf_new_string(ctx,string,strlen(string));
+    value=pdf_new_string(doc,string,strlen(string));
     pdf_dict_puts(dict,key,value);
     pdf_drop_obj(value);
     }
@@ -575,7 +596,7 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
         willus_mem_alloc_warn((void **)&bigbuf,nbb,funcname,10);
         bigbuf[0]='\0';
         }
-    oldroot = pdf_dict_gets(xref->trailer,"Root");
+    oldroot = pdf_dict_gets(pdf_trailer(xref),"Root");
     /*
     ** pages points to /Pages object in PDF file.
     ** Has:  /Type /Pages, /Count <numpages>, /Kids [ obj obj obj obj ]
@@ -587,7 +608,7 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
     ** Create new root object with only /Pages and /Type (and reduced dest entries)
     ** to avoid references to unretained pages.
     */
-    root = pdf_new_dict(ctx,4);
+    root = pdf_new_dict(xref,4);
     pdf_dict_puts(root,"Type",pdf_dict_gets(oldroot,"Type"));
     pdf_dict_puts(root,"Pages",pages);
     pdf_update_object(xref,pdf_to_num(oldroot),root);
@@ -595,9 +616,9 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
 
     /* Parent indirectly references the /Pages object in the file */
     /* (Each new page we create has to point to this.)            */
-    parent = pdf_new_indirect(ctx, pdf_to_num(pages), pdf_to_gen(pages), xref);
+    parent = pdf_new_indirect(xref, pdf_to_num(pages), pdf_to_gen(pages));
     /* Create a new kids array with only the pages we want to keep */
-    kids = pdf_new_array(ctx, 1);
+    kids = pdf_new_array(xref, 1);
 
 
     qref=0;
@@ -626,7 +647,7 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
         static double xclip[4],yclip[4];
 
 /*
-printf("box[%d]\n",i);
+printf("box[%d/%d], srccount=%d\n",i,pageinfo->boxes.n,srccount);
 if (i<pageinfo->boxes.n)
 {
 box=&pageinfo->boxes.box[i];
@@ -654,13 +675,12 @@ printf("    ADDING NEW PAGE. (srccount=%d)\n",srccount);
                 pdf_obj *dest_stream;
 
                 /* Create new object in document for destination page stream */
-                dest_stream = pdf_new_indirect(ctx,new_stream_object(xref,ctx,bigbuf),
-                                               0,(void *)xref);
+                dest_stream = pdf_new_indirect(xref,new_stream_object(xref,ctx,bigbuf),0);
                 /* Store this into the destination page contents array */
                 pdf_array_push(destpagecontents,dest_stream);
                 pdf_drop_obj(dest_stream);
                 }
-            newpageref=pdf_new_indirect(ctx,destpageref,0,(void *)xref);
+            newpageref=pdf_new_indirect(xref,destpageref,0);
             /* Reference parent list of pages */
             pdf_dict_puts(destpageobj,"Parent",parent);
             pdf_dict_puts(destpageobj,"Contents",destpagecontents);
@@ -720,18 +740,20 @@ printf("    NEW SOURCE PAGE (srccount=%d)\n",srccount);
 /*
 printf("        (STARTING NEW DEST. PAGE)\n");
 */
-                destpageobj=start_new_destpage(ctx,box->dst_width_pts,box->dst_height_pts);
-                destpageresources=pdf_new_dict(ctx,1);
+                destpageobj=start_new_destpage(xref,box->dst_width_pts,box->dst_height_pts);
+                destpageresources=pdf_new_dict(xref,1);
                 if (use_forms)
-                    pdf_dict_puts(destpageresources,"XObject",pdf_new_dict(ctx,1));
+                    pdf_dict_puts(destpageresources,"XObject",pdf_new_dict(xref,1));
                 destpageref=pdf_create_object(xref);
-                destpagecontents=pdf_new_array(ctx,1);
+                destpagecontents=pdf_new_array(xref,1);
                 /* Init the destination page stream for forms */
                 if (use_forms)
                     bigbuf[0]='\0';
                 }
             /* New source page, so get the source page objects */
-            srcpageobj = xref->page_objs[box->srcbox.pageno-1];
+            /* srcpageobj = xref->page_objs[box->srcbox.pageno-1]; */
+            /* pageno, or pageno-1?? */
+            srcpageobj = pdf_resolve_indirect(pdf_lookup_page_obj(xref,box->srcbox.pageno-1));
             wmupdf_page_bbox(srcpageobj,v);
             srcx0=v[0];
             srcy0=v[1];
@@ -763,12 +785,13 @@ pdf_resolve_indirect(obj);
 */
             if (use_forms)
                 {
-                pdf_obj *xobjdict;
+                pdf_obj *xobjdict,*pageref;
                 int pageno;
 
                 xobjdict=pdf_dict_gets(destpageresources,"XObject");
                 pageno=box->srcbox.pageno;
-                pdf_dict_puts(xobjdict,xobject_name(pageno),xref->page_refs[pageno-1]);
+                pageref=pdf_lookup_page_obj(xref,pageno-1);
+                pdf_dict_puts(xobjdict,xobject_name(pageno),pageref);
                 pdf_dict_puts(destpageresources,"XObject",xobjdict);
                 }
             else
@@ -896,10 +919,10 @@ printf("Clip path:\n    %7.2f %7.2f\n    %7.2f,%7.2f\n    %7.2f,%7.2f\n"
             /* NO-FORMS METHOD */
             strcat(buf,"\n");
             /* Create new objects in document for tx matrix and restore matrix */
-            s1indirect = pdf_new_indirect(ctx,new_stream_object(xref,ctx,buf),0,(void *)xref);
+            s1indirect = pdf_new_indirect(xref,new_stream_object(xref,ctx,buf),0);
             if (qref==0)
                 qref=new_stream_object(xref,ctx,"Q\n");
-            qindirect = pdf_new_indirect(ctx,qref,0,(void *)xref);
+            qindirect = pdf_new_indirect(xref,qref,0);
             /* Store this region into the destination page contents array */
             pdf_array_push(destpagecontents,s1indirect);
             if (pdf_is_array(srcpagecontents))
@@ -922,7 +945,7 @@ printf("Clip path:\n    %7.2f %7.2f\n    %7.2f,%7.2f\n    %7.2f,%7.2f\n"
         wmupdf_convert_pages_to_forms(xref,ctx,srcpageused);
 
     /* Update page count and kids array */
-    countobj = pdf_new_int(ctx, pdf_array_len(kids));
+    countobj = pdf_new_int(xref, pdf_array_len(kids));
     pdf_dict_puts(pages, "Count", countobj);
     pdf_drop_obj(countobj);
     pdf_dict_puts(pages, "Kids", kids);
@@ -1012,15 +1035,27 @@ static void wmupdf_convert_pages_to_forms(pdf_document *xref,fz_context *ctx,int
 
     {
     int i,pagecount;
+    pdf_obj **srcpage;
+    static char *funcname="wmupdf_convert_pages_to_forms";
 
     pagecount = pdf_count_pages(xref);
-    for (i=0;i<=pagecount;i++)
+    willus_mem_alloc_warn((void **)&srcpage,sizeof(pdf_obj *)*pagecount,funcname,10);
+    /*
+    ** Lookup all page references before we change them to XObjects, because
+    ** after they are changed to XObjects, pdf_lookup_page_obj() fails.
+    */
+    for (i=1;i<=pagecount;i++)
         if (srcpageused[i])
-            wmupdf_convert_single_page_to_form(xref,ctx,i);
+            srcpage[i-1] = pdf_lookup_page_obj(xref,i-1);
+    for (i=1;i<=pagecount;i++)
+        if (srcpageused[i])
+            wmupdf_convert_single_page_to_form(xref,ctx,srcpage[i-1],i);
+    willus_mem_free((double **)&srcpage,funcname);
     }
 
 
-static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ctx,int pageno)
+static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ctx,
+                                               pdf_obj *srcpageref,int pageno)
 
     {
     pdf_obj *array,*srcpageobj,*srcpagecontents;
@@ -1028,17 +1063,16 @@ static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ct
     double bbox_array[4];
     double matrix[6];
 
-    /* New source page, so get the source page objects */
-    srcpageobj = xref->page_objs[pageno-1];
-    pageref=pdf_to_num(xref->page_refs[pageno-1]);
-    pagegen=pdf_to_gen(xref->page_refs[pageno-1]);
+    srcpageobj = pdf_resolve_indirect(srcpageref);
+    pageref=pdf_to_num(srcpageref);
+    pagegen=pdf_to_gen(srcpageref);
     wmupdf_page_bbox(srcpageobj,bbox_array);
     for (i=0;i<6;i++)
         matrix[i]=0.;
     matrix[0]=matrix[3]=1.;
     srcpagecontents=pdf_dict_gets(srcpageobj,"Contents");
     /* Concatenate all indirect streams from source page directly into it. */
-// printf("Adding streams to source page %d (pageref=%d, pagegen=%d)...\n",pageno,pageref,pagegen);
+/* printf("Adding streams to source page %d (pageref=%d, pagegen=%d)...\n",pageno,pageref,pagegen); */
     streamlen=0;
     if (pdf_is_array(srcpagecontents))
         {
@@ -1059,8 +1093,6 @@ static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ct
         streamlen=add_to_srcpage_stream(xref,ctx,pageref,pagegen,srcpagecontents);
         }
     compressed=stream_deflate(xref,ctx,pageref,pagegen,&streamlen);
-    srcpageobj = xref->page_objs[pageno-1];
-    pageref=pdf_to_num(xref->page_refs[pageno-1]);
     len=pdf_dict_len(srcpageobj);
     for (i=0;i<len;i++)
         {
@@ -1080,28 +1112,28 @@ printf("key[%d] = ??\n",i);
         if (pdf_is_name(key) && !stricmp("Resources",pdf_to_name(key)))
             continue;
         /* Drop dictionary entry otherwise */
-// printf("Deleting key %s.\n",pdf_to_name(key));
         pdf_dict_del(srcpageobj,key);
         i=-1;
         len=pdf_dict_len(srcpageobj);
         }
-    pdf_dict_puts(srcpageobj,"Type",pdf_new_name(ctx,"XObject"));
-    pdf_dict_puts(srcpageobj,"Subtype",pdf_new_name(ctx,"Form"));
-    pdf_dict_puts(srcpageobj,"FormType",pdf_new_int(ctx,1));
+    /*
+    ** Once we turn the object into an XObject type (and not a Page type)
+    ** it can no longer be looked up using pdf_lookup_page_obj() as of MuPDF v1.3
+    */
+    pdf_dict_puts(srcpageobj,"Type",pdf_new_name(xref,"XObject"));
+    pdf_dict_puts(srcpageobj,"Subtype",pdf_new_name(xref,"Form"));
+    pdf_dict_puts(srcpageobj,"FormType",pdf_new_int(xref,1));
     if (compressed)
-        pdf_dict_puts(srcpageobj,"Filter",pdf_new_name(ctx,"FlateDecode"));
-    pdf_dict_puts(srcpageobj,"Length",pdf_new_int(ctx,streamlen));
-    array=pdf_new_array(ctx,4);
+        pdf_dict_puts(srcpageobj,"Filter",pdf_new_name(xref,"FlateDecode"));
+    pdf_dict_puts(srcpageobj,"Length",pdf_new_int(xref,streamlen));
+    array=pdf_new_array(xref,4);
     for (i=0;i<4;i++)
-        pdf_array_push(array,pdf_new_real(ctx,bbox_array[i]));
+        pdf_array_push(array,pdf_new_real(xref,bbox_array[i]));
     pdf_dict_puts(srcpageobj,"BBox",array);
-    array=pdf_new_array(ctx,6);
+    array=pdf_new_array(xref,6);
     for (i=0;i<6;i++)
-        pdf_array_push(array,pdf_new_real(ctx,matrix[i]));
+        pdf_array_push(array,pdf_new_real(xref,matrix[i]));
     pdf_dict_puts(srcpageobj,"Matrix",array);
-    /* (It's no longer a "page"--it's a Form-type XObject) */
-    /* I don't think this call should be made since it will call fz_drop_object on srcpageobj */
-    /* pdf_update_object(xref,pageref,srcpageobj); */
     }
 
 
@@ -1207,19 +1239,19 @@ static char *xobject_name(int pageno)
     }
 
 
-static pdf_obj *start_new_destpage(fz_context *ctx,double width_pts,double height_pts)
+static pdf_obj *start_new_destpage(pdf_document *doc,double width_pts,double height_pts)
 
     {
     pdf_obj *pageobj;
     pdf_obj *mbox;
 
-    pageobj=pdf_new_dict(ctx,2);
-    pdf_dict_puts(pageobj,"Type",pdf_new_name(ctx,"Page"));
-    mbox=pdf_new_array(ctx,4);
-    pdf_array_push(mbox,pdf_new_real(ctx,0.));
-    pdf_array_push(mbox,pdf_new_real(ctx,0.));
-    pdf_array_push(mbox,pdf_new_real(ctx,width_pts));
-    pdf_array_push(mbox,pdf_new_real(ctx,height_pts));
+    pageobj=pdf_new_dict(doc,2);
+    pdf_dict_puts(pageobj,"Type",pdf_new_name(doc,"Page"));
+    mbox=pdf_new_array(doc,4);
+    pdf_array_push(mbox,pdf_new_real(doc,0.));
+    pdf_array_push(mbox,pdf_new_real(doc,0.));
+    pdf_array_push(mbox,pdf_new_real(doc,width_pts));
+    pdf_array_push(mbox,pdf_new_real(doc,height_pts));
     pdf_dict_puts(pageobj,"MediaBox",mbox);
     return(pageobj);
     }
@@ -1232,9 +1264,9 @@ static void wmupdf_preserve_old_dests(pdf_obj *olddests,fz_context *ctx,pdf_docu
 
     {
     int i;
-    pdf_obj *names = pdf_new_dict(ctx,1);
-    pdf_obj *dests = pdf_new_dict(ctx,1);
-    pdf_obj *names_list = pdf_new_array(ctx,32);
+    pdf_obj *names = pdf_new_dict(xref,1);
+    pdf_obj *dests = pdf_new_dict(xref,1);
+    pdf_obj *names_list = pdf_new_array(xref,32);
     int len = pdf_dict_len(olddests);
     pdf_obj *root;
 
@@ -1242,7 +1274,7 @@ static void wmupdf_preserve_old_dests(pdf_obj *olddests,fz_context *ctx,pdf_docu
         {
         pdf_obj *key = pdf_dict_get_key(olddests,i);
         pdf_obj *val = pdf_dict_get_val(olddests,i);
-        pdf_obj *key_str = pdf_new_string(ctx,pdf_to_name(key),strlen(pdf_to_name(key)));
+        pdf_obj *key_str = pdf_new_string(xref,pdf_to_name(key),strlen(pdf_to_name(key)));
         pdf_obj *dest = pdf_dict_gets(val,"D");
 
         dest = pdf_array_get(dest ? dest : val, 0);
@@ -1254,7 +1286,7 @@ static void wmupdf_preserve_old_dests(pdf_obj *olddests,fz_context *ctx,pdf_docu
         pdf_drop_obj(key_str);
         }
 
-    root = pdf_dict_gets(xref->trailer,"Root");
+    root = pdf_dict_gets(pdf_trailer(xref),"Root");
     pdf_dict_puts(dests,"Names",names_list);
     pdf_dict_puts(names,"Dests",dests);
     pdf_dict_puts(root,"Names",names);
@@ -1274,8 +1306,8 @@ static int new_stream_object(pdf_document *xref,fz_context *ctx,char *buf)
     fz_buffer *fzbuf;
 
     ref = pdf_create_object(xref);
-    obj = pdf_new_dict(ctx,1);
-    len=pdf_new_int(ctx,strlen(buf));
+    obj = pdf_new_dict(xref,1);
+    len=pdf_new_int(xref,strlen(buf));
     pdf_dict_puts(obj,"Length",len);
     pdf_drop_obj(len);
     pdf_update_object(xref,ref,obj);
@@ -1467,5 +1499,550 @@ static void matrix_xymul(double m[][3],double *x,double *y)
     y0=m[0][1]*(*x)+m[1][1]*(*y)+m[2][1];
     (*x)=x0;
     (*y)=y0;
+    }
+
+
+/*
+** CHARACTER POSITION MAPS
+*/
+int wtextchars_fill_from_page(WTEXTCHARS *wtc,char *filename,int pageno,char *password)
+
+    {
+    fz_document *doc=NULL;
+    fz_display_list *list=NULL;
+    fz_context *ctx;
+    fz_text_sheet *textsheet=NULL;
+    fz_page *page;
+    fz_text_page *text=NULL;
+    fz_device *dev=NULL;
+    fz_rect bounds;
+
+    fz_var(doc);
+    ctx=fz_new_context(NULL,NULL,FZ_STORE_DEFAULT);
+    if (ctx==NULL)
+        return(-1);
+    fz_set_aa_level(ctx,8);
+    doc=fz_open_document(ctx,filename);
+    if (doc==NULL)
+        {
+        fz_free_context(ctx);
+        return(-2);
+        }
+    if (fz_needs_password(doc) && !fz_authenticate_password(doc,password))
+        {
+        fz_close_document(doc);
+        fz_free_context(ctx);
+        return(-3);
+        }
+    page=fz_load_page(doc,pageno-1);
+    if (page==NULL)
+        {
+        fz_free_page(doc,page);
+        fz_close_document(doc);
+        fz_free_context(ctx);
+        return(-3);
+        }
+    fz_try(ctx)
+        {
+        list=fz_new_display_list(ctx);
+        dev=fz_new_list_device(ctx,list);
+        fz_run_page(doc,page,dev,&fz_identity,NULL);
+        }
+    fz_always(ctx)
+        {
+        fz_free_device(dev);
+        dev=NULL;
+        }
+    fz_catch(ctx)
+        {
+        fz_drop_display_list(ctx,list);
+        fz_free_page(doc,page);
+        fz_close_document(doc);
+        fz_free_context(ctx);
+        return(-4);
+        }
+    fz_var(text);
+    fz_bound_page(doc,page,&bounds);
+    wtc->width=fabs(bounds.x1-bounds.x0);
+    wtc->height=fabs(bounds.y1-bounds.y0);
+    textsheet=fz_new_text_sheet(ctx);
+    fz_try(ctx)
+        {
+        text=fz_new_text_page(ctx);
+        dev=fz_new_text_device(ctx,textsheet,text);
+        if (list)
+            fz_run_display_list(list,dev,&fz_identity,&fz_infinite_rect,NULL);
+        else
+            fz_run_page(doc,page,dev,&fz_identity,NULL);
+        fz_free_device(dev);
+        dev=NULL;
+        wtextchars_add_fz_chars(wtc,ctx,text);
+        }
+    fz_always(ctx)
+        {
+        fz_free_device(dev);
+        dev=NULL;
+        fz_free_text_page(ctx,text);
+        fz_free_text_sheet(ctx,textsheet);
+        fz_drop_display_list(ctx,list);
+        fz_free_page(doc,page);
+        fz_close_document(doc);
+        }
+    fz_catch(ctx)
+        {
+        fz_free_context(ctx);
+        return(-5);
+        }
+    fz_free_context(ctx);
+    return(0);
+    }
+
+
+static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_text_page *page)
+
+    {
+    int iblock;
+
+    for (iblock=0;iblock<page->len;iblock++)
+        {
+        fz_text_block *block;
+        fz_text_line *line;
+        char *s;
+
+        if (page->blocks[iblock].type != FZ_PAGE_BLOCK_TEXT)
+            continue;
+        block=page->blocks[iblock].u.text;
+        for (line=block->lines;line<block->lines+block->len;line++)
+            {
+            fz_text_span *span;
+
+            for (span=line->first_span;span;span=span->next)
+                {
+                fz_text_style *style=NULL;
+                int char_num;
+
+                for (char_num=0;char_num<span->len;char_num++)
+                    {
+                    fz_text_char *ch;
+                    fz_rect rect;
+                    WTEXTCHAR textchar;
+
+                    ch=&span->text[char_num];
+                    if (ch->style != style)
+                        {
+                        /* style change if style!=NULL */
+                        style=ch->style;
+                        s=strchr(style->font->name,'+');
+                        s= s ? s+1 : style->font->name;
+                        }
+                    fz_text_char_bbox(&rect,span,char_num);
+                    textchar.x1=rect.x0;
+                    textchar.y1=rect.y0;
+                    textchar.x2=rect.x1;
+                    textchar.y2=rect.y1;
+                    textchar.xp=ch->p.x;
+                    textchar.yp=ch->p.y;
+                    textchar.ucs=ch->c;
+                    wtextchars_add_wtextchar(wtc,&textchar);
+                    }
+                }
+            }
+        }
+    }
+
+
+void wtextchars_init(WTEXTCHARS *wtc)
+
+    {
+    wtc->n=wtc->na=0;
+    wtc->wtextchar=NULL;
+    wtc->sorted=0;
+    }
+
+
+void wtextchars_free(WTEXTCHARS *wtc)
+
+    {
+    static char *funcname="wtextchars_free";
+
+    willus_mem_free((double **)&wtc->wtextchar,funcname);
+    wtc->n=wtc->na=0;
+    wtc->sorted=0;
+    }
+
+
+void wtextchars_clear(WTEXTCHARS *wtc)
+
+    {
+    wtc->n=0;
+    wtc->sorted=0;
+    }
+
+
+void wtextchars_add_wtextchar(WTEXTCHARS *wtc,WTEXTCHAR *textchar)
+
+    {
+    static char *funcname="wtextchars_add_wtextchar";
+
+    if (wtc->n>=wtc->na)
+        {
+        int newsize;
+        newsize = wtc->na < 512 ? 1024 : wtc->na*2;
+        willus_mem_realloc_robust_warn((void **)&wtc->wtextchar,newsize*sizeof(WTEXTCHAR),
+                                    wtc->na*sizeof(WTEXTCHAR),funcname,10);
+        wtc->na=newsize;
+        }
+    wtc->wtextchar[wtc->n++]=(*textchar);
+    wtc->sorted=0;
+    }
+
+
+void wtextchars_remove_wtextchar(WTEXTCHARS *wtc,int index)
+
+    {
+    if (index>=wtc->n)
+        return;
+    if (index<wtc->n-1)
+        memmove(&wtc->wtextchar[index],&wtc->wtextchar[index+1],sizeof(WTEXTCHAR)*(wtc->n-index-1));
+    wtc->n--;
+    }
+
+
+/*
+** rot_deg s/b multiple of 90.
+*/
+void wtextchars_rotate_clockwise(WTEXTCHARS *wtc,int rot_deg)
+
+    {
+    int i;
+
+    while (rot_deg<0)
+        rot_deg += 360;
+    rot_deg = rot_deg % 360;
+    rot_deg = (rot_deg+45)/90;
+    rot_deg = rot_deg&3;
+    if (rot_deg==0)
+        return;
+    for (i=0;i<wtc->n;i++)
+        wtextchar_rotate_clockwise(&wtc->wtextchar[i],rot_deg,wtc->width,wtc->height);
+    if (rot_deg&1)
+        {
+        double t;
+        t=wtc->width;
+        wtc->width=wtc->height;
+        wtc->height=t;
+        }
+    }
+
+
+/*
+** rot = 1 for 90
+**       2 for 180
+**       3 for 270
+*/
+static void wtextchar_rotate_clockwise(WTEXTCHAR *wch,int rot,double page_width_pts,
+                                       double page_height_pts)
+
+    {
+    point_rotate(&wch->xp,&wch->yp,rot,page_width_pts,page_height_pts);
+    point_rotate(&wch->x1,&wch->y1,rot,page_width_pts,page_height_pts);
+    point_rotate(&wch->x2,&wch->y2,rot,page_width_pts,page_height_pts);
+    point_sort(&wch->x1,&wch->x2);
+    point_sort(&wch->y1,&wch->y2);
+    }
+
+
+static void point_sort(double *x1,double *x2)
+
+    {
+    if ((*x2) < (*x1))
+        {
+        double t;
+        t=(*x1);
+        (*x1)=(*x2);
+        (*x2)=t;
+        }
+    }
+
+
+static void point_rotate(double *x,double *y,int rot,double page_width_pts,double page_height_pts)
+
+    {
+    double x0,y0;
+
+    x0=(*x);
+    y0=(*y);
+    switch (rot)
+        {
+        case 1:
+            (*y)=x0;
+            (*x)=page_height_pts-y0;
+            break;
+        case 2:
+            (*x)=page_width_pts-x0;
+            (*y)=page_height_pts-y0;
+            break;
+        case 3:
+            (*y)=page_width_pts-x0;
+            (*x)=y0;
+            break;
+        }
+    }
+
+
+/*
+** x1,y1 = upper left bounding box of text
+** x2,y2 = lower right bounding box of text
+** (*text) gets allocated and then a UTF-8 string of the text inside the bounding box.
+*/
+void wtextchars_text_inside(WTEXTCHARS *src,char **text,double x1,double y1,double x2,double y2)
+
+    {
+    WTEXTCHARS _dst,*dst;
+    int *unicode,utf8len,i,i2,j,n;
+    char *t;
+    static char *funcname="wtextchars_text_inside";
+
+    dst=&_dst;
+    wtextchars_init(dst);
+    wtextchars_get_chars_inside(src,dst,x1,y1,x2,y2);
+    willus_mem_alloc_warn((void **)&unicode,sizeof(int)*dst->n,funcname,10);
+    /* Clean off spaces/tabs from ends */
+    for (i=0;i<dst->n && (dst->wtextchar[i].ucs==32 || dst->wtextchar[i].ucs==9);i++);
+    for (i2=dst->n-1;i2>=i && (dst->wtextchar[i2].ucs==32 || dst->wtextchar[i2].ucs==9);i2--);
+    for (j=0;i<=i2;i++)
+        unicode[j++]=dst->wtextchar[i].ucs;
+    n=j;
+    utf8len=n==0 ? 0 : utf8_length(unicode,n);
+    willus_mem_alloc_warn((void **)text,utf8len+1,funcname,10);
+    t=(*text);
+    unicode_to_utf8(t,unicode,n);
+    willus_mem_free((double **)&unicode,funcname);
+    }
+
+
+static void wtextchars_get_chars_inside(WTEXTCHARS *src,WTEXTCHARS *dst,double x1,double y1,
+                                        double x2,double y2)
+
+    {
+    int i,i1,i2;
+    double dy,xl,xr,yt,yb,xc,yc;
+
+    wtextchars_clear(dst);
+    dy=y2-y1;
+/*
+    i1=wtextchars_index_by_yp(src_sort2,y1-dy*.001,2);
+    if (i1>=src->n)
+        return;
+    i2=wtextchars_index_by_yp(src_sort1,y2+dy*.001,1);
+    if (i2<=i1)
+        return;
+*/
+    i1=0;
+    i2=src->n;
+    yt=y1-dy*.001;
+    yb=y2+dy*.001;
+    xl=x1-dy*.1;
+    xr=x2;
+    xc=(x1+x2)/2.;
+    yc=(y1+y2)/2.;
+    for (i=i1;i<i2;i++)
+        {
+        double cxc,cyc;
+
+        /* If word box is completely outside char box, skip */
+        if (src->wtextchar[i].x2 < x1 || src->wtextchar[i].x1 > x2
+              || src->wtextchar[i].y2 < y1 || src->wtextchar[i].y1 > y2)
+            continue;
+        /* There is some overlap */
+        cxc = (src->wtextchar[i].x1 + src->wtextchar[i].x2)/2.;
+        cyc = (src->wtextchar[i].y1 + src->wtextchar[i].y2)/2.;
+        /*
+        ** In both directions (horizontal and vertical), determine if either
+        **     A. The center of the char box is inside the word box, or
+        **     B. The center of the word box is insdie the char box.
+        ** If this is true in both directions, keep the char.
+        */
+        if (((cxc >= xl && src->wtextchar[i].x1 <= xr) || (xc >= src->wtextchar[i].x1 && xc <= src->wtextchar[i].x2))
+              && ((cyc>=yt && cyc<=yb) || (yc >= src->wtextchar[i].y1 && yc <= src->wtextchar[i].y2)))
+            wtextchars_add_wtextchar(dst,&src->wtextchar[i]);
+        }
+    wtextchars_sort_horizontally_by_position(dst);
+    }
+
+
+#if 0
+/*
+** Return index of the first character that has y_type >= yp.
+** If wtc->n==0, returns -1.
+** If all chars are < yp, returns wtc->n.
+*/
+static int wtextchars_index_by_yp(WTEXTCHARS *wtc,double yp,int type)
+
+    {
+    int i1,i2,c;
+
+    if (wtc->n<=0)
+        return(-1);
+    wtextchars_sort_vertically_by_position(wtc,type);
+    c = (type==1) ? (wtc->wtextchar[0].y1 >= yp) : (wtc->wtextchar[0].y2 >= yp);
+    if (c)
+        return(0);
+    c = (type==1) ? (wtc->wtextchar[wtc->n-1].y1 < yp) : (wtc->wtextchar[wtc->n-1].y2 < yp);
+    if (c)
+        return(wtc->n);
+    i1=0;
+    i2=wtc->n-1;
+    while (i2-i1>1)
+        {
+        int imid;
+
+        imid=(i1+i2)/2;
+        c = (type==1) ? (wtc->wtextchar[imid].y1 < yp) : (wtc->wtextchar[imid].y2 < yp);
+        if (c)
+            i1=imid;
+        else
+            i2=imid;
+        }
+   return(i2);
+   }
+
+
+static void wtextchars_sort_vertically_by_position(WTEXTCHARS *wtc,int type)
+
+    {
+    int top,n1,n;
+    WTEXTCHAR x0,*x;
+
+    if (wtc->sorted==10+type)
+        return;
+    x=wtc->wtextchar;
+    n=wtc->n;
+    if (n<2)
+        return;
+    top=n/2;
+    n1=n-1;
+    while (1)
+        {
+        if (top>0)
+            {
+            top--;
+            x0=x[top];
+            }
+        else
+            {
+            x0=x[n1];
+            x[n1]=x[0];
+            n1--;
+            if (!n1)
+                {
+                x[0]=x0;
+                return;
+                }
+            }
+        {
+        int parent,child;
+
+        parent=top;
+        child=top*2+1;
+        while (child<=n1)
+            {
+            if (child<n1 && wtextchar_compare_vert(&x[child],&x[child+1],type)<0)
+                child++;
+            if (wtextchar_compare_vert(&x0,&x[child],type)<0)
+                {
+                x[parent]=x[child];
+                parent=child;
+                child+=(parent+1);
+                }
+            else
+                break;
+            }
+        x[parent]=x0;
+        }
+        }
+    wtc->sorted=10+type;
+    }
+
+
+static int wtextchar_compare_vert(WTEXTCHAR *c1,WTEXTCHAR *c2,int index)
+
+    {
+    if (index==1)
+        {
+        if (c1->y1!=c2->y1)
+            return(c1->y1-c2->y1);
+        }
+    else
+        {
+        if (c1->y2!=c2->y2)
+            return(c1->y2-c2->y2);
+        }
+    return(c1->xp-c2->xp);
+    }
+#endif
+
+
+static void wtextchars_sort_horizontally_by_position(WTEXTCHARS *wtc)
+
+    {
+    int top,n1,n;
+    WTEXTCHAR x0,*x;
+
+    if (wtc->sorted==2)
+        return;
+    x=wtc->wtextchar;
+    n=wtc->n;
+    if (n<2)
+        return;
+    top=n/2;
+    n1=n-1;
+    while (1)
+        {
+        if (top>0)
+            {
+            top--;
+            x0=x[top];
+            }
+        else
+            {
+            x0=x[n1];
+            x[n1]=x[0];
+            n1--;
+            if (!n1)
+                {
+                x[0]=x0;
+                return;
+                }
+            }
+        {
+        int parent,child;
+
+        parent=top;
+        child=top*2+1;
+        while (child<=n1)
+            {
+            if (child<n1 && wtextchar_compare_horiz(&x[child],&x[child+1])<0)
+                child++;
+            if (wtextchar_compare_horiz(&x0,&x[child])<0)
+                {
+                x[parent]=x[child];
+                parent=child;
+                child+=(parent+1);
+                }
+            else
+                break;
+            }
+        x[parent]=x0;
+        }
+        }
+    wtc->sorted=2;
+    }
+
+
+static int wtextchar_compare_horiz(WTEXTCHAR *c1,WTEXTCHAR *c2)
+
+    {
+    return(c1->xp-c2->xp);
     }
 #endif /* HAVE_MUPDF_LIB */

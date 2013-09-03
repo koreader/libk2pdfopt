@@ -59,26 +59,12 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	//wrapbmp_init(&masterinfo->wrapbmp, k2settings->dst_color);
 	/* Init new source bitmap */
 	region = &_region;
+	bmpregion_init(region);
 	masterinfo_new_source_page_init(masterinfo, k2settings, src, srcgrey, NULL,
 			region, k2settings->src_rot, NULL, NULL, 1, NULL);
-	/* Set up rowcount, colcount arrays */
-	willus_dmem_alloc_warn(1,(void **)&colcount,sizeof(int)*(region->c2+1),funcname,10);
-	willus_dmem_alloc_warn(2,(void **)&rowcount,sizeof(int)*(region->r2+1),funcname,10);
-
 	printf("source page (%d,%d) - (%d,%d)\n",region->c1,region->r1,region->c2,region->r2);
 	printf("source page bgcolor %d\n", region->bgcolor);
-	bmpregion_trim_margins(region,k2settings,colcount,rowcount,0xf);
-
-	/*printf("\ncolcount:");
-	for(i=0; i<region->c2; i++) {
-		printf("%d, ", colcount[i]);
-	}
-
-	printf("\nrowcount:");
-	for(i=0; i<region->r2; i++) {
-		printf("%d, ", rowcount[i]);
-	}*/
-
+	bmpregion_trim_margins(region,k2settings,0xf);
 	margin = k2settings->dst_mar*k2settings->dst_dpi+.5;
 	kctx->bbox.x0 = (float)region->c1 - margin;
 	kctx->bbox.y0 = (float)region->r1 - margin;
@@ -87,7 +73,6 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 
 	bmp_free(src);
 	bmp_free(srcgrey);
+	bmpregion_free(region);
 	masterinfo_free(masterinfo,k2settings);
-	willus_dmem_free(2,(double **)&rowcount,funcname);
-	willus_dmem_free(1,(double **)&colcount,funcname);
 }

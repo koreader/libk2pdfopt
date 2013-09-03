@@ -191,6 +191,7 @@ typedef double  real;
 **     HAVE_GSL_LIB
 **     HAVE_MUPDF_LIB (includes jbig2dec, openjpeg, freetype)
 **     HAVE_GHOSTSCRIPT (enables usage of ghostscript dll/sys cmd)
+**                      (Ghostscript needs PNG_LIB and Z_LIB.)
 **     HAVE_DJVU_LIB
 **     HAVE_GOCR_LIB
 **     HAVE_LEPTONICA_LIB
@@ -530,11 +531,8 @@ double point_distance_3d(double x1,double y1,double z1,
 double point_distance_2d(double x1,double y1,double x2,double y2);
 double interp_high_order(double x0,double *x,double *y,int n,int order,
                          int nlocal);
-double interp_high_order_float(double x0,float *x,float *y,int n,int order,
-                               int nlocal);
 double interp_high_order_dx(double x0,double *x,double *y,int n,int order,
                             double dx);
-double interp_high_order_dx_float(double x0,float *x,float *y,int n,int order,double dx);
 double interp_high_order_dx_ex(double x0,double *x,double *y,int n,int order,
                                double dx);
 double interp_high_order_dxf(double x0,float *x,float *y,int n,int order,
@@ -603,6 +601,8 @@ int structtm_from_date(struct tm *date,char *datestr);
 int structtm_from_time(struct tm *date,char *time);
 char *wstrtok(char *s,char *t);
 int utf8_to_unicode(int *d,char *s,int maxlen);
+int utf8_length(int *s,int n);
+char *unicode_to_utf8(char *d,int *s,int n);
 
 
 #ifdef WIN32
@@ -891,6 +891,63 @@ int win_has_own_window(void);
 int win_getppid(int pid);
 #endif
 
+/* winshell.c */
+#ifdef WIN32
+int win_resolve_shortcut(char *shortcut,char *target,int maxlen);
+#endif
+
+/* winmbox.c */
+#ifdef WIN32
+int winmbox_message_box(void *parent,char *title,char *message,char *button1,
+                        char *button2,char *button3,char *inbuf,int maxlen,
+                        int fontsize_pixels,int maxwidth_pixels,int rgbcolor,
+                        void *winproc,void **winhandle,int *bcolors);
+int winmbox_message_box_ex(void *parent,char *title,char *message,
+                        char *button1,char *button2,char *button3,
+                        char *inbuf,int maxlen,int fontsize_pixels,
+                        int maxwidth_pixels,int rgbcolor,void *myproc,
+                        void **window,int *button_colors,void *aboutbox);
+int winmbox_message_box_ex2(void *parent,char *title,char *message,
+                        char *button1,char *button2,char *button3,
+                        char *inbuf,int maxlen,int fontsize_pixels,
+                        int maxwidth_pixels,int rgbcolor,void *myproc,
+                        void **window,int *button_colors,void *aboutbox,
+                        int modal);
+int winmbox_def_proc(void *hwnd,int iMsg,int wParam,void *lParam);
+void winmbox_destroy(void);
+void winmbox_message_box_display_message(char *message,int *ypos);
+void winmbox_checkbox_button_draw(void *hdc0,void *rect0,int state,void *hfont0,
+                                  char *text,int textcolorrgb,int checked,
+                                  WILLUSBITMAP *bgbmp,int x0,int y0);
+void winmbox_button_draw(void *hdc0,void *rect0,int state,int basecolorrgb,
+                         void *hfont0,char *text,int textcolorrgb);
+#endif
+
+/* winbmp.c */
+#ifdef WIN32
+int  win_clipboard_to_bmp(WILLUSBITMAP *bmp,FILE *out);
+int  win_emf_dims(char *filename,double *width_in,double *height_in);
+int  win_emf_to_bmp(wmetafile *wmf,int dpi,WILLUSBITMAP *bmp,FILE *out);
+int  win_emf_write_gif(wmetafile *wmf,int dpi,char *giffile,int quiet);
+int  bmp_show_bmp(WILLUSBITMAP *bmp,void *handle,int x0,int y0);
+int  bmp_show_bmp_ex(WILLUSBITMAP *bmp,void *handle,int x0,int y0,int update);
+void bmp_blit_to_hdc(WILLUSBITMAP *bmp,void *hdc,int x0,int y0);
+void bmp_blit_to_hdc_ex(WILLUSBITMAP *bmp,void *hdc,int x0,int y0,int width,int height,
+                        int xs,int ys);
+int  bmp_get_bmp(WILLUSBITMAP *bmp,void *handle,int x0,int y0);
+void bmp8_win32_palette_init(WILLUSBITMAP *bmp);
+void bmp8_win32_palette_set(WILLUSBITMAP *bmp);
+void bmp8_win32_palette_free(WILLUSBITMAP *bmp);
+void win_icon_free(void *icon);
+void win_icons_from_exe(void **iconr,void **smalliconr);
+#endif
+
+/* wincomdlg.c */
+#ifdef WIN32
+int wincomdlg_get_filename(char *filename,int maxlen,char *filter,char *title,char *defext,
+                           int multiselect,int must_exist);
+#endif
+
 /* wsys.c */
 #define system_header(progname,verstring,author) \
     { char os[32],chip[32],compiler[32]; \
@@ -1164,7 +1221,14 @@ typedef struct
     double maxheight;  /* max height of any letter from baseline in pixels */
     double lcheight;  /* height of a lowercase letter in pixels */
     int rot;   /* rotation angle of word in degrees */
-    char *text;  /* ASCII text of word */
+    char *text;  /* UTF-8 text of word */
+
+    /* Used by MuPDF */
+    double x0,y0; /* Position of top-left of first char of word rel. to top-left of
+                     rendered source page (pts) */
+    double w0,h0; /* Width and height of word in points */
+    double rot0_deg; /* Rotation of source document */
+    int pageno; /* Source page number */
     } OCRWORD;
 
 typedef struct
@@ -1174,10 +1238,12 @@ typedef struct
     } OCRWORDS;
 
 void ocrwords_init(OCRWORDS *words);
+int  ocrwords_to_textfile(OCRWORDS *words,char *filename,int append);
 void ocrwords_add_word(OCRWORDS *words,OCRWORD *word);
 void ocrwords_remove_words(OCRWORDS *words,int i1,int i2);
 void ocrwords_clear(OCRWORDS *words);
 void ocrwords_free(OCRWORDS *words);
+void ocrwords_sort_by_pageno(OCRWORDS *words);
 void ocrwords_offset(OCRWORDS *words,int dx,int dy);
 void ocrwords_scale(OCRWORDS *words,double srat);
 void ocrwords_int_scale(OCRWORDS *words,int ndiv);
@@ -1193,7 +1259,7 @@ void jocr_single_word_from_bmp8(char *text,int maxlen,WILLUSBITMAP *bmp8,
 
 #ifdef HAVE_TESSERACT_LIB
 /* ocrtess.c */
-int ocrtess_init(char *datadir,char *lang,int ocr_type,FILE *out);
+int ocrtess_init(char *datadir,char *lang,FILE *out);
 void ocrtess_end(void);
 void ocrtess_single_word_from_bmp8(char *text,int maxlen,WILLUSBITMAP *bmp8,
                                 int x1,int y1,int x2,int y2,
@@ -1233,6 +1299,7 @@ void ocrwords_box(OCRWORDS *ocrwords,WILLUSBITMAP *bmp);
 /* bmpmupdf.c */
 /* Mupdf / bitmap functions */
 int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double dpi,int bpp);
+int bmpmupdf_pdffile_width_and_height(char *filename,int pageno,double *width_in,double *height_in);
 #endif /* HAVE_MUPDF_LIB */
 
 /* wmupdf.c */
@@ -1253,14 +1320,21 @@ typedef struct
 typedef struct
     {
     int dstpage;     /* Dest page */
+    /*
+    ** x0,y0,w,h,srcrot_deg,src_width_pts,src_height_pts are used INTERNALLY by wmupdf.c
+    */
     double x0,y0;    /* x0,y0, in points, of lower left point on transformed source page */
+                     /* (Used internally by wmupdf.c) */
     double w,h;      /* width and height of transformed source rectangle in points */
+                     /* (Used internally by wmupdf.c) */
     double x1,y1;    /* (x,y) position of lower left source point on destination page, in points */
     double scale;    /* Scale rectangle by this factor on destination page */
     double srcrot_deg;  /* Rotation of source selection rectangle about x0,y0 */
+                        /* (Used internally by wmupdf.c) */
     double dstrot_deg;  /* Rotation of destination rectangle about x1,y1 */
-    double userx,usery; /* For user use */
+    double userx,usery; /* For user use--not used by wmupdf.c */
     double src_width_pts,src_height_pts;  /* Width/height of transformed source page in points */
+                                          /* (Used internally by wmupdf.c) */
     double dst_width_pts,dst_height_pts;  /* Width/height of device page in points */
     WPDFSRCBOX srcbox;
     } WPDFBOX;
@@ -1283,6 +1357,27 @@ typedef struct
     WPDFBOXES boxes;
     } WPDFPAGEINFO;
 
+/*
+** Positions are from upper left corner of page
+*/
+typedef struct
+    {
+    int ucs;      /* character */
+    double xp,yp; /* Left baseline position of char */
+    double x1,y1; /* bounding box upper left corner */
+    double x2,y2; /* bounding box lower right corner */
+    } WTEXTCHAR;
+
+typedef struct
+    {
+    WTEXTCHAR *wtextchar;
+    double width,height; /* width/height of page in points */
+                         /* (used to rotate chars boxes) */
+    int n,na;
+    int sorted;
+    } WTEXTCHARS;
+
+
 #ifdef HAVE_MUPDF_LIB
 int  wmupdf_numpages(char *filename);
 void wpdfboxes_init(WPDFBOXES *boxes);
@@ -1293,6 +1388,15 @@ void wpdfboxes_delete(WPDFBOXES *boxes,int n);
 void wpdfpageinfo_sort(WPDFPAGEINFO *pageinfo);
 int  wmupdf_info_field(char *infile,char *label,char *buf,int maxlen);
 int  wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_forms,FILE *out);
+/* Character position map */
+int  wtextchars_fill_from_page(WTEXTCHARS *wtc,char *filename,int pageno,char *password);
+void wtextchars_init(WTEXTCHARS *wtc);
+void wtextchars_free(WTEXTCHARS *wtc);
+void wtextchars_clear(WTEXTCHARS *wtc);
+void wtextchars_add_wtextchar(WTEXTCHARS *wtc,WTEXTCHAR *textchar);
+void wtextchars_remove_wtextchar(WTEXTCHARS *wtc,int index);
+void wtextchars_rotate_clockwise(WTEXTCHARS *wtc,int rot_deg);
+void wtextchars_text_inside(WTEXTCHARS *src,char **text,double x1,double y1,double x2,double y2);
 #endif /* HAVE_MUPDF_LIB */
 
 #ifdef HAVE_DJVU_LIB
@@ -1323,6 +1427,171 @@ void strbuf_ensure(STRBUF *sbuf,int n);
 void strbuf_free(STRBUF *sbuf);
 void strbuf_sprintf(STRBUF *sbuf,char *fmt,...);
 void strbuf_sprintf_no_space(STRBUF *sbuf,char *fmt,...);
+
+/* wgui.c */
+#define WILLUSGUICONTROL_TYPE_BUTTON       1
+#define WILLUSGUICONTROL_TYPE_LISTBOX      2
+#define WILLUSGUICONTROL_TYPE_EDITBOX      3
+#define WILLUSGUICONTROL_TYPE_DROPDOWNLIST 4
+/* Text field w/up and down arrow for adjustment */
+#define WILLUSGUICONTROL_TYPE_UPDOWN       5
+#define WILLUSGUICONTROL_TYPE_UPDOWN2      6
+#define WILLUSGUICONTROL_TYPE_CHECKBOX     7
+#define WILLUSGUICONTROL_TYPE_SCROLLABLEBITMAP 8
+
+#define WILLUSGUIACTION_DRAW_CONTROL     1
+#define WILLUSGUIACTION_INIT             2
+#define WILLUSGUIACTION_TIMER_TICK       3
+#define WILLUSGUIACTION_ENTER_PRESS      4
+#define WILLUSGUIACTION_ESC_PRESS        5
+#define WILLUSGUIACTION_CONTROL_PRESS    6
+#define WILLUSGUIACTION_MENU_SELECTION   7
+#define WILLUSGUIACTION_REPAINT          8
+#define WILLUSGUIACTION_CLOSE            9
+#define WILLUSGUIACTION_GETMINSIZE       10
+#define WILLUSGUIACTION_WINDOWSIZECHANGE 11
+#define WILLUSGUIACTION_STARTING_RESIZE  12
+#define WILLUSGUIACTION_ENDING_RESIZE    13
+#define WILLUSGUIACTION_SETFOCUS         14
+#define WILLUSGUIACTION_LOSTFOCUS        15
+#define WILLUSGUIACTION_SELECTION_CHANGE 16
+#define WILLUSGUIACTION_UPDOWN_UP        17
+#define WILLUSGUIACTION_UPDOWN_DOWN      18
+#define WILLUSGUIACTION_UPDOWN_EDIT      19
+#define WILLUSGUIACTION_UPDOWN2_DLEFT    20
+#define WILLUSGUIACTION_UPDOWN2_LEFT     21
+#define WILLUSGUIACTION_UPDOWN2_RIGHT    22
+#define WILLUSGUIACTION_UPDOWN2_DRIGHT   23
+#define WILLUSGUIACTION_DESTROY          24
+#define WILLUSGUIACTION_DROPFILES        25
+#define WILLUSGUIACTION_CREATE           26
+
+#define WILLUSGUICONTROL_ATTRIB_INACTIVE    0x0001
+#define WILLUSGUICONTROL_ATTRIB_READONLY    0x0002
+#define WILLUSGUICONTROL_ATTRIB_MULTILINE   0x0004
+#define WILLUSGUICONTROL_ATTRIB_SCROLLBARS  0x0008
+#define WILLUSGUICONTROL_ATTRIB_MULTISELECT 0x0010
+#define WILLUSGUICONTROL_ATTRIB_CHECKED     0x0020
+
+typedef struct
+    {
+    int left,right,top,bottom;
+    } WILLUSGUIRECT;
+
+typedef struct
+    {
+    void *handle;
+    int size;     /* pixels */
+    } WILLUSGUIFONT;
+
+typedef struct _willusguicontrol
+    {
+    void *handle;
+    int type;
+    WILLUSGUIRECT rect;
+    WILLUSGUIFONT font;
+    char name[32];       /* (Unique) name of control--drawn on button if button */
+    int color;
+    int index;
+    int attrib;          /* See WILLUSGUIACTION_ATTRIB_... defines */
+    /*
+    ** flags & 7 = config preset button index (starting at 1).
+    */
+    int flags;
+    void *subhandle[4]; /* Handles to related controls */
+    struct _willusguicontrol *parent;
+    char label[32];      /* Drawn with or next to control */
+    int labeljust;       /* label justification */
+    int labelx,labely;   /* x,y position of label */
+    /* Scrollable bitmap controls */
+    int sbitmap_size;    /* Scrollable bitmap toggle */
+    WILLUSBITMAP *obmp;     /* Original size bitmap */
+    WILLUSBITMAP bmp;       /* Sized bitmap for display in Window */
+    } WILLUSGUICONTROL;
+
+typedef struct
+    {
+    WILLUSGUICONTROL *control; /* Who the message is from */
+    int guiaction;       /* message action */
+    int param[2];        /* passed params */
+    void *ptr[2];        /* pointers */
+    } WILLUSGUIMESSAGE;
+
+typedef WILLUSGUICONTROL WILLUSGUIWINDOW;
+
+void willusgui_init(void);
+void willusgui_close(void);
+void willusgui_open_file(char *filename);
+WILLUSGUIWINDOW *willusgui_window_find(void *oshandle);
+void willusgui_window_text_render(WILLUSGUIWINDOW *win,WILLUSGUIFONT *font,char *text,int x0,int y0,
+                                   int fgcolor,int bgcolor,int justification);
+void willusgui_window_text_extents(WILLUSGUIWINDOW *win,WILLUSGUIFONT *font,char *string,WILLUSGUIRECT *rect);
+void willusgui_window_draw_line(WILLUSGUIWINDOW *win,int x0,int y0,int x1,int y1,
+                                                 int pixwidth,int rgbcolor);
+void willusgui_window_draw_rect_filled(WILLUSGUIWINDOW *win,WILLUSGUIRECT *rect,int rgb);
+void willusgui_window_draw_path_filled(WILLUSGUIWINDOW *win,int *x,int *y,int n,int rgb);
+void willusgui_window_draw_rect_outline(WILLUSGUIWINDOW *win,WILLUSGUIRECT *rect,int rgb);
+void willusgui_set_instance(void *instanceptr);
+void *willusgui_instance(void);
+void willusgui_window_register(WILLUSGUIWINDOW *window);
+void willusgui_window_deregister(WILLUSGUIWINDOW *window);
+void willusgui_control_create(WILLUSGUICONTROL *control);
+void willusgui_control_enable(WILLUSGUICONTROL *control,int enabled);
+void willusgui_control_set_text(WILLUSGUICONTROL *control,char *text);
+void willusgui_control_get_text(WILLUSGUICONTROL *control,char *text,int maxlen);
+int  willusgui_control_get_textlen(WILLUSGUICONTROL *control);
+void willusgui_control_scroll_to_bottom(WILLUSGUICONTROL *control);
+int  willusgui_window_get_rect(WILLUSGUIWINDOW *win,WILLUSGUIRECT *guirect);
+int  willusgui_window_get_useable_rect(WILLUSGUIWINDOW *win,WILLUSGUIRECT *guirect);
+void willusgui_window_accept_draggable_files(WILLUSGUIWINDOW *win);
+void willusgui_window_timer_init(WILLUSGUIWINDOW *win,int ms);
+void willusgui_window_menus_init(WILLUSGUIWINDOW *win,char *menus[]);
+int  willusgui_message_box(WILLUSGUIWINDOW *parent,char *title,char *message,char *button1,
+                            char *button2,char *button3,char *inbuf,int maxlen,
+                            int fontsize_pixels,int maxwidth_pixels,int rgbcolor,
+                            int *bcolors,WILLUSGUIRECT *rect,int modal);
+void willusgui_send_quit_message(void);
+void willusgui_control_init(WILLUSGUICONTROL *control);
+int  willusgui_control_close(WILLUSGUICONTROL *control);
+int  willusgui_control_close_ex(WILLUSGUICONTROL *control,int caller);
+void willusgui_control_draw_label(WILLUSGUICONTROL *control);
+void willusgui_control_redraw(WILLUSGUICONTROL *control,int children_too);
+void willusgui_font_release(WILLUSGUIFONT *font);
+void willusgui_font_get(WILLUSGUIFONT *font);
+/*
+int  willusgui_font_is_calibri(void);
+*/
+void willusgui_font_init(WILLUSGUIFONT *font);
+void willusgui_start_browser(char *link);
+int  willusgui_control_gettext(WILLUSGUICONTROL *control,char *buf,int maxlen);
+int  willusgui_control_get_checked(WILLUSGUICONTROL *control);
+void willusgui_control_set_checked(WILLUSGUICONTROL *control,int checked);
+int  willusgui_control_dropdownlist_get_selected_item(WILLUSGUICONTROL *control,char *buf);
+int  willusgui_control_listbox_get_selected_items_count(WILLUSGUICONTROL *control,int *selected_indices,
+                                                         int maxsel);
+int  willusgui_control_listbox_select_item(WILLUSGUICONTROL *control,char *string);
+void willusgui_control_listbox_clear(WILLUSGUICONTROL *control);
+void willusgui_control_listbox_add_item(WILLUSGUICONTROL *control,char *text);
+int  willusgui_control_listbox_get_item_text(WILLUSGUICONTROL *control,int index,char *buf);
+char **willusgui_get_dropped_files(void *dropptr);
+void willusgui_release_dropped_files(char **ptr);
+void willusgui_window_set_focus(WILLUSGUIWINDOW *win);
+void willusgui_control_text_select_all(WILLUSGUICONTROL *control);
+void *willusgui_control_handle_with_focus(void);
+void willusgui_window_set_redraw(WILLUSGUIWINDOW *window,int status);
+int  willusgui_file_select_dialog(char *buf,int maxlen,char *allowedfiles,
+                                   char *prompt,char *defext);
+void willusgui_background_bitmap_blit(WILLUSGUIWINDOW *win,WILLUSBITMAP *bmp);
+void *willusgui_semaphore_create(char *name);
+void willusgui_semaphore_release(void *semaphore);
+void willusgui_semaphore_close(void *semaphore);
+int  willusgui_semaphore_status(void *semaphore);
+void *willusgui_thread_create(void *funcptr,void *data);
+void willusgui_thread_terminate(void *pid,int exitcode);
+void willusgui_thread_exit(int exitcode);
+void willusgui_sbitmap_resample_original(WILLUSGUICONTROL *control);
+void willusgui_sbitmap_change_size(WILLUSGUICONTROL *control,int delsize);
+void willusgui_sbitmap_proc(void *handle,int message,int wparam,void *lparam);
 
 
 #ifdef PI
