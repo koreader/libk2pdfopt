@@ -1,4 +1,4 @@
-MAJVER=  1
+MAJVER=  2
 
 MOD_INC = include_mod
 LEPTONICA_DIR = leptonica-1.69

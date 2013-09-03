@@ -32,7 +32,10 @@ void pageregions_free(PAGEREGIONS *regions)
 
     {
     static char *funcname="pageregions_free";
+    int i;
 
+    for (i=regions->n-1;i>=0;i--)
+        pageregion_free(&regions->pageregion[i]);
     willus_mem_free((double **)&regions->pageregion,funcname);
     }
 
@@ -42,9 +45,36 @@ void pageregions_delete_one(PAGEREGIONS *regions,int index)
     {
     int i;
 
+    if (index<0 || index>=regions->n)
+        return;
     for (i=index;i<regions->n-1;i++)
-        regions->pageregion[i] = regions->pageregion[i+1];
+        pageregion_copy(&regions->pageregion[i],&regions->pageregion[i+1]);
+    pageregion_free(&regions->pageregion[regions->n-1]);
     regions->n--;
+    }
+
+
+void pageregion_free(PAGEREGION *region)
+
+    {
+    bmpregion_free(&region->bmpregion);
+    }
+
+
+void pageregion_init(PAGEREGION *region)
+
+    {
+    bmpregion_init(&region->bmpregion);
+    }
+
+
+void pageregion_copy(PAGEREGION *dst,PAGEREGION *src)
+
+    {
+    pageregion_free(dst);
+    bmpregion_copy(&dst->bmpregion,&src->bmpregion,1);
+    dst->fullspan = src->fullspan;
+    dst->level = src->level;
     }
 
 
@@ -67,10 +97,13 @@ void pageregions_insert(PAGEREGIONS *dst,int index,PAGEREGIONS *src)
                                      dst->na*sizeof(PAGEREGION),funcname,10);
         dst->na=newsize;
         }
+    /* Must initialize the new array elements that will be used */
+    for (i=dst->n;i<dst->n+src->n;i++)
+        pageregion_init(&dst->pageregion[i]);
     for (i=dst->n+src->n-1;i-src->n>=index;i--)
-        dst->pageregion[i] = dst->pageregion[i-src->n];
+        pageregion_copy(&dst->pageregion[i],&dst->pageregion[i-src->n]);
     for (i=0;i<src->n;i++)
-        dst->pageregion[i+index] = src->pageregion[i];
+        pageregion_copy(&dst->pageregion[i+index],&src->pageregion[i]);
     dst->n += src->n;
     }
 
@@ -90,7 +123,8 @@ void pageregions_add_pageregion(PAGEREGIONS *regions,BMPREGION *bmpregion,int le
                                      regions->na*sizeof(PAGEREGION),funcname,10);
         regions->na=newsize;
         }
-    regions->pageregion[regions->n].bmpregion=(*bmpregion);
+    pageregion_init(&regions->pageregion[regions->n]);
+    bmpregion_copy(&regions->pageregion[regions->n].bmpregion,bmpregion,1);
     regions->pageregion[regions->n].level=level;
     regions->pageregion[regions->n].fullspan=fullspan;
     regions->n++;

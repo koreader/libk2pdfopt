@@ -9,7 +9,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -157,6 +157,9 @@ RENDER_COLOR render_color(double r,double g,double b)
     }
 
 
+/*
+** render_circle() is AS FRACTION OF BITMAP, NOT POINTS
+*/
 void render_circle(WILLUSBITMAP *bmp,double xc,double yc,double xradius,
                    int nsteps,RENDER_COLOR *rcolor,RENDER_COLOR *bgcolor,
                    int render_type)
@@ -251,6 +254,9 @@ void render_triangle(WILLUSBITMAP *bmap,TRIANGLE2D *tri,RENDER_COLOR *rcolor,
 
 /*
 printf(";render_triangle\n");
+printf("; rcolor=%g, %g, %g\n",rcolor->rgb[0],rcolor->rgb[1],rcolor->rgb[2]);
+printf("; bgcolor=%g, %g, %g\n",bgcolor->rgb[0],bgcolor->rgb[1],bgcolor->rgb[2]);
+printf("; type=%d\n",render_type);
 for (i=0;i<4;i++)
 printf("%6.4f %6.4f\n",tri->p[i%3].x,tri->p[i%3].y);
 printf("//nc\n");
@@ -1386,7 +1392,7 @@ void render_setlinewidth_pts(double lw)
     }
 
 
-/* 0=butt, 1=round, 2=projecting square */
+/* 0=butt, 1=round, 2=projecting square, 3=arrow on second end */
 void render_setlinecap(int lc)
 
     {
@@ -1605,6 +1611,38 @@ static void render_solid_line_pts(double x0,double y0,double x1,double y1)
             xd=x1+r2*cos(theta-PI/4.);
             yd=y1+r2*sin(theta-PI/4.);
             render_rect_pts(xa,ya,xb,yb,xc,yc,xd,yd);
+            break;
+            }
+        case 3: /* arrow */
+            {
+            double xa,ya,xb,yb,xc,yc,xd,yd;
+            double xe,ye,xf,yf,xg,yg,xh,yh;
+
+            /* Back up (x1,y1) along line to give room for arrow head */
+            xg=x1-r*7.00*cos(theta);
+            yg=y1-r*7.00*sin(theta);
+            xa=x0+r*cos(theta-PI/2.);
+            ya=y0+r*sin(theta-PI/2.);
+            xb=x0+r*cos(theta+PI/2.);
+            yb=y0+r*sin(theta+PI/2.);
+            xc=xg+r*cos(theta+PI/2.);
+            yc=yg+r*sin(theta+PI/2.);
+            xd=xg+r*cos(theta-PI/2.);
+            yd=yg+r*sin(theta-PI/2.);
+            /* Draw butt-ended line */
+            render_rect_pts(xa,ya,xb,yb,xc,yc,xd,yd);
+            /* Arrowhead points */
+            xe=x1-r*6.25*cos(theta);
+            ye=y1-r*6.25*sin(theta);
+            xf=x1-r*10.0*cos(theta);
+            yf=y1-r*10.0*sin(theta);
+            xg=xf+5*r*cos(theta+PI/2.);
+            yg=yf+5*r*sin(theta+PI/2.);
+            xh=xf+5*r*cos(theta-PI/2.);
+            yh=yf+5*r*sin(theta-PI/2.);
+            render_tri_pts(xc,yc,xe,ye,xd,yd);
+            render_tri_pts(xe,ye,xg,yg,x1,y1);
+            render_tri_pts(xe,ye,x1,y1,xh,yh);
             break;
             }
         }

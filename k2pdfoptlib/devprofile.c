@@ -23,10 +23,10 @@
 
 static DEVPROFILE devprof[7] =
     {
-    {"Kindle 2","k2",560,735,167,0,1,{0,0,3,4}},
-    {"Nook Simple Touch","nookst",552,725,167,0,1,{0,0,0,0}},
+    {"Kindle 1-5","k2",560,735,167,0,1,{0,0,3,4}},
     {"Kindle DX","dx",800,1180,167,0,1,{0,0,0,0}},
     {"Kindle Paperwhite","kpw",758,1024,212,0,1,{0,0,3,4}},
+    {"Nook Simple Touch","nookst",552,725,167,0,1,{0,0,0,0}},
     {"Kobo Touch","kbt",600,730,167,0,1,{0,0,3,4}},
     {"Kobo Glo","kbg",758,942,213,0,1,{0,0,3,4}},
     {"","",0,0,167,0,1,{0,0,0,0}}
@@ -44,6 +44,13 @@ int devprofiles_count(void)
 
 
 char *devprofile_alias(int index)
+
+    {
+    return(devprof[index].alias);
+    }
+
+
+char *devprofile_name(int index)
 
     {
     return(devprof[index].name);

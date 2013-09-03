@@ -1,7 +1,7 @@
 /* zlib.h -- interface of the 'zlib' general purpose compression library
-  version 1.2.7, May 2nd, 2012
+  version 1.2.8, April 28th, 2013
 
-  Copyright (C) 1995-2012 Jean-loup Gailly and Mark Adler
+  Copyright (C) 1995-2013 Jean-loup Gailly and Mark Adler
 
   This software is provided 'as-is', without any express or implied
   warranty.  In no event will the authors be held liable for any damages
@@ -32,7 +32,7 @@
 #define ZLIB_H
 
 /* zconf.h -- configuration of the zlib compression library
- * Copyright (C) 1995-2012 Jean-loup Gailly.
+ * Copyright (C) 1995-2013 Jean-loup Gailly.
  * For conditions of distribution and use, see copyright notice in zlib.h
  */
 
@@ -54,6 +54,7 @@
 #  define _dist_code            z__dist_code
 #  define _length_code          z__length_code
 #  define _tr_align             z__tr_align
+#  define _tr_flush_bits        z__tr_flush_bits
 #  define _tr_flush_block       z__tr_flush_block
 #  define _tr_init              z__tr_init
 #  define _tr_stored_block      z__tr_stored_block
@@ -110,6 +111,7 @@
 #      define gzopen_w              z_gzopen_w
 #    endif
 #    define gzprintf              z_gzprintf
+#    define gzvprintf             z_gzvprintf
 #    define gzputc                z_gzputc
 #    define gzputs                z_gzputs
 #    define gzread                z_gzread
@@ -136,6 +138,7 @@
 #  define inflateReset          z_inflateReset
 #  define inflateReset2         z_inflateReset2
 #  define inflateSetDictionary  z_inflateSetDictionary
+#  define inflateGetDictionary  z_inflateGetDictionary
 #  define inflateSync           z_inflateSync
 #  define inflateSyncPoint      z_inflateSyncPoint
 #  define inflateUndermine      z_inflateUndermine
@@ -421,20 +424,14 @@ typedef uLong FAR uLongf;
    typedef Byte       *voidp;
 #endif
 
-/* ./configure may #define Z_U4 here */
-
 #if !defined(Z_U4) && !defined(Z_SOLO) && defined(STDC)
 #  include <limits.h>
 #  if (UINT_MAX == 0xffffffffUL)
 #    define Z_U4 unsigned
-#  else
-#    if (ULONG_MAX == 0xffffffffUL)
-#      define Z_U4 unsigned long
-#    else
-#      if (USHRT_MAX == 0xffffffffUL)
-#        define Z_U4 unsigned short
-#      endif
-#    endif
+#  elif (ULONG_MAX == 0xffffffffUL)
+#    define Z_U4 unsigned long
+#  elif (USHRT_MAX == 0xffffffffUL)
+#    define Z_U4 unsigned short
 #  endif
 #endif
 
@@ -458,8 +455,16 @@ typedef uLong FAR uLongf;
 #  endif
 #endif
 
+#if defined(STDC) || defined(Z_HAVE_STDARG_H)
+#  ifndef Z_SOLO
+#    include <stdarg.h>         /* for va_list */
+#  endif
+#endif
+
 #ifdef _WIN32
-#  include <stddef.h>           /* for wchar_t */
+#  ifndef Z_SOLO
+#    include <stddef.h>         /* for wchar_t */
+#  endif
 #endif
 
 /* a little trick to accommodate both "#define _LARGEFILE64_SOURCE" and
@@ -468,7 +473,7 @@ typedef uLong FAR uLongf;
  * both "#undef _LARGEFILE64_SOURCE" and "#define _LARGEFILE64_SOURCE 0" as
  * equivalently requesting no 64-bit operations
  */
-#if defined(LARGEFILE64_SOURCE) && -_LARGEFILE64_SOURCE - -1 == 1
+#if defined(_LARGEFILE64_SOURCE) && -_LARGEFILE64_SOURCE - -1 == 1
 #  undef _LARGEFILE64_SOURCE
 #endif
 
@@ -476,7 +481,7 @@ typedef uLong FAR uLongf;
 #  define Z_HAVE_UNISTD_H
 #endif
 #ifndef Z_SOLO
-#  if defined(Z_HAVE_UNISTD_H) || defined(LARGEFILE64_SOURCE)
+#  if defined(Z_HAVE_UNISTD_H) || defined(_LARGEFILE64_SOURCE)
 #    include <unistd.h>         /* for SEEK_*, off_t, and _LFS64_LARGEFILE */
 #    ifdef VMS
 #      include <unixio.h>       /* for off_t */
@@ -542,11 +547,11 @@ typedef uLong FAR uLongf;
 extern "C" {
 #endif
 
-#define ZLIB_VERSION "1.2.7"
-#define ZLIB_VERNUM 0x1270
+#define ZLIB_VERSION "1.2.8"
+#define ZLIB_VERNUM 0x1280
 #define ZLIB_VER_MAJOR 1
 #define ZLIB_VER_MINOR 2
-#define ZLIB_VER_REVISION 7
+#define ZLIB_VER_REVISION 8
 #define ZLIB_VER_SUBREVISION 0
 
 /*
@@ -1344,6 +1349,21 @@ ZEXTERN int ZEXPORT inflateSetDictionary OF((z_streamp strm,
    inflate().
 */
 
+ZEXTERN int ZEXPORT inflateGetDictionary OF((z_streamp strm,
+                                             Bytef *dictionary,
+                                             uInt  *dictLength));
+/*
+     Returns the sliding dictionary being maintained by inflate.  dictLength is
+   set to the number of bytes in the dictionary, and that many bytes are copied
+   to dictionary.  dictionary must have enough space, where 32768 bytes is
+   always enough.  If inflateGetDictionary() is called with dictionary equal to
+   Z_NULL, then only the dictionary length is returned, and nothing is copied.
+   Similary, if dictLength is Z_NULL, then it is not set.
+
+     inflateGetDictionary returns Z_OK on success, or Z_STREAM_ERROR if the
+   stream state is inconsistent.
+*/
+
 ZEXTERN int ZEXPORT inflateSync OF((z_streamp strm));
 /*
      Skips invalid compressed data until a possible full flush point (see above
@@ -1351,7 +1371,7 @@ ZEXTERN int ZEXPORT inflateSync OF((z_streamp strm));
    available input is skipped.  No output is provided.
 
      inflateSync searches for a 00 00 FF FF pattern in the compressed data.
-   All full flush points have this pattern, but not all occurences of this
+   All full flush points have this pattern, but not all occurrences of this
    pattern are full flush points.
 
      inflateSync returns Z_OK if a possible full flush point has been found,
@@ -1512,7 +1532,8 @@ ZEXTERN int ZEXPORT inflateBackInit OF((z_streamp strm, int windowBits,
    the version of the header file.
 */
 
-typedef unsigned (*in_func) OF((void FAR *, unsigned char FAR * FAR *));
+typedef unsigned (*in_func) OF((void FAR *,
+                                z_const unsigned char FAR * FAR *));
 typedef int (*out_func) OF((void FAR *, unsigned char FAR *, unsigned));
 
 ZEXTERN int ZEXPORT inflateBack OF((z_streamp strm,
@@ -1520,11 +1541,12 @@ ZEXTERN int ZEXPORT inflateBack OF((z_streamp strm,
                                     out_func out, void FAR *out_desc));
 /*
      inflateBack() does a raw inflate with a single call using a call-back
-   interface for input and output.  This is more efficient than inflate() for
-   file i/o applications in that it avoids copying between the output and the
-   sliding window by simply making the window itself the output buffer.  This
-   function trusts the application to not change the output buffer passed by
-   the output function, at least until inflateBack() returns.
+   interface for input and output.  This is potentially more efficient than
+   inflate() for file i/o applications, in that it avoids copying between the
+   output and the sliding window by simply making the window itself the output
+   buffer.  inflate() can be faster on modern CPUs when used with large
+   buffers.  inflateBack() trusts the application to not change the output
+   buffer passed by the output function, at least until inflateBack() returns.
 
      inflateBackInit() must be called first to allocate the internal state
    and to initialize the state with the user-provided window buffer.
@@ -2240,6 +2262,13 @@ ZEXTERN int            ZEXPORT deflateResetKeep OF((z_streamp));
 #if defined(_WIN32) && !defined(Z_SOLO)
 ZEXTERN gzFile         ZEXPORT gzopen_w OF((const wchar_t *path,
                                             const char *mode));
+#endif
+#if defined(STDC) || defined(Z_HAVE_STDARG_H)
+#  ifndef Z_SOLO
+ZEXTERN int            ZEXPORTVA gzvprintf Z_ARG((gzFile file,
+                                                  const char *format,
+                                                  va_list va));
+#  endif
 #endif
 
 #ifdef __cplusplus

@@ -1188,5 +1188,82 @@ int utf8_to_unicode(int *d,char *s,int maxlen)
         }
     return(c);
     }
-            
+
+
+/*
+** UTF-8 byte length of unicode array (not including terminating zero).
+*/
+int utf8_length(int *s,int n)
+
+    {
+    int i,len;
+
+    for (len=i=0;i<n;i++)
+        {
+        if (s[i]<=0x7f)
+            len++;
+        else if (s[i]<=0x7ff)
+            len+=2;
+        else if (s[i]<=0xffff)
+            len+=3;
+        else if (s[i]<=0x1fffff)
+            len+=4;
+        else if (s[i]<=0x3ffffff)
+            len+=5;
+        else
+            len+=6;
+        }
+    return(len);
+    }
+
+
+char *unicode_to_utf8(char *d,int *s,int n)
+
+    {
+    int i,j;
+
+    for (i=j=0;i<n;i++)
+        {
+        if (s[i]<=0x7f)
+            d[j++]=s[i];
+        else if (s[i]<=0x7ff)
+            {
+            d[j++]=0xc0 | ((s[i]>>6)&0x1f);
+            d[j++]=0x80 | (s[i]&0x3f);
+            }
+        else if (s[i]<=0xffff)
+            {
+            d[j++]=0xe0 | ((s[i]>>12)&0xf);
+            d[j++]=0x80 | ((s[i]>>6)&0x3f);
+            d[j++]=0x80 | (s[i]&0x3f);
+            }
+        else if (s[i]<=0x1fffff)
+            {
+            d[j++]=0xf0 | ((s[i]>>18)&0x7);
+            d[j++]=0x80 | ((s[i]>>12)&0x3f);
+            d[j++]=0x80 | ((s[i]>>6)&0x3f);
+            d[j++]=0x80 | (s[i]&0x3f);
+            }
+        else if (s[i]<=0x3ffffff)
+            {
+            d[j++]=0xf8 | ((s[i]>>24)&0x3);
+            d[j++]=0x80 | ((s[i]>>18)&0x3f);
+            d[j++]=0x80 | ((s[i]>>12)&0x3f);
+            d[j++]=0x80 | ((s[i]>>6)&0x3f);
+            d[j++]=0x80 | (s[i]&0x3f);
+            }
+        else
+            {
+            d[j++]=0xf8 | ((s[i]>>30)&0x1);
+            d[j++]=0x80 | ((s[i]>>24)&0x3f);
+            d[j++]=0x80 | ((s[i]>>18)&0x3f);
+            d[j++]=0x80 | ((s[i]>>12)&0x3f);
+            d[j++]=0x80 | ((s[i]>>6)&0x3f);
+            d[j++]=0x80 | (s[i]&0x3f);
+            }
+        }
+    d[j]='\0';
+    return(d);
+    }
+          
 

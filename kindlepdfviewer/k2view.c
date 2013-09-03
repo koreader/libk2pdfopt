@@ -29,7 +29,7 @@ int main(int argc,char *argv[])
     WILLUSBITMAP _srcgrey, *srcgrey;
     WILLUSBITMAP _src, *src;
     BMPREGION region;
-    int status;
+    int status,pages_done;
 
     if (argc<2)
         {
@@ -55,20 +55,26 @@ int main(int argc,char *argv[])
     k2settings->erase_vertical_lines=0;
     k2settings->src_autostraighten=0;
     k2pdfopt_settings_sanity_check(k2settings);
+    k2settings->src_dpi=(int)(src->width/8.5+.5);
+    k2settings->dst_dpi=k2settings->src_dpi/2;
+    k2settings->dst_userwidth=3.;
+    k2settings->dst_userwidth_units=UNITS_INCHES;
+    k2settings->dst_userheight=4.;
+    k2settings->dst_userheight_units=UNITS_INCHES;
+    /* Init for new source doc */
+    k2pdfopt_settings_new_source_document_init(k2settings);
 
     /* Init master output structure */
     masterinfo=&_masterinfo;
     masterinfo_init(masterinfo,k2settings);
 
-    /* Init for new source doc */
-    k2pdfopt_settings_new_source_document_init(k2settings);
-
     /* Init new source bitmap */
+    bmpregion_init(&region);
     masterinfo_new_source_page_init(masterinfo,k2settings,src,srcgrey,NULL,&region,0.,NULL,NULL,1,NULL);
 
     /* Process single source page */
-    bmpregion_source_page_add(&region,k2settings,masterinfo,1,
-                              (int)(0.25 * k2settings->src_dpi + .5));
+    pages_done=0;
+    bmpregion_source_page_add(&region,k2settings,masterinfo,1,pages_done++);
     bmp_free(srcgrey);
     bmp_free(src);
 
@@ -90,6 +96,7 @@ int main(int argc,char *argv[])
         pn++;
         sprintf(filename,"outpage%02d.bmp",pn);
         bmp_write(bmp,filename,stdout,0);
+        wfile_written_info(filename,stdout);
         }
     bmp_free(bmp);
     }

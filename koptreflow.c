@@ -54,11 +54,12 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 	masterinfo->bmp.height = 0;
 	wrapbmp_init(&masterinfo->wrapbmp, k2settings->dst_color);
 	/* Init new source bitmap */
+	bmpregion_init(&region);
 	masterinfo_new_source_page_init(masterinfo, k2settings, src, srcgrey, NULL,
 			&region, k2settings->src_rot, NULL, NULL, 1, NULL);
 	/* Process single source page */
-	bmpregion_source_page_add(&region, k2settings, masterinfo, 1, 0, (int)(0.25*k2settings->src_dpi+.5));
-	wrapbmp_flush(masterinfo,k2settings,0,0);
+	bmpregion_source_page_add(&region, k2settings, masterinfo, 1, 0);
+	wrapbmp_flush(masterinfo,k2settings,0);
 
 	if (fabs(k2settings->dst_gamma - 1.0) > .001)
 		bmp_gamma_correct(&masterinfo->bmp, &masterinfo->bmp,
@@ -83,5 +84,6 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 
 	bmp_free(src);
 	bmp_free(srcgrey);
+	bmpregion_free(&region);
 	masterinfo_free(masterinfo, k2settings);
 }
