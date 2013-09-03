@@ -95,15 +95,24 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 		assert(x + w <= src->width);
 		assert(y + h <= src->height);
 		pixs = bitmap2pix(src, x, y, w, h);
-		k2pdfopt_get_word_boxes_from_tesseract(pixs, kctx->cjkchar,
-				&kctx->boxa, &kctx->nai);
+		if (kctx->cjkchar) {
+			k2pdfopt_get_word_boxes_from_tesseract(pixs, kctx->cjkchar,
+					&kctx->boxa, &kctx->nai);
+		} else {
+			pixb = pixConvertTo1(pixs, 128);
+			k2pdfopt_pixGetWordBoxesInTextlines(pixb,
+					7*kctx->dev_dpi/150, 1, 10, 10, 300, 100,
+					&kctx->boxa, &kctx->nai);
+			pixDestroy(&pixb);
+		}
+
 		if (kctx->debug == 1) {
 			//pixt = pixDrawBoxaRandom(pixs, kctx->boxa, 2);
 			//pixWrite("junkpixt", pixt, IFF_PNG);
 			//pixDestroy(&pixt);
 		}
+		pixDestroy(&pixs);
 	}
-	pixDestroy(&pixs);
 }
 
 PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h) {
