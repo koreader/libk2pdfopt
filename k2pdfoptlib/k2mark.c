@@ -1,7 +1,7 @@
 /*
 ** k2mark.c    Functions to mark the regions on the source page.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -20,6 +20,7 @@
 
 #include "k2pdfopt.h"
 
+int k2mark_page_count=0;
 
 /*
 ** src guaranteed to be 24-bit color
@@ -71,6 +72,10 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
     BMPREGION *clip,_clip;
 
     if (!k2settings->show_marked_source)
+        return;
+
+    /* Don't waste time marking this page if we're previewing and this isn't the preview page */
+    if (k2settings->preview_page!=0 && abs(k2settings->preview_page)!=k2mark_page_count)
         return;
 
     if (region0==NULL)
@@ -191,9 +196,12 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
                 p[2]=b;
                 }
             }
-        if (mark_flags & 16) /* rowbase */
+        /* rowbase */
+        if ((mark_flags & 16) && region->bbox.type!=REGION_TYPE_FIGURE 
+                              && region->bbox.rowbase>=region->r1
+                              && region->bbox.rowbase<=region->r2)
             {
-            p=bmp_rowptr_from_top(region->marked,region->rowbase-i)+region->c1*3;
+            p=bmp_rowptr_from_top(region->marked,region->bbox.rowbase-i)+region->c1*3;
             for (j=region->c1;j<=region->c2;j++,p+=3)
                 {
                 p[0]=r;

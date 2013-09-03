@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -30,16 +30,19 @@
 
 
 static void lang_default(char *langdef);
+/*
 static int has_cube_data(char *lang);
+*/
 static void endian_flip(char *x,int n);
 
 /*
 ** Returns 0 for success, NZ for failure.
 */
-int ocrtess_init(char *datadir,char *lang,int ocr_type,FILE *out)
+int ocrtess_init(char *datadir,char *lang,FILE *out)
 
     {
     char langdef[16];
+    int ocr_type;
 
     if (lang==NULL || lang[0]=='\0')
         lang_default(langdef);
@@ -48,8 +51,13 @@ int ocrtess_init(char *datadir,char *lang,int ocr_type,FILE *out)
         strncpy(langdef,lang,15);
         langdef[15]='\0';
         }
+/*
     if (ocr_type==3 && !has_cube_data(langdef))
         ocr_type=0;
+    if (ocr_type < 0)
+        ocr_type = -ocr_type;
+*/
+    ocr_type=0;
     return(tess_capi_init(datadir,langdef,ocr_type,out));
     }
 
@@ -92,7 +100,7 @@ static void lang_default(char *langdef)
     filelist_free(fl);
     }
 
-
+/*
 static int has_cube_data(char *lang)
 
     {
@@ -119,6 +127,7 @@ static int has_cube_data(char *lang)
     filelist_free(fl);
     return(n>0);
     }
+*/
 
 
 void ocrtess_end(void)
@@ -130,6 +139,8 @@ void ocrtess_end(void)
 /*
 ** bmp8 must be grayscale
 ** (x1,y1) and (x2,y2) from top left of bitmap
+** Output:
+**     "text" gets UTF-8 formatted string of OCR'd text.
 */
 void ocrtess_single_word_from_bmp8(char *text,int maxlen,WILLUSBITMAP *bmp8,
                                 int x1,int y1,int x2,int y2,

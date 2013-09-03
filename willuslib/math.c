@@ -1643,6 +1643,8 @@ double interp_high_order(double x0,double *x,double *y,int n,int order,
     }
 
 
+
+
 double interp_high_order_dx(double x0,double *x,double *y,int n,int order,
                             double dx)
 
@@ -1657,6 +1659,8 @@ double interp_high_order_dx_ex(double x0,double *x,double *y,int n,int order,
     {
     return(interp_high_order_dx_1(x0,x,y,n,order,dx,1));
     }
+
+
 
 
 /*
@@ -1709,6 +1713,8 @@ static double interp_high_order_dx_1(double x0,double *x,double *y,int n,
     for (y0=0.,xx=1.,j=0;j<=order;y0+=xx*c[j],xx*=x0,j++);
     return(y0);
     }
+
+
 
 
 /*

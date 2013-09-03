@@ -1,7 +1,7 @@
 /*
 ** k2sys.c     K2pdfopt system functions
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -59,7 +59,7 @@ void k2sys_enter_to_exit(K2PDFOPT_SETTINGS *k2settings)
         {
         char buf[16];
         k2printf("%s",mesg);
-        fgets(buf,15,stdin);
+        k2gets(buf,15,"");
         return;
         }
     /* If exit_on_complete < 0 */
@@ -119,7 +119,34 @@ int k2printf(char *fmt,...)
     int     status;
 
     va_start(args,fmt);
+#ifdef HAVE_K2GUI
+    if (k2gui_active() && k2gui_cbox_converting())
+{
+status=avprintf(stdout,fmt,args);
+        status=k2gui_cbox_vprintf(stdout,fmt,args);
+}
+    else
+#endif
     status=avprintf(stdout,fmt,args);
     va_end(args);
     return(status);
+    }
+
+
+void k2gets(char *buf,int maxlen,char *def)
+
+    {
+#ifdef HAVE_K2GUI
+    if (k2gui_active())
+        {
+        strncpy(buf,def,maxlen-1);
+        buf[maxlen-1]='\0';
+        return;
+        }
+#endif
+    if (fgets(buf,maxlen,stdin)==NULL)
+        {
+        strncpy(buf,def,maxlen-1);
+        buf[maxlen-1]='\0';
+        }
     }

@@ -143,7 +143,7 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
                 TTEXT_INPUT);
             */
             k2printf("\n" TTEXT_BOLD2 "Enter option above (h=help, q=quit): " TTEXT_NORMAL);
-            fgets(buf,511,stdin);
+            k2gets(buf,511,"");
             k2printf(TTEXT_NORMAL "\n");
             clean_line(buf);
             if (!stricmp(buf,"?") || !stricmp(buf,"h"))
@@ -628,9 +628,9 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
 #ifdef HAVE_TESSERACT_LIB
                          "Tesseract",
 #endif
-                         "Gocr","None",""};
+                         "Gocr","MuPDF","None",""};
 
-            status=userinput_string("OCR choice",ocropts,k2settings->dst_ocr=='t'?"t":(k2settings->dst_ocr=='g')?"g":"n");
+            status=userinput_string("OCR choice",ocropts,k2settings->dst_ocr=='t'?"t":(k2settings->dst_ocr=='g')?"g":(k2settings->dst_ocr=='m'?"m":"n"));
             if (status<0)
                 return(status);
             k2settings->dst_ocr=tolower(ocropts[status][0]);
@@ -670,7 +670,7 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
                         {
                         char buf[16];
                         k2printf(TTEXT_BOLD2 "Enter language selection (def=1): " TTEXT_NORMAL);
-                        fgets(buf,15,stdin);
+                        k2gets(buf,15,"");
                         clean_line(buf);
                         if (buf[0]=='\0')
                             {
@@ -687,8 +687,8 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
                         }
                     wfile_basespec(base1,fl->entry[fl->n-i].name);
                     wfile_newext(base,base1,"");
-                    strncpy(k2settings->dst_ocr_lang,base,15);
-                    k2settings->dst_ocr_lang[15]='\0';
+                    strncpy(k2settings->dst_ocr_lang,base,63);
+                    k2settings->dst_ocr_lang[63]='\0';
                     strbuf_sprintf(usermenu,"-ocrlang %s",k2settings->dst_ocr_lang);
                     }
                 }
@@ -945,7 +945,7 @@ static void menu_help(void)
 
     k2printf("%s",mhelp);
     k2printf("Press " TTEXT_BOLD "<Enter>" TTEXT_NORMAL " to re-display the menu.");
-    fgets(buf,15,stdin);
+    k2gets(buf,15,"");
     k2printf("\n\n");
     }
 

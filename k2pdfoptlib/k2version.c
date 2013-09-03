@@ -1,4 +1,4 @@
-char *k2pdfopt_version = "v1.66";
+char *k2pdfopt_version = "v2.00";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
@@ -16,6 +16,82 @@ char *k2pdfopt_version = "v1.66";
 **
 ** You should have received a copy of the GNU Affero General Public License
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
+**
+** VERSION HISTORY
+** v2.00     2 SEP 2013
+**           MAJOR NEW FEATURES
+**           - Added a GUI for the MS Windows version.  In MS Windows, k2pdfopt now
+**             has a dual-mode operation:  it runs as a GUI or a console program
+**             depending on the situation and command-line arguments:  Use -gui
+**             to force the GUI, -guimin to minimize the GUI, use -gui- for no GUI.
+**             - Window size / position stored in K2PDFOPT_WINPOS env. var.
+**             - Custom presets stored in K2PDFOPT_CUSTOM<n> env. vars. (<n>=1-4).
+**             - As part of the GUI, printf() and aprintf() calls switched to k2printf().
+**           - For PDF documents that contain text (not scanned), I now use
+**             the MuPDF text analysis functions so that even on re-flowed documents
+**             (i.e. not using native PDF output) I can include the text from
+**             the source for searching and highlighting without resorting to OCR.
+**             I treat this as a sort of "virtual OCR".  You explicitly turn it
+**             on with -ocr m (m for MuPDF), though it is on by default since it
+**             adds very little time to the PDF file processing.  It is
+**             not necessary if you are using native PDF output (-n).
+**             Requested at http://www.mobileread.com/forums/showthread.php?p=2513005#post2513005
+**
+**           OTHER NEW FEATURES
+**           - Windows 64-bit version compiled with gcc 4.7.3 (on core i5-670).
+**             The optimized Windows 32-bit version still uses gcc 4.6.3 (it does
+**             not compile correctly in gcc 4.7.3 on my MinGW platform due to some
+**             issue with with the Tesseract library).  The generic Windows 32-bit
+**             version uses gcc 4.7.3.
+**           - Compiled with latest versions of MuPDF (v1.3), OpenJPEG, FreeType,
+**             Turbo-JPEG, PNG, and Z libraries.
+**           - A new option, -bmp, will write out a preview bitmap of the specified
+**             page, e.g. -bmp 2 will write out the 2nd converted page to the file
+**             k2pdfopt_out.png (sorry, the bitmap file name cannot be specified).
+**           - New option -sp simply echos the page counts of the source files
+**             and exits.
+**           - OCR text can be written to a separate text file now with the
+**             -ocrout option.  E.g. -ocrout %s.txt will write the OCR from
+**             myfile.pdf to myfile.txt.
+**             Requested at http://www.mobileread.com/forums/showthread.php?p=2558909
+**             and via e-mail on 3 June 2013.
+**
+**           SOURCE CODE RE-WRITE
+**           - I re-did the way a number of data structures store information
+**             (BMPREGION, TEXTROWS) and eliminated the BREAKINFO structure.
+**             This simplifies several function calls and makes it a bit more
+**             straightforward to follow the flow of the software and to expand
+**             the functionality.
+**           - The way gaps are placed between regions of text has been
+**             substantially re-done.  I have done extensive regression testing,
+**             and overall I think things are improved, but people may find
+**             minor changes in behavior from v1.66.
+**
+**           BUG FIXES
+**           - In k2pdfopt_settings_set_margins_and_devsize(), doesn't flush the
+**             master bitmap unless the width changes.
+**           - Mode -f2p -2 (put every new red-box region onto a new page) no
+**             longer add any gap between these regions, so that the page size
+**             is exactly the region size.
+**           - When expected numeric arguments on the command-line don't occur
+**             (e.g. -g is not followed by a numeric value), that parameter is not
+**             set, a warning is printed, and the non-numeric argument is processed
+**             as if it were the next argument on the command line (pointed out
+**             by Jens Wallauer, 6-12-13).
+**           - Modified tessedit.cpp in Tesseract library to automatically detect
+**             if .cube files are present so that it uses them even for multiple
+**             language specification.  Correspondingly modified ocrtess_init()
+**             in willus library.
+**           - v1.65 was crashing after not finding the Tesseract language file
+**             and switching to GOCR:
+**             http://www.mobileread.com/forums/showpost.php?p=2483500&postcount=393
+**             This is fixed (tesseract status now stored in global static variable
+**             in k2ocr.c).
+**
+**           NOTES
+**           - This version still does not have unicode / wide character file
+**             name handling in MS Windows (file names are stored in 8-bit ASCII
+**             strings, as before).
 **
 ** v1.66     23 JUNE 2013
 **           NEW FEATURES
@@ -41,7 +117,7 @@ char *k2pdfopt_version = "v1.66";
 **             buf->cap==1 (results in infinite loop).  Reported in 6-18-13 e-mail
 **             on a conversion that hung with -mode fw.
 **
-** v1.65     6 APRIL 2013
+** v1.65     30 MAR 2013
 **           NEW FEATURES / OPTIONS
 **           - Added Kobo Glo and Kobo Touch device settings.
 **             (http://www.mobileread.com/forums/showpost.php?p=2441354&postcount=336)

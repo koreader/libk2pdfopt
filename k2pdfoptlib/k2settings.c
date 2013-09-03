@@ -32,6 +32,10 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->verbose=0;
     k2settings->debug=0;
     k2settings->cdthresh=.01;
+#ifdef HAVE_K2GUI
+    k2settings->gui=-1;
+    k2settings->guimin=0;
+#endif
 /*
 ** Blank Area Threshold Widths--average black pixel width, in inches, that
 ** prevents a region from being determined as "blank" or clear.
@@ -44,16 +48,18 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->src_left_to_right=1;
     k2settings->src_whitethresh=-1;
 #ifdef HAVE_OCR_LIB
+    k2settings->ocrout[0]='\0';
 #ifdef HAVE_TESSERACT_LIB
     k2settings->dst_ocr_lang[0]='\0';
 #endif
     k2settings->ocr_max_columns=-1;  /* -1 = use value of max_columns */
+#ifdef HAVE_MUPDF_LIB
+    k2settings->dst_ocr='m';
+#else
     k2settings->dst_ocr=0;
+#endif
     k2settings->dst_ocr_visibility_flags=1;
     k2settings->ocr_max_height_inches=1.5;
-#ifdef HAVE_TESSERACT_LIB
-    k2settings->ocrtess_status=0;
-#endif
     ocrwords_init(&k2settings->dst_ocrwords);
 #endif
     k2settings->dst_dither=1;
@@ -110,7 +116,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->dst_negative=0;
     k2settings->exit_on_complete=-1;
     k2settings->show_marked_source=0;
-    k2settings->use_crop_boxes=0;
+    k2settings->use_crop_boxes=1;
     k2settings->preserve_indentation=1;
     k2settings->defect_size_pts=0.75;
     k2settings->max_vertical_gap_inches=0.25;
@@ -126,6 +132,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->src_grid_cols=-1;
     k2settings->src_grid_overlap_percentage=2;
     k2settings->src_grid_order=0; /* 0=down then across, 1=across then down */
+    k2settings->preview_page=0; /* 0 = no preview */
 /*
 ** Undocumented cmd-line args
 */
@@ -135,15 +142,31 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
 /*
 ** Keeping track of vertical gaps
 */
+    /* Not used as of v2.00
     k2settings->last_scale_factor_internal = -1.0;
     k2settings->line_spacing_internal=0;
     k2settings->last_rowbase_internal=0;
     k2settings->gap_override_internal=-1;
-
+    */
 
     k2pdfopt_settings_set_to_device(k2settings,devprofile_get("k2"));
     k2settings->dst_width = k2settings->dst_userwidth;
     k2settings->dst_height = k2settings->dst_userheight;
+    }
+
+
+void k2pdfopt_conversion_init(K2PDFOPT_CONVERSION *k2conv)
+
+    {
+    k2pdfopt_settings_init(&k2conv->k2settings);
+    k2pdfopt_files_init(&k2conv->k2files);
+    }
+
+
+void k2pdfopt_conversion_close(K2PDFOPT_CONVERSION *k2conv)
+
+    {
+    k2pdfopt_files_free(&k2conv->k2files);
     }
 
 
@@ -249,7 +272,7 @@ void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings)
     /* Reset usegs for each document */
     k2settings->usegs=k2settings->user_usegs;
     /* Init document word spacing history */
-    word_gaps_add(NULL,0,NULL,0.);
+    textwords_add_word_gaps(NULL,0,NULL,0.);
 #ifdef HAVE_OCR_LIB
     /* Init document OCR word list */
     if (k2settings->dst_ocr)
@@ -366,8 +389,8 @@ printf("@k2pdfopt_settings_set_margins_and_devsize(region=%p,trimmed=%d)\n",regi
             if (swidth_in < 1.0)
                 swidth_in = 1.0;
             sheight_in = (double)(region->r2-region->r1+1) / region->dpi;
-            if (sheight_in < 0.3)
-                sheight_in = 0.3;
+            if (sheight_in < 1.0)
+                sheight_in = 1.0;
             if (region->c2-region->c1<=0 || region->r2-region->r1<=0)
                 zeroarea=1;
             }
@@ -397,17 +420,26 @@ printf("@k2pdfopt_settings_set_margins_and_devsize(region=%p,trimmed=%d)\n",regi
         int_swap(new_width,new_height)
     if (count==1 || (count>1 && (new_width!=k2settings->dst_width || new_height!=k2settings->dst_height)))
         {
+        int width_change;
+
+        width_change = (count==1 || new_width != k2settings->dst_width);
         /* Flush master bitmap before changing it */
-        if (count>1)
-            masterinfo_flush(masterinfo,k2settings);
+        if (width_change)
+            {
+            if (count>1)
+                masterinfo_flush(masterinfo,k2settings);
+            }
         k2settings->dst_width=new_width;
         k2settings->dst_height=new_height;
-        masterinfo->bmp.width=k2settings->dst_width;
-        /* dst_height*1.5*area_ratio */
-        masterinfo->bmp.height=1.5*swidth_in*sheight_in*k2settings->dst_dpi*k2settings->dst_dpi/k2settings->dst_width;
-        bmp_alloc(&masterinfo->bmp);
-        bmp_fill(&masterinfo->bmp,255,255,255);
-        masterinfo->rows=0;
+        if (width_change)
+            {
+            masterinfo->bmp.width=k2settings->dst_width;
+            /* dst_height*1.5*area_ratio */
+            masterinfo->bmp.height=1.5*swidth_in*sheight_in*k2settings->dst_dpi*k2settings->dst_dpi/k2settings->dst_width;
+            bmp_alloc(&masterinfo->bmp);
+            bmp_fill(&masterinfo->bmp,255,255,255);
+            masterinfo->rows=0;
+            }
         if (pageinfo!=NULL && k2settings->use_crop_boxes)
             {
             pageinfo->width_pts = 72. * k2settings->dst_width / k2settings->dst_dpi;
@@ -426,6 +458,18 @@ printf("@k2pdfopt_settings_set_margins_and_devsize(region=%p,trimmed=%d)\n",regi
                 olddpi,k2settings->dst_dpi);
         }
     k2pdfopt_settings_set_region_widths(k2settings);
+    }
+
+
+/*
+** Returns NZ if the settings are such that gaps should not be added to the
+** master bitmap (e.g. -f2p -2 or gridded output).
+*/
+int k2settings_gap_override(K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    return(k2settings->dst_fit_to_page==-2
+           || (k2settings->src_grid_cols > 0 && k2settings->src_grid_rows > 0));
     }
 
 

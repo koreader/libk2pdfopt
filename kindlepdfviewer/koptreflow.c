@@ -113,12 +113,13 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx)
     wrapbmp_init(&masterinfo->wrapbmp, k2settings->dst_color);
 
     /* Init new source bitmap */
+    bmpregion_init(&region);
     masterinfo_new_source_page_init(masterinfo, k2settings, src, srcgrey, NULL,
     &region, k2settings->src_rot, NULL, NULL, 1, NULL);
 
     /* Process single source page */
     bmpregion_source_page_add(&region, k2settings, masterinfo, 1, 0);
-    wrapbmp_flush(masterinfo,k2settings,0,0);
+    wrapbmp_flush(masterinfo,k2settings,0);
 
     bmp_free(src);
     bmp_free(srcgrey);

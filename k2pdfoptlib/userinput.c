@@ -1,7 +1,7 @@
 /*
 ** userinput.c    User input functions for k2pdfopt.c.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -39,7 +39,7 @@ int userinput_float(char *message,double defval,double *dstval,int nmax,
         if (defval > -1e9)
             k2printf(" [%g]",defval);
         k2printf(": ");
-        fgets(buf,255,stdin);
+        k2gets(buf,255,"");
         k2printf(TTEXT_NORMAL "\n");
         clean_line(buf);
         if (buf[0]=='\0')
@@ -81,7 +81,7 @@ int userinput_integer(char *message,int defval,int *dstval,int min,int max)
         {
         k2printf(TTEXT_BOLD2 "%s" TTEXT_NORMAL " [%d]: " TTEXT_INPUT,
                 message,defval);
-        fgets(buf,255,stdin);
+        k2gets(buf,255,"");
         k2printf(TTEXT_NORMAL "\n");
         clean_line(buf);
         if (buf[0]=='\0')
@@ -118,7 +118,7 @@ int userinput_any_string(char *message,char *dstval,int maxlen,char *defname)
         {
         k2printf(TTEXT_BOLD2 "%s" TTEXT_NORMAL " [%s]: " TTEXT_INPUT,
                 message,defname);
-        fgets(buf,maxlen,stdin);
+        k2gets(buf,maxlen,"");
         k2printf(TTEXT_NORMAL "\n");
         clean_line(buf);
         if (buf[0]=='\0')
@@ -148,7 +148,7 @@ int userinput_string(char *message,char *selection[],char *def)
             k2printf("%s" TTEXT_BOLD "%c" TTEXT_NORMAL "%s",
                     i>0 ? ", " : "",selection[i][0],&selection[i][1]);
         k2printf(") [%c]: " TTEXT_INPUT,def[0]);
-        fgets(buf,255,stdin);
+        k2gets(buf,255,"");
         k2printf(TTEXT_NORMAL "\n");
         clean_line(buf);
         if (buf[0]=='\0')

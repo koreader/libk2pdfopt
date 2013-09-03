@@ -79,7 +79,7 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx,WILLUSBITMAP *src,int init)
     static MASTERINFO _masterinfo, *masterinfo;
     WILLUSBITMAP _srcgrey, *srcgrey;
     BMPREGION region;
-    int initgap;
+    static int pages_done=0;
 
     srcgrey=&_srcgrey;
     bmp_init(srcgrey);
@@ -101,11 +101,13 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx,WILLUSBITMAP *src,int init)
         }
 
     /* Init new source bitmap */
+    bmpregion_init(&region);
     masterinfo_new_source_page_init(masterinfo,k2settings,src,srcgrey,NULL,&region,0.,NULL,NULL,1,NULL);
 
     /* Process single source page */
-    initgap = (init==1) ? 0 : (int)(0.25*k2settings->src_dpi+.5);
-    bmpregion_source_page_add(&region,k2settings,masterinfo,1,initgap);
+    if (init)
+        pages_done=0;
+    bmpregion_source_page_add(&region,k2settings,masterinfo,1,pages_done++);
     bmp_free(srcgrey);
 
     /*

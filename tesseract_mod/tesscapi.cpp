@@ -143,6 +143,14 @@ int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out)
                 tesseract::TessBaseAPI::Version(),language);
     /* Turn off CUBE debugging output */
     api.SetVariable("cube_debug_level","0");
+#if (WILLUSDEBUG & 1)
+    api.SetVariable("cube_debug_level","9");
+    api.SetVariable("paragraph_debug_level","9");
+    api.SetVariable("tessdata_manager_debug_level","9");
+    api.SetVariable("tosp_debug_level","9");
+    api.SetVariable("wordrec_debug_level","9");
+    api.SetVariable("segsearch_debug_level","9");
+#endif
     return(0);
     }
 
