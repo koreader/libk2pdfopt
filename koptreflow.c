@@ -31,8 +31,8 @@
 #include "koptreflow.h"
 
 void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
-	static K2PDFOPT_SETTINGS _k2settings, *k2settings;
-	static MASTERINFO _masterinfo, *masterinfo;
+	K2PDFOPT_SETTINGS _k2settings, *k2settings;
+	MASTERINFO _masterinfo, *masterinfo;
 	WILLUSBITMAP _srcgrey, *srcgrey;
 	WILLUSBITMAP *src, *dst;
 	BMPREGION region;
