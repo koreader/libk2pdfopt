@@ -696,11 +696,13 @@ fprintf(out,"lcheight=%d\n",region->bbox.lcheight);
     textrow=&region->bbox;
     textrow->hyphen.ch = -1;
     textrow->hyphen.c2 = -1;
-    if (region->textrows.n<1)
-        return;
+    // it seems that textrows.n is always less than 1 and it will never detect hyphen
+    //if (region->textrows.n<1)
+        //return;
     if (textrow->type == REGION_TYPE_FIGURE)
         return;
-    if (hyphen_detect)
+    // detect hyphen when hyphen_detect is not 0
+    if (!hyphen_detect)
         return;
     if (textrow->c2<0 || textrow->c1<0 || textrow->r1<0 || textrow->r2<0
             || textrow->rowbase<0 || textrow->capheight<0 || textrow->lcheight<0)
