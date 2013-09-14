@@ -33,7 +33,6 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	static char *funcname="k2pdfopt_crop_bmp";
 	K2PDFOPT_SETTINGS _k2settings, *k2settings;
 	MASTERINFO _masterinfo, *masterinfo;
-	int master_bmp_inited = 0;
 	WILLUSBITMAP _srcgrey, *srcgrey;
 	WILLUSBITMAP *src;
 	BMPREGION _region, *region;
