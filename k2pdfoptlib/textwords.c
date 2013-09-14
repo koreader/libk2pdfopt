@@ -109,7 +109,7 @@ void textwords_add_word_gaps(TEXTWORDS *textwords,int lcheight,double *median_ga
         if (nn>0)
             {
             int n;
-            static double *gap_sorted;
+            double *gap_sorted;
 
             n = (nn>1024) ? 1024 : nn;
             willus_dmem_alloc_warn(28,(void **)&gap_sorted,sizeof(double)*n,funcname,10);
