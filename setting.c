@@ -100,4 +100,10 @@ void k2pdfopt_settings_init_from_koptcontext(K2PDFOPT_SETTINGS *k2settings, KOPT
 		k2settings->dst_justify = -1;
 		k2settings->dst_fulljustify = 1;
 	}
+
+	// eliminate hyphens for non-CJK characters
+	if (kctx->cjkchar)
+		k2settings->hyphen_detect = 0;
+	else
+		k2settings->hyphen_detect = 1;
 }
