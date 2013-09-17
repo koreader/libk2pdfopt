@@ -187,11 +187,12 @@ int main(int argc,char *argv[])
 static void k2pdfopt_launch_gui(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline)
 
     {
-/*
-printf("\n\nNEED TO FIX IF STATEMENT IN k2pdfopt_launch_gui()...\n\n");
+#if (WILLUSDEBUGX & 0x4000)
+printf("\n\nNEED TO TURN OFF WILLUSDEBUGX FOR FINAL COMPILE...\n\n");
 if (0)
-*/
+#else
     if (k2conv->k2settings.gui!=2 && (!win_has_own_window() || !k2conv->k2settings.guimin))
+#endif
         {
         char exename[512];
         char *buf;
@@ -225,10 +226,9 @@ if (0)
         HINSTANCE hinst;
         /* Free console and launch the GUI window */
         hinst=GetModuleHandle(NULL);
-/*
-printf("\n\nNEED TO FREE CONSOLE!\n\n");
-*/
+#if (!(WILLUSDEBUGX & 0x4000))
         FreeConsole();
+#endif
         k2gui_main(k2conv,hinst,NULL,env,cmdline);
         }
     }

@@ -133,6 +133,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->src_grid_overlap_percentage=2;
     k2settings->src_grid_order=0; /* 0=down then across, 1=across then down */
     k2settings->preview_page=0; /* 0 = no preview */
+    k2settings->echo_source_page_count=0;
 /*
 ** Undocumented cmd-line args
 */
@@ -361,9 +362,9 @@ void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
                                        BMPREGION *region,MASTERINFO *masterinfo,int trimmed)
 
     {
-    static int count=0;
-    static double wu=0.; /* Store untrimmed width, height */
-    static double hu=0.;
+    int count=0;
+    double wu=0.; /* Store untrimmed width, height */
+    double hu=0.;
     double swidth_in,sheight_in;
     int new_width,new_height,zeroarea;
     WPDFPAGEINFO *pageinfo;

@@ -148,18 +148,6 @@ void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
 
         newregion=&pageregions->pageregion[ipr].bmpregion;
 
-        /* Determine gap between regions */
-        /*
-        if (ipr>0)
-            {
-            colgap_pixels = newregion->r1 - pageregions->pageregion[ipr-1].bmpregion.r2;
-            if (colgap_pixels < 0)
-                colgap_pixels = colgap0_pixels;
-            }
-        else
-            colgap_pixels = pages_done==0 ? 0 : colgap0_pixels;
-        */
-
         /* Check for dynamic adjustment of output page to trimmed source region */
         if (trim_regions)
             {
@@ -781,10 +769,8 @@ gotone++;
             nocr=1;
         tmp=&_tmp;
         bmp_init(tmp);
-        if (fabs((double)w/bmp->width - 1.0) < 0.01)
-            bmp_copy(tmp,bmp);
-        else
-            bmp_resample(tmp,bmp,(double)0.,(double)0.,(double)bmp->width,(double)bmp->height,w,h);
+        bmp_resample_optimum_performance(tmp,bmp,(double)0.,(double)0.,
+                                          (double)bmp->width,(double)bmp->height,w,h);
         /*
         ** scalew and scaleh can be just different enough to cause problems
         ** if we use one value for both of them.  -- v2.00, 24-Aug-2013
@@ -1413,12 +1399,7 @@ textrows_echo(&region->textrows,"rows");
     else
         {
         int gap_median;
-/*
-        int rowheight_median;
 
-        textrows_sort_by_rowheight(textrows);
-        rowheight_median = textrow[n/2].rowheight;
-*/
 #ifdef WILLUSDEBUG
 for (i=0;i<n;i++)
 k2printf("    gap[%d]=%d\n",i,textrow[i].gap);
@@ -1484,11 +1465,6 @@ k2printf("    biggap=%d\n",biggap);
     last_page_height=region->bmp->height;
 
 
-    /*
-    trim_left_and_right = 1;
-    if (region_width_inches <= k2settings->max_region_width_inches)
-        trim_left_and_right = 0;
-    */
 /*
 k2printf("force_scale=%g, rwi = %g, rwi/mrwi = %g, rhi = %g\n",
 force_scale,
@@ -1534,9 +1510,6 @@ k2printf("    Region %d:  r1=%d, r2=%d, gapblank=%d\n",i,textrow[i].r1,textrow[i
         if (i>=n || (biggap>0. && textrow[i2].gapblank>=biggap))
             {
             int j,c1,c2,nc;
-            /*
-            double regwidth,ar1,rh1;
-            */
 
 #if (WILLUSDEBUGX & 0x200)
 k2printf("    First block of rows:  i1=%d, i2=%d (textrows->n=%d)\n",i1,i2,n);
@@ -1551,10 +1524,6 @@ k2printf("    First block of rows:  i1=%d, i2=%d (textrows->n=%d)\n",i1,i2,n);
             nc=c2-c1+1;
             if (nc<=0)
                 nc=1;
-            /*
-            rh1=(double)(textrow[i1].r2-textrow[i1].r1+1)/region->dpi;
-            ar1=(double)(textrow[i1].r2-textrow[i1].r1+1)/nc;
-            */
             for (j=i1+1;j<=i2;j++)
                 {
                 if (c1>textrow[j].c1)
@@ -1562,28 +1531,10 @@ k2printf("    First block of rows:  i1=%d, i2=%d (textrows->n=%d)\n",i1,i2,n);
                 if (c2<textrow[j].c2)
                     c2=textrow[j].c2;
                 }
-            /*
-            regwidth=(double)(c2-c1+1)/region->dpi;
-            */
             marking_flags=(i1==0?0:1)|(i2==n-1?0:2);
             /* Green */
             mark_source_page(k2settings,bregion,3,marking_flags);
 
-            /* If only one text row, clear rows and set entire region to row. */
-            /* (Doesn't work right...)
-            if (bregion->textrows.n>1)
-                bregion->bbox.type=REGION_TYPE_MULTILINE;
-            else
-                {
-                bregion->bbox=bregion->textrows.textrow[0];
-                bregion->bbox.type=REGION_TYPE_TEXTLINE;
-                bregion->c1=bregion->textrows.textrow[0].c1;
-                bregion->c2=bregion->textrows.textrow[0].c2;
-                bregion->r1=bregion->textrows.textrow[0].r1;
-                bregion->r2=bregion->textrows.textrow[0].r2;
-                textrows_clear(&bregion->textrows);
-                }
-            */
             bregion->bbox.type=REGION_TYPE_MULTILINE;
             bregion->bbox.c1=bregion->c1;
             bregion->bbox.c2=bregion->c2;
@@ -1598,9 +1549,6 @@ k2printf("    First block of rows:  i1=%d, i2=%d (textrows->n=%d)\n",i1,i2,n);
             if (regcount>0  || masterinfo->mandatory_region_gap==1)
                 {
                 wrapbmp_flush(masterinfo,k2settings,0);
-/*
-                masterinfo_add_gap_src_pixels(masterinfo,k2settings,textrow[i1-1].gapblank,"Vert break");
-*/
                 if (masterinfo->mandatory_region_gap==0)
                     {
 #if (WILLUSDEBUGX & 0x200)
@@ -1612,91 +1560,6 @@ aprintf(ANSI_RED "mi->mandatory_region_gap changed to 1 by vertically_break." AN
                     }
                 }
                 
-            /*
-            ** Is this section not going to be re-flowed?
-            */
-/*
-            reflow = (allow_text_wrapping
-                      && (regwidth > k2settings->max_region_width_inches || allow_text_wrapping>=2)
-                      && (ar1 <= k2settings->no_wrap_ar_limit 
-                           || rh1 <= k2settings->no_wrap_height_limit_inches));
-*/
-            /*
-            ** If 1. between regions, or 2. if the next region isn't going to be
-            ** wrapped (but normally we are wrapping), or 3. if the next region
-            ** starts a different number of columns than before, then "flush and gap."
-            */
-#if 0
-#if (WILLUSDEBUGX & 512)
-printf("\nregcount=%d of %d\n",regcount,n);
-printf("reg=%d x %d\n",region->c2-region->c1+1,region->r2-region->r1+1);
-printf("k2s->text_wrap=%d\n",k2settings->text_wrap);
-printf("just_flushed=%d\n",wrapbmp->just_flushed_internal);
-printf("reflow=%d\n",reflow);
-printf("ncols_last=%d\n",ncols_last);
-printf("ncols=%d\n",ncols);
-printf("diffwidths=%d\n",different_widths(last_region_width_inches,region_width_inches));
-printf("diffheights=%d\n",different_row_heights(last_region_last_row_height_inches,region));
-printf("colgap_pixels=%d\n",(int)colgap_pixels);
-#endif
-            if (regcount>0 || (k2settings->text_wrap && wrapbmp->just_flushed_internal) 
-                           || (!reflow && k2settings->text_wrap)
-                           || (ncols_last>0 && ncols_last != ncols)
-                           /* New in v1.65 */
-                           || different_widths(last_region_width_inches,region_width_inches)
-                           || different_row_heights(last_region_last_row_height_inches,region))
-                {
-                int gap;
-#ifdef WILLUSDEBUG
-k2printf("wrapflush1\n");
-#endif
-                if (k2settings->text_wrap && !wrapbmp->just_flushed_internal)
-                    wrapbmp_flush(masterinfo,k2settings,0);
-                gap = regcount==0 ? colgap_pixels : textrow[i1-1].gap;
-#if (WILLUSDEBUGX & 512)
-printf("gap=%d\n",gap);
-printf("beginning_gap_internal=%d\n",wrapbmp->beginning_gap_internal);
-printf("last_h5050_internal=%d\n",wrapbmp->last_h5050_internal);
-printf("textrow[%d].h5050=%d\n",i1,textrow[i1].h5050);
-#endif
-                /*
-                ** If at beginning of column but font size matches end of previous column,
-                ** don't put the gap(?).
-                */
-                if (regcount==0 && k2settings->text_wrap && wrapbmp->beginning_gap_internal>0)
-                    {
-                    if (wrapbmp->last_h5050_internal > 0)
-                        {
-                        /* Don't add gap if -f2p -2 */
-                        if (!k2settings_gap_override(k2settings)
-                             && fabs(1.-(double)textrow[i1].h5050/wrapbmp->last_h5050_internal)>.1)
-                            masterinfo_add_gap_src_pixels(masterinfo,k2settings,colgap_pixels,"Col/Page break");
-                        wrapbmp->last_h5050_internal=-1;
-                        }
-                    gap=wrapbmp->beginning_gap_internal;
-#if (WILLUSDEBUGX & 512)
-printf("gap reset to %d\n",gap);
-#endif
-                    wrapbmp->beginning_gap_internal = -1;
-                    }
-                 /* Don't add gap if -f2p -2 */
-#if (WILLUSDEBUGX & 512)
-printf("gap = %d\n",gap);
-#endif
-//                if (!k2settings_gap_override(k2settings))
-                if (regcount>0 && !k2settings_gap_override(k2settings))
-                    masterinfo_add_gap_src_pixels(masterinfo,k2settings,gap,"Vert break");
-                }
-            else
-                {
-                if (regcount==0 && wrapbmp->beginning_gap_internal < 0)
-                    wrapbmp->beginning_gap_internal = colgap_pixels;
-                }
-/*
-if (regcount==0 && n==37)
-exit(10);
-*/
-#endif
             bmpregion_add(bregion,k2settings,masterinfo,allow_text_wrapping,trim_flags,
                           allow_vertical_breaks,force_scale,justification_flags,caller_id,
                           marking_flags,rbdelta,region_is_centered);
@@ -1706,14 +1569,6 @@ exit(10);
             i1=i2+1;
             }
         }
-/*
-    if (n>0)
-        last_region_last_row_height_inches = (double)textrow[n-1].rowheight/region->dpi;
-    else
-        last_region_last_row_height_inches = (double)(region->r2-region->r1+1)/region->dpi;
-    last_region_width_inches=region_width_inches;
-    ncols_last=ncols;
-*/
     bmpregion_free(bregion);
     if (revert)
         k2pdfopt_settings_restore_output_dpi(k2settings);
@@ -1731,29 +1586,6 @@ static int different_widths(double width1,double width2)
         return(width2 - width1 > 0.5);
     return((width2/width1-1.) > 0.25);
     }
-
-
-/*
-static int different_row_heights(double height1,BMPREGION *region)
-
-    {
-    double height2;
-
-    if (height1<0.)
-        return(0);
-    if (region->textrows.n>0)
-        height2= (double)region->textrows.textrow[0].rowheight/region->dpi;
-    else if (region->bbox.r1>=0 && region->bbox.r2>=region->bbox.r1)
-        height2 = (double)(region->bbox.r2-region->bbox.r1+1)/region->dpi;
-    else
-        height2 = (double)(region->r2-region->r1+1)/region->dpi;
-    if (height2 < height1)
-        double_swap(height1,height2);
-    if (height1 < .02)
-        return(height2-height1 > .05);
-    return((height2/height1-1.) > 0.25);
-    }
-*/
 
 
 /*

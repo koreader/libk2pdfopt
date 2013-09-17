@@ -89,6 +89,18 @@ void willusgui_close(void)
     }
 
 
+/*
+** 0 = normal
+** 1 = wait
+*/
+void willusgui_set_cursor(int type)
+
+    {
+#ifdef MSWINGUI
+    SetCursor(LoadCursor(NULL,type==0?IDC_ARROW:IDC_WAIT));
+#endif
+    }
+
 void willusgui_open_file(char *filename)
 
     {
@@ -242,6 +254,18 @@ void willusgui_window_draw_path_filled(WILLUSGUIWINDOW *win,int *x,int *y,int n,
     DeleteObject(brush);
     free(p);
 #endif
+    }
+
+
+/*
+** Number of displayable lines in an edit control
+*/
+int willusgui_control_nlines(WILLUSGUICONTROL *control)
+
+    {
+    if (control->font.size<=0)
+        return(-1);
+    return((control->rect.bottom-control->rect.top+control->font.size-1)/control->font.size);
     }
 
 

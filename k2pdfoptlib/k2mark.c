@@ -44,7 +44,8 @@ bmp_write(src,filename,stdout,100);
     bmp->height=src->height/2;
     bmp->bpp=24;
     bmp_alloc(bmp);
-    bmp_resample(bmp,src,(double)0.,(double)0.,(double)src->width,(double)src->height,
+    bmp_resample_optimum_performance(bmp,src,(double)0.,(double)0.,
+                 (double)src->width,(double)src->height,
                  bmp->width,bmp->height);
     pdffile_add_bitmap(mpdf,bmp,newdpi,-1,1);
     bmp_free(bmp);

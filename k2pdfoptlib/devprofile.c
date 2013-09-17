@@ -25,7 +25,8 @@ static DEVPROFILE devprof[7] =
     {
     {"Kindle 1-5","k2",560,735,167,0,1,{0,0,3,4}},
     {"Kindle DX","dx",800,1180,167,0,1,{0,0,0,0}},
-    {"Kindle Paperwhite","kpw",758,1024,212,0,1,{0,0,3,4}},
+    /* v2.02:  Changed kpw to 658 x 889 based on e-mail feedback, 9-15-13 */
+    {"Kindle Paperwhite","kpw",658,889,212,0,1,{0,0,3,4}},
     {"Nook Simple Touch","nookst",552,725,167,0,1,{0,0,0,0}},
     {"Kobo Touch","kbt",600,730,167,0,1,{0,0,3,4}},
     {"Kobo Glo","kbg",758,942,213,0,1,{0,0,3,4}},

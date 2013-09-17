@@ -448,47 +448,6 @@ bmp_write(wrapbmp,filename,stdout,100);
 k2printf("Bitmap is %d x %d (baseline=%d)\n",wrapbmp->bmp.width,wrapbmp->bmp.height,wrapbmp->base);
 #endif
 
-#if 0
-    /* Sanity check on row spacing -- don't let it be too large. */
-    nomss = wrapbmp->rhmax*1.7; /* Nominal single-spaced height for this row */
-    if (k2settings->last_rowbase_internal<0)
-        dh = 0;
-    else
-        {
-        dh=(int)(wrapbmp->textrow.rowheight-k2settings->last_rowbase_internal 
-                           - 1.2*fabs(k2settings->vertical_line_spacing)*nomss +.5);
-        if (k2settings->vertical_line_spacing < 0.)
-            {
-            int dh1;
-            if (wrapbmp->maxgap > 0)
-                dh1 = region.bbox.rowbase+1-wrapbmp->rhmax-wrapbmp->maxgap;
-            else
-                dh1=(int)(wrapbmp->textrow.rowheight-k2settings->last_rowbase_internal- 1.2*nomss+.5);
-            if (dh1 > dh)
-                dh =dh1;
-            }
-        }
-    if (dh>0)
-{
-#if (WILLUSDEBUG & 4)
-k2printf(ANSI_YELLOW "dh > 0 = %d" ANSI_NORMAL "\n",dh);
-k2printf("    wrapbmp->line_spacing=%d\n",wrapbmp->textrow.rowheight);
-k2printf("    nomss = %d\n",nomss);
-k2printf("    vls = %g\n",k2settings->vertical_line_spacing);
-k2printf("    lrbi=%d\n",k2settings->last_rowbase_internal);
-k2printf("    wrapbmp->maxgap=%d\n",wrapbmp->maxgap);
-k2printf("    wrapbmp->rhmax=%d\n",wrapbmp->rhmax);
-#endif
-        region.r1 = dh;
-/*
-if (dh>200)
-{
-bmp_write(wrapbmp,"out.png",stdout,100);
-exit(10);
-}
-*/
-}
-#endif
     if (wrapbmp->bmp.bpp==24)
         {
         bmp8=&_bmp8;
@@ -498,25 +457,6 @@ exit(10);
         }
     else
         region.bmp8=&wrapbmp->bmp;
-/*
-    if (k2settings->gap_override_internal > 0)
-        {
-        region.r1=wrapbmp->base-wrapbmp->rhmax+1;
-        if (region.r1<0)
-            region.r1=0;
-        if (region.r1>wrapbmp->base)
-            region.r1=wrapbmp->base;
-        gap=k2settings->gap_override_internal;
-        k2settings->gap_override_internal = -1;
-        }
-    else
-        {
-        if (wrapbmp->height_extended)
-            gap = wrapbmp->gap;
-        else
-            gap = 0;
-        }
-*/
     /* Calculate lcheight and capheight */
     bmpregion_calc_bbox(&region,k2settings,1);
     region.bbox.rowbase=wrapbmp->base;

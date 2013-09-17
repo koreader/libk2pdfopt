@@ -37,6 +37,7 @@ static void k2gui_winposition_save(void);
 static void k2gui_cmdline_to_settings(K2PDFOPT_SETTINGS *k2settings,STRBUF *cmdline);
 */
 static void k2gui_init(void);
+static void k2gui_close(void);
 static void k2gui_background_bitmap_fill(void);
 static void bmp_gradient_fill(WILLUSBITMAP *bmp);
 /*
@@ -112,6 +113,7 @@ printf("@k2gui_main, k2conv=%p, k2settings=%p\n",k2conv0,&k2conv0->k2settings);
     status=k2gui_osdep_window_proc_messages(&k2gui->mainwin,NULL,NULL);
     k2gui->active=0;
     strbuf_free(&k2gui->cmdxtra);
+    k2gui_close();
     willusgui_close();
     return(status);
     }
@@ -348,6 +350,7 @@ static void k2gui_init(void)
 
     k2gui->mainwin.handle=NULL;
     willusgui_font_init(&k2gui->font);
+    k2gui->preview_processing=0;
     k2gui->started=0;
     k2gui->active=0;
     /*
@@ -362,8 +365,21 @@ static void k2gui_init(void)
     for (i=0;i<8;i++)
         k2gui->prevthread[i]=NULL;
     bmp_init(&k2gui->pbitmap);
+    bmp_init(&k2gui->pworking);
+    k2gui_preview_bitmap_message(&k2gui->pworking,728,840,0.1,"WORKING...");
+    bmp_init(&k2gui->pviewbitmap);
+    k2gui_preview_bitmap_message(&k2gui->pviewbitmap,728,840,0.1,"PREVIEW\n\nWINDOW");
     k2gui->pbitmap.width=k2gui->pbitmap.height=0;
     k2gui->pbitmap.bpp=24;
+    }
+
+
+static void k2gui_close(void)
+
+    {
+    bmp_free(&k2gui->pviewbitmap);
+    bmp_free(&k2gui->pworking);
+    bmp_free(&k2gui->pbitmap);
     }
 
 
@@ -900,19 +916,27 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                         k2gui_cbox_do_conversion(k2gui);
                         k2gui_cbox_freelist();
                         /* Clear file list if everything converted okay. */
+                        /*
+                        ** v2.02--don't clear the file list anymore in case user
+                        **        wants to try some different cmd-line options for
+                        **        the conversion.
+                        */
+                        /*
                         if (k2gui_cbox_conversion_successful())
                             k2pdfopt_files_clear(&k2gui->k2conv->k2files);
+                        */
                         filebox_populate();
                         flcontrol=k2gui_control_by_name("file list");
                         willusgui_control_close(flcontrol);
                         k2gui_update_controls();
                         }
                     }
-                else if (!stricmp(control->name,"pre&view"))
+                else if (!stricmp(control->name,"pre&view") || !stricmp(control->name,"Cancel"))
                     {
-                    if (k2gui->k2conv->k2files.n<=0)
+                    if (!k2gui->preview_processing && k2gui->k2conv->k2files.n<=0)
                         k2gui_messagebox(0,"Convert","No files selected for conversion.");
                     k2gui_preview_start();
+                    k2gui_update_controls();
                     }
                 else if (!stricmp(control->name,"restore"))
                     {
@@ -1953,9 +1977,12 @@ printf("settings->s='%s'\n",settings->s);
         control->parent=&k2gui->mainwin;
         strcpy(control->label,"");
         /* Before creating, need bmp assigned. */
-        if (k2gui->pbitmap.width==0)
-            k2gui_preview_bitmap_message(&k2gui->pbitmap,728,840,0.1,"PREVIEW\n\nWINDOW");
-        control->obmp=&k2gui->pbitmap;
+        if (k2gui->preview_processing)
+            control->obmp=&k2gui->pworking;
+        else if (k2gui->pbitmap.width==0)
+            control->obmp=&k2gui->pviewbitmap;
+        else
+            control->obmp=&k2gui->pbitmap;
 /*
 printf("Calling control_create() for previewwin.\n");
 */
@@ -2032,11 +2059,11 @@ printf("    control->handle=%p\n",control->handle);
             control->font.size=k2gui->font.size;
             willusgui_font_get(&control->font);
             control->type=WILLUSGUICONTROL_TYPE_BUTTON;
-            control->color=0xffd0ff;
-            strcpy(control->name,"Pre&view");
             control->label[0]='\0';
             control->parent=&k2gui->mainwin;
             }
+        control->color=k2gui->preview_processing?0x806080:0xffd0ff;
+        strcpy(control->name,k2gui->preview_processing?"Cancel":"Pre&view");
         if (already_drawn)
             willusgui_control_redraw(control,0);
         else
@@ -2625,7 +2652,17 @@ static void k2gui_preview_start(void)
 
     {
     if (!k2gui_preview_done())
+        {
         k2gui_preview_terminate();
+        k2gui->pbitmap.width=0;
+        k2gui->preview_processing=0;
+        willusgui_set_cursor(0);
+        k2gui_preview_refresh();
+        return;
+        }
+    k2gui->preview_processing=1;
+    willusgui_set_cursor(1);
+    k2gui_preview_refresh();
     if (k2gui->k2conv->k2files.n<1)
         {
         k2gui_preview_fail(1);
@@ -2646,6 +2683,15 @@ static void k2gui_preview_start(void)
         k2gui->prevthread[0]=NULL;
         k2gui_preview_fail(3);
         }
+/*
+** This small delay seems to prevent a weird bug where the preview
+** occasionally fails, resulting in a fail with status=4, or a complete
+** crash with some errors reported by the PNG library.  I can't get
+** seem to get the crash to occur with this delay.  -- 4 Sep 2013, v2.01
+*/
+#if (defined(WIN32) || defined(WIN64))
+win_sleep(100);
+#endif
     }
 
 
@@ -2732,7 +2778,11 @@ static void k2gui_preview_cleanup(int statuscode)
     if (statuscode>0)
         k2gui_preview_fail(statuscode);
     else
+        {
+        k2gui->preview_processing=0;
+        willusgui_set_cursor(0);
         k2gui_preview_refresh();
+        }
     if (k2gui->prevthread[0]!=NULL)
         {
         willusgui_semaphore_release(k2gui->prevthread[0]);
@@ -2783,6 +2833,8 @@ static void k2gui_preview_fail(int statuscode)
         statuscode=0;
     sprintf(buf,"Preview failed.\n\n%s.",err[statuscode]);
     k2gui_preview_bitmap_message(&k2gui->pbitmap,700,950,0.07,buf);
+    k2gui->preview_processing=0;
+    willusgui_set_cursor(0);
     k2gui_preview_refresh();
     }
 
