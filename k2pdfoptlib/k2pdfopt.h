@@ -36,10 +36,11 @@
 ** 0x0800 = Put back "internal_gap" tracking (obsolete)
 ** 0x1000 = find text words
 ** 0x2000 = GUI
+** 0x4000 = Keep console for GUI debugging
 **
 */
 
-/* #define WILLUSDEBUGX 0x2a5 */
+/* #define WILLUSDEBUGX 0x4000 */
 /*
 #define WILLUSDEBUGX 0xfff
 #define WILLUSDEBUG
@@ -841,11 +842,14 @@ typedef struct
     int started;
     WILLUSGUIFONT font;
     int active;
+    int preview_processing;
     WILLUSBITMAP bgbmp;
     K2PDFOPT_CONVERSION *k2conv;
     STRBUF *env;
     /* STRBUF *cmdline; */
     STRBUF  cmdxtra;
+    WILLUSBITMAP pworking; /* Preview bitmap "working" */
+    WILLUSBITMAP pviewbitmap; /* Preview bitmap source */
     WILLUSBITMAP pbitmap; /* Preview bitmap source */
     void *prevthread[8]; /* Preview thread controls */
     } K2GUI;
@@ -926,6 +930,7 @@ void k2gui_preview_paint(void);
 int  k2gui_cbox_converting(void);
 int  k2gui_yesno(char *title,char *fmt,...);
 void k2gui_cbox_do_conversion(K2GUI *k2gui0);
+void k2gui_cbox_final_print(void);
 void k2gui_cbox_terminate_conversion(void);
 int  k2gui_cbox_conversion_successful(void);
 

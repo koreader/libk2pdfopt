@@ -433,8 +433,21 @@ void bmp_grey_pixel_setf(WILLUSBITMAP *bmp,int x,int y,int grey,double f);
 void bmp_rgb_pixel_setf(WILLUSBITMAP *bmp,int x,int y,int r,int g,int b,double f);
 void bmp_resize(WILLUSBITMAP *bmp,double scalefactor);
 void bmp_integer_resample(WILLUSBITMAP *dest,WILLUSBITMAP *src,int n);
+/*
+** As of Sept. 2013, the floating-point bmp_resample() is only faster than
+** the fixed-point version on 64-bit compiles.  For 32-bit Intel (and ARM),
+** the fixed-point version is considerably faster.
+** (__x86_64 is automatically pre-defined for 64-bit gcc compiles on Intel CPUs.)
+*/
+#ifdef __x86_64
+#define bmp_resample_optimum_performance bmp_resample
+#else
+#define bmp_resample_optimum_performance bmp_resample_fixed_point
+#endif
 int  bmp_resample(WILLUSBITMAP *dest,WILLUSBITMAP *src,double x1,double y1,
                   double x2,double y2,int newwidth,int newheight);
+int  bmp_resample_fixed_point(WILLUSBITMAP *dest,WILLUSBITMAP *src,double fx1,double fy1,
+                              double fx2,double fy2,int newwidth,int newheight);
 void bmp_crop_edge(WILLUSBITMAP *bmp);
 void bmp_invert(WILLUSBITMAP *bmp);
 void bmp_overlay(WILLUSBITMAP *dest,WILLUSBITMAP *src,int x0,int y0_from_top,
@@ -1417,6 +1430,7 @@ typedef struct
     char *s;
     int na;
     } STRBUF;
+char *strbuf_lineno(STRBUF *buf,int line_index);
 void strbuf_init(STRBUF *sbuf);
 void strbuf_cat(STRBUF *sbuf,char *s);
 void strbuf_cat_with_quotes(STRBUF *sbuf,char *s);
@@ -1521,6 +1535,7 @@ typedef WILLUSGUICONTROL WILLUSGUIWINDOW;
 
 void willusgui_init(void);
 void willusgui_close(void);
+void willusgui_set_cursor(int type);
 void willusgui_open_file(char *filename);
 WILLUSGUIWINDOW *willusgui_window_find(void *oshandle);
 void willusgui_window_text_render(WILLUSGUIWINDOW *win,WILLUSGUIFONT *font,char *text,int x0,int y0,
@@ -1530,6 +1545,7 @@ void willusgui_window_draw_line(WILLUSGUIWINDOW *win,int x0,int y0,int x1,int y1
                                                  int pixwidth,int rgbcolor);
 void willusgui_window_draw_rect_filled(WILLUSGUIWINDOW *win,WILLUSGUIRECT *rect,int rgb);
 void willusgui_window_draw_path_filled(WILLUSGUIWINDOW *win,int *x,int *y,int n,int rgb);
+int  willusgui_control_nlines(WILLUSGUICONTROL *control);
 void willusgui_window_draw_rect_outline(WILLUSGUIWINDOW *win,WILLUSGUIRECT *rect,int rgb);
 void willusgui_set_instance(void *instanceptr);
 void *willusgui_instance(void);

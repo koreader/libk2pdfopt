@@ -1,4 +1,4 @@
-char *k2pdfopt_version = "v2.00";
+char *k2pdfopt_version = "v2.02";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
@@ -18,6 +18,49 @@ char *k2pdfopt_version = "v2.00";
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **
 ** VERSION HISTORY
+**
+** v2.02     16 SEP 2013
+**           ENHANCEMENTS
+**           - The main bitmap resampling function in the willus library,
+**             bmp_resample(), now uses an alternate fixed-precision version (with
+**             virtually no accuracy loss) on non-64-bit compiles, where it has
+**             been tested to be significantly (50% to 100%) faster (on 64-bit
+**             modern Intel CPUs, the floating-point version is actually fastest).
+**             This should improve k2pdfopt performance on 32-bit and ARM
+**             implementations, including on the KOReader, for example.
+**             The resample routine also checks to see if no size change is
+**             required--if so, it does a simple bmp_copy() call instead of resampling.
+**             Thanks to Xin Huang (Chrox) for this suggestion and the initial
+**             implementation.
+**
+**           GENERIC BUG FIXES
+**           - echo_source_page_count correctly initialized to zero.
+**           - hyphen detection turned on (has been disabled since at least v1.66).
+**             (See bmpregion_hyphen_detect() function.)
+**           - gap_sorted variable in textwords_add_word_gaps() is no longer static.
+**           - Changed kindle paperwhite dims to 658 x 889 based on 9-15-13 e-mail
+**             feedback.
+**
+**           MS WINDOWS GUI BUG FIXES
+**           - Minimize/Maximize/Restore/Close buttons added to GUI convert dialog
+**             box so that users can get k2pdfopt out of the way while it is working.
+**           - GUI Conversion box no longer stays on top of other windows.
+**           - Text displayed in GUI conversion box is limited in number of lines
+**             until the very end to speed up scrolling on long conversions.
+**           - The GUI file list is not cleared the file list after a successful
+**             conversion anymore in case the user wants to try some different
+**             command-line options for the conversion.
+**
+** v2.01     4 SEP 2013
+**           BUG FIXES
+**           - Fixed significant memory leak in wmupdf.c (added wtextchars_free call in
+**             wtextchars_text_inside()).  Was causing k2pdfopt to crash on conversions
+**             of large PDF files.
+**           - Better feedback after preview button is pressed.  Also works correctly
+**             when re-sizing the window during a preview.
+**           - Inserted 0.1-second sleep at end of k2gui_preview_start()--seems to
+**             prevent occasional problems with the preview.
+**             
 ** v2.00     2 SEP 2013
 **           MAJOR NEW FEATURES
 **           - Added a GUI for the MS Windows version.  In MS Windows, k2pdfopt now

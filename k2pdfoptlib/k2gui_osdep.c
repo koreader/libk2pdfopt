@@ -44,13 +44,6 @@ void k2gui_osdep_init(K2GUI *k2gui0) /* ,void *hinst,void *hprevinst) */
 
     {
     k2gui=k2gui0;
-/*
-#ifdef MSWINGUI
-    k2wingui=&_k2wingui;
-    k2gui->osdep = (void *)k2wingui;
-    k2wingui->hinst = (HINSTANCE)hinst;
-#endif
-*/
     }
 
 
@@ -70,15 +63,11 @@ int k2gui_osdep_window_proc_messages(WILLUSGUIWINDOW *win,void *semaphore,WILLUS
             if (willusgui_semaphore_status(semaphore)==1)
                 {
                 done=1;
+                /* Final print */
+                k2gui_cbox_final_print();
                 /* Change button to "Close" */
                 if (closebutton!=NULL)
-                    {
                     k2gui_cbox_close_buttons();
-                    /*
-                    strcpy(closebutton->name,"Close");
-                    willusgui_control_redraw(closebutton,0);
-                    */
-                    }
                 continue;
                 }
             }
@@ -122,7 +111,7 @@ printf("@k2gui_osdep_main_window_init\n");
     wndclass.cbWndExtra    = 0;
     wndclass.hInstance     = (HINSTANCE)willusgui_instance();
     wndclass.hIcon         = iconr;
-    wndclass.hCursor       = LoadCursor(NULL,IDC_ARROW);
+    wndclass.hCursor       = NULL; /* LoadCursor(NULL,IDC_ARROW); */
     wndclass.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
     wndclass.lpszMenuName  = NULL;
     wndclass.lpszClassName = appname;
@@ -198,40 +187,29 @@ printf("Class registered.\n");
 printf("@(%d,%d), %d x %d\n",win->rect.left,win->rect.top,win->rect.right-win->rect.left+1,
 win->rect.bottom-win->rect.top+1);
 */
-    win->handle = (void*)CreateWindowEx(WS_EX_TOPMOST,classname,title,WS_OVERLAPPED,
+
+    /*
+    ** v2.02:  Use WS_OVERLAPPEDWINDOW instead of WS_OVERLAPPED so that we get a close
+    **         and a minimize button.
+    */
+    win->handle = (void*)CreateWindow(classname,title,WS_OVERLAPPEDWINDOW,
                              win->rect.left,win->rect.top,
                              win->rect.right-win->rect.left+1,
                              win->rect.bottom-win->rect.top+1,
                              parent->handle,NULL,0,NULL);
+    /*
+    win->handle = (void*)CreateWindowEx(WS_EX_TOPMOST,classname,title,WS_OVERLAPPEDWINDOW,
+                             win->rect.left,win->rect.top,
+                             win->rect.right-win->rect.left+1,
+                             win->rect.bottom-win->rect.top+1,
+                             parent->handle,NULL,0,NULL);
+    */
     ShowWindow(win->handle,SW_SHOW);
     UpdateWindow(win->handle);
 #else
     win->handle=NULL;
 #endif
     }
-
-
-/*
-** File dropped onto main window
-*/
-/*
-void k2gui_osdep_file_dropped(void *hdrop)
-            
-    {
-#ifdef MSWINGUI
-    int i,n;
-    n=DragQueryFile((HDROP)hdrop,0xffffffff,NULL,0);
-    for (i=0;i<n;i++)
-        {
-        char buf[512],buf2[512];
-        DragQueryFile((HDROP)hdrop,i,buf,511);
-        while (win_resolve_shortcut(buf,buf2,511))
-            strcpy(buf,buf2);
-        k2gui_add_file(buf);
-        }
-#endif
-    }
-*/
 
 
 /*
@@ -274,6 +252,24 @@ printf("CONVERT iMsg = 0x%X, wParam=0x%X, lParam=0x%X\n",(int)iMsg,(int)wParam,(
         {
         case WM_CREATE:
             return(0);
+        /* v2.02:  Echo any minimize/maximize/restore click to the main window also. */
+        case WM_SYSCOMMAND:
+            if (wParam==SC_MINIMIZE)
+                ShowWindow((HWND)k2gui->mainwin.handle,SW_MINIMIZE);
+            else if (wParam==SC_MAXIMIZE)
+                ShowWindow((HWND)k2gui->mainwin.handle,SW_MAXIMIZE);
+            else if (wParam==SC_RESTORE)
+                ShowWindow((HWND)k2gui->mainwin.handle,SW_RESTORE);
+            break;
+        /* v2.02:  Limit max size of dialog box to the original size */
+        case WM_GETMINMAXINFO:
+            {
+            MINMAXINFO *mmi;
+            mmi=(MINMAXINFO *)lParam;
+            mmi->ptMaxSize.x = k2gui_cbox->mainwin.rect.right - k2gui_cbox->mainwin.rect.left+1;
+            mmi->ptMaxSize.y = k2gui_cbox->mainwin.rect.bottom - k2gui_cbox->mainwin.rect.top+1;
+            return(0);
+            }
         case WM_DRAWITEM:
             {
             int buttonid;

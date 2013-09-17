@@ -91,8 +91,8 @@ void bmpregion_row_histogram(BMPREGION *region)
     static char *funcname="bmpregion_row_histogram";
     WILLUSBITMAP *src;
     FILE *out;
-    static int *rowcount;
-    static int *hist;
+    int *rowcount;
+    int *hist;
     int i,j,nn;
 
     willus_dmem_alloc_warn(6,(void **)&rowcount,(region->r2-region->r1+1)*sizeof(int),funcname,10);
@@ -696,20 +696,34 @@ fprintf(out,"lcheight=%d\n",region->bbox.lcheight);
     textrow=&region->bbox;
     textrow->hyphen.ch = -1;
     textrow->hyphen.c2 = -1;
-    // it seems that textrows.n is always less than 1 and it will never detect hyphen
-    //if (region->textrows.n<1)
-        //return;
-    if (textrow->type == REGION_TYPE_FIGURE)
-        return;
-    // detect hyphen when hyphen_detect is not 0
+    /*
+    ** Deleted checks for number of text rows and whether region is a figure.
+    ** (Since only called from wrapbmp, region must be text.)
+    */
+    /* Was incorrect before v2.02--had this:  if (hyphen_detect) */
     if (!hyphen_detect)
+        {
+#if (WILLUSDEBUGX & 16)
+printf("    hyphen_detect is off.\n");
+#endif
         return;
+        }
     if (textrow->c2<0 || textrow->c1<0 || textrow->r1<0 || textrow->r2<0
             || textrow->rowbase<0 || textrow->capheight<0 || textrow->lcheight<0)
+        {
+#if (WILLUSDEBUGX & 16)
+printf("    bad c1,c2,r1,r2,rowbase.\n");
+#endif
         return;
+        }
     width=textrow->c2-textrow->c1+1;
     if (width<2)
+        {
+#if (WILLUSDEBUGX & 16)
+printf("    width < 2.\n");
+#endif
         return;
+        }
     willus_dmem_alloc_warn(27,(void **)&r0,sizeof(int)*4*width,funcname,10);
     r1=&r0[width];
     r2=&r1[width];

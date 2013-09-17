@@ -23,7 +23,83 @@
 #include <string.h>
 #include "willus.h"
 
+static char *count_from_top(char *s,int index);
+static char *count_from_bottom(char *s,int index);
 static void strcpy_no_spaces(char *d,char *s);
+
+/*
+** Return char pointer to line # line_index in the buffer (using \n as line end.)
+** Use negative value for line_index to count from the end of the buffer backwards.
+*/
+char *strbuf_lineno(STRBUF *sbuf,int line_index)
+
+    {
+    if (sbuf->s==NULL)
+        return(sbuf->s);
+    if (line_index==0)
+        return(sbuf->s);
+    if (line_index>0)
+        return(count_from_top(sbuf->s,line_index));
+    return(count_from_bottom(sbuf->s,-line_index));
+    }
+
+
+static char *count_from_top(char *s,int index)
+
+    {
+    int i;
+
+    if (index==1)
+        return(s);
+    for (i=0,index--;s[i]!='\0';i++)
+        {
+        if (s[i]=='\n')
+            {
+            index--;
+            if (index<=0)
+                break;
+            }
+        }
+    if (s[i]=='\n')
+        {
+        i++;
+        if (s[i]=='\r')
+            i++;
+        }
+    return(&s[i]);
+    }
+
+            
+static char *count_from_bottom(char *s,int index)
+
+    {
+    int i,len;
+
+    if (s[0]=='\0')
+        return(s);
+    len=strlen(s)-1;
+    if (len>0 && s[len]=='\r')
+        len--;
+    if (len>0 && s[len]=='\n')
+        len--;
+    for (i=len;i>0;i--)
+        {
+        if (s[i]=='\n')
+            {
+            index--;
+            if (index<=0)
+                break;
+            }
+        }
+    if (s[i]=='\n')
+        {
+        i++;
+        if (s[i]=='\r')
+            i++;
+        }
+    return(&s[i]);
+    }
+            
 
 void strbuf_init(STRBUF *sbuf)
 

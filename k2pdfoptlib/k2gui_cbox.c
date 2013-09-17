@@ -695,7 +695,7 @@ int k2gui_cbox_vprintf(FILE *f,char *fmt,va_list args)
     static char *funcname="k2gui_cbox_vprintf";
     char prbuf[1024];
     char *buf;
-    int i,j,status;
+    int i,j,status,nlines;
 
     if (k2gui_cbox==NULL || k2gui_cbox->control[0].handle==NULL || k2gui_cbox->ncontrols<1)
         return(-1);
@@ -728,10 +728,19 @@ int k2gui_cbox_vprintf(FILE *f,char *fmt,va_list args)
         }
     buf[j]='\0';
     strbuf_sprintf(&k2gui_cbox->buf,"%s",buf);
-    willusgui_control_set_text(&k2gui_cbox->control[0],k2gui_cbox->buf.s);
+    nlines=willusgui_control_nlines(&k2gui_cbox->control[0]);
+    willusgui_control_set_text(&k2gui_cbox->control[0],strbuf_lineno(&k2gui_cbox->buf,-nlines));
     willusgui_control_scroll_to_bottom(&k2gui_cbox->control[0]);
     willus_mem_free((double **)&buf,funcname);
     return(status);
+    }
+
+
+void k2gui_cbox_final_print(void)
+
+    {
+    willusgui_control_set_text(&k2gui_cbox->control[0],k2gui_cbox->buf.s);
+    willusgui_control_scroll_to_bottom(&k2gui_cbox->control[0]);
     }
 
 

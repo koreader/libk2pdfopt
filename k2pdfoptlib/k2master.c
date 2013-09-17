@@ -443,7 +443,6 @@ printf("gap_start=%d\n\n",gap_start);
     if (src1->bpp!=8)
         bmp_free(gray);
 
-
     /*
     ** Up to this point, the bitmap may have been scaled at higher resolution
     ** so that the OCR would be more accurate.  Now that we are done with
@@ -776,34 +775,6 @@ printf("lastrow->gap now = %d(r2) - %d(rowbase) = %d\n",region->r2,textrow[n-1].
 #endif
     return(gap_pixels);
     }
-
-
-#if 0
-void masterinfo_add_gap_src_pixels(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
-                                   int pixels,char *caller)
-
-    {
-    double gap_inches;
-
-#if (WILLUSDEBUGX & 513)
-k2printf("%s " ANSI_GREEN "masterinfo_add" ANSI_NORMAL " %.3f in (%d pix)\n",caller,(double)pixels/k2settings->src_dpi,pixels);
-#endif
-#ifdef WILLUSDEBUG
-printf("@masterinfo_add_gap_src_pixels(mi=%p,k2settings=%p,pixels=%d,caller=%s)\n",
-masterinfo,k2settings,pixels,caller);
-printf("   src_dpi=%g\n",(double)k2settings->src_dpi);
-printf("   dst_dpi=%g\n",(double)k2settings->dst_dpi);
-#endif
-    if (k2settings->last_scale_factor_internal < 0.)
-        gap_inches=(double)pixels/k2settings->src_dpi;
-    else
-        gap_inches=(double)pixels*k2settings->last_scale_factor_internal/k2settings->dst_dpi;
-    gap_inches *= k2settings->vertical_multiplier;
-    if (gap_inches > k2settings->max_vertical_gap_inches)
-        gap_inches=k2settings->max_vertical_gap_inches;
-    masterinfo_add_gap(masterinfo,k2settings,gap_inches);
-    }
-#endif
 
 
 void masterinfo_remove_top_rows(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int rows)
@@ -1314,48 +1285,6 @@ static void bmp_pad_and_mark(WILLUSBITMAP *dst,WILLUSBITMAP *src,K2PDFOPT_SETTIN
     }
 
 
-#if 0
-void masterinfo_add_gap(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,double inches)
-
-    {
-    int n,bw;
-    unsigned char *p;
-
-#if (defined(WILLUSDEBUG) || (WILLUSDEBUGX & 1))
-printf("@masterinfo_add_gap(%g inches), masterinfo->bmp.height=%d, dpi=%g\n",inches,masterinfo->bmp.height,(double)k2settings->dst_dpi);
-printf("    rows=%d\n",masterinfo->rows);
-#endif
-    n=(int)(inches*k2settings->dst_dpi+.5);
-    if (n<1)
-        n=1;
-#ifdef WILLUSDEBUG
-printf("    n=%d, rowptr=%p\n",n,bmp_rowptr_from_top(&masterinfo->bmp,0));
-#endif
-    while (masterinfo->rows+n > masterinfo->bmp.height)
-{
-#ifdef WILLUSDEBUG
-printf("   calling bmp_more_rows()\n");
-#endif
-        bmp_more_rows(&masterinfo->bmp,1.4,255);
-#ifdef WILLUSDEBUG
-printf("   back.\n");
-printf("    n=%d, rowptr=%p\n",n,bmp_rowptr_from_top(&masterinfo->bmp,0));
-#endif
-}
-    bw=bmp_bytewidth(&masterinfo->bmp)*n;
-    p=bmp_rowptr_from_top(&masterinfo->bmp,masterinfo->rows);
-#ifdef WILLUSDEBUG
-printf("  calling memset (p=%p, ht=%d, rows=%d, bmpwidth=%d, bw=%d)\n",p,masterinfo->bmp.height,masterinfo->rows,masterinfo->bmp.width,bw);
-#endif
-    memset(p,255,bw);
-#ifdef WILLUSDEBUG
-printf("  back\n");
-#endif
-    masterinfo->rows += n;
-    }
-#endif
-
-
 /*
 ** Spread words out in src and put into jbmp at scaling nocr
 ** In case the text can't be expanded enough,
@@ -1388,6 +1317,8 @@ bmp_write(src,filename,stdout,100);
         for (i=0;i<256;i++)
             jbmp->red[i]=jbmp->green[i]=jbmp->blue[i]=i;
     bmp_alloc(jbmp);
+
+    gappos=NULL;
 /*
     if (wrectmaps!=NULL)
         find_word_gaps_using_wrectmaps(wrectmaps,&gappos,&gapsize,&ng,
@@ -1424,7 +1355,7 @@ bmp_write(src,filename,stdout,100);
         wrectmaps_sort_horizontally(wrectmaps);
 
     /* Spread out source pieces to fully justify them */
-    willus_mem_alloc_warn((void *)&dx0,2*sizeof(int)*(ng+1),funcname,10);
+    willus_dmem_alloc_warn(30,(void *)&dx0,2*sizeof(int)*(ng+1),funcname,10);
     sx0=&dx0[ng+1];
     for (i=0;i<=ng;i++)
         {
@@ -1449,7 +1380,7 @@ bmp_write(src,filename,stdout,100);
             x0 = (i==0) ? 0 : dx0[i-1]+(sx0[i]-sx0[i-1]);
             wrectmaps_add_gap(wrectmaps,x0,dx0[i]-x0);
             }
-    willus_mem_free((double **)&dx0,funcname);
+    willus_dmem_free(30,(double **)&dx0,funcname);
     if (gappos!=NULL)
         willus_dmem_free(9,(double **)&gappos,funcname);
     }
