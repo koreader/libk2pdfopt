@@ -362,9 +362,9 @@ void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
                                        BMPREGION *region,MASTERINFO *masterinfo,int trimmed)
 
     {
-    static int count=0;
-    static double wu=0.; /* Store untrimmed width, height */
-    static double hu=0.;
+    int count=0;
+    double wu=0.; /* Store untrimmed width, height */
+    double hu=0.;
     double swidth_in,sheight_in;
     int new_width,new_height,zeroarea;
     WPDFPAGEINFO *pageinfo;

@@ -91,8 +91,8 @@ void bmpregion_row_histogram(BMPREGION *region)
     static char *funcname="bmpregion_row_histogram";
     WILLUSBITMAP *src;
     FILE *out;
-    static int *rowcount;
-    static int *hist;
+    int *rowcount;
+    int *hist;
     int i,j,nn;
 
     willus_dmem_alloc_warn(6,(void **)&rowcount,(region->r2-region->r1+1)*sizeof(int),funcname,10);

@@ -414,7 +414,7 @@ static int inflection_count(double *x,int n,int delta,int *wthresh)
     int i,i0,ni,ww,c,ct,wt,mode;
     double meandi,meandisq,f1,f2,stdev;
     double *xs;
-    static int hist[256];
+    int hist[256];
     static char *funcname="inflection_count";
 
     /* Find threshold white value that peaks must exceed */
