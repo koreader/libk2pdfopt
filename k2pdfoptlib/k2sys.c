@@ -124,6 +124,7 @@ int k2printf(char *fmt,...)
 {
 status=avprintf(stdout,fmt,args);
         status=k2gui_cbox_vprintf(stdout,fmt,args);
+
 }
     else
 #endif

@@ -1813,6 +1813,7 @@ void wtextchars_text_inside(WTEXTCHARS *src,char **text,double x1,double y1,doub
     for (j=0;i<=i2;i++)
         unicode[j++]=dst->wtextchar[i].ucs;
     n=j;
+    wtextchars_free(dst);
     utf8len=n==0 ? 0 : utf8_length(unicode,n);
     willus_mem_alloc_warn((void **)text,utf8len+1,funcname,10);
     t=(*text);

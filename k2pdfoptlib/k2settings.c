@@ -133,6 +133,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->src_grid_overlap_percentage=2;
     k2settings->src_grid_order=0; /* 0=down then across, 1=across then down */
     k2settings->preview_page=0; /* 0 = no preview */
+    k2settings->echo_source_page_count=0;
 /*
 ** Undocumented cmd-line args
 */

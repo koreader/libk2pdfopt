@@ -112,15 +112,15 @@ int k2settings_sprintf(STRBUF *cmdline,K2PDFOPT_SETTINGS *k2settings,char *fmt,.
     cmd1=&_cmd1;
     strbuf_init(cmd1);
     va_start(args,fmt);
-    willus_mem_alloc_warn((void **)&buf,2048,funcname,10);
-    willus_mem_alloc_warn((void **)&k2conv,sizeof(K2PDFOPT_CONVERSION),funcname,10);
+    willus_dmem_alloc_warn(32,(void **)&buf,2048,funcname,10);
+    willus_dmem_alloc_warn(33,(void **)&k2conv,sizeof(K2PDFOPT_CONVERSION),funcname,10);
     k2pdfopt_conversion_init(k2conv);
     status=vsprintf(buf,fmt,args);
     va_end(args);
     strbuf_cat(cmd1,buf);
     if (cmdline!=NULL)
         strbuf_cat(cmdline,buf);
-    willus_mem_free((double **)&buf,funcname);
+    willus_dmem_free(32,(double **)&buf,funcname);
     k2pdfopt_settings_copy(&k2conv->k2settings,k2settings);
 /*
 printf("    @k2settings_sprintf, cmd1='%s'\n",cmd1->s);
@@ -137,7 +137,7 @@ printf("        k2settings->native=%d\n",k2settings->use_crop_boxes);
 printf("        k2settings->vbthresh=%g\n",(double)k2settings->vertical_break_threshold);
 */
     k2pdfopt_conversion_close(k2conv);
-    willus_mem_free((double **)&k2conv,funcname);
+    willus_dmem_free(33,(double **)&k2conv,funcname);
     strbuf_free(cmd1);
     return(status);
     }

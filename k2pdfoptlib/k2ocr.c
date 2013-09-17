@@ -177,6 +177,7 @@ sprintf(filename,"out%03d.png",count);
 bmp_write(src,filename,stdout,100);
 }
 */
+
     if (region->bmp->width<=0 || region->bmp->height<=0)
         return;
 

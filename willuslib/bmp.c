@@ -123,9 +123,13 @@ static void get_file_ext(char *fileext,char *filename);
 static void bmp_resample_1(double *tempbmp,WILLUSBITMAP *src,double x1,double y1,
                            double x2,double y2,int newwidth,int newheight,
                            double *temprow,int color);
-static void resample_1d(double *dst,double *src,double x1,double x2,
-                        int n);
+static void resample_1d(double *dst,double *src,double x1,double x2,int n);
 static double resample_single(double *y,double x1,double x2);
+static void bmp_resample_1_fixed_point(int *tempbmp,WILLUSBITMAP *src,int x1_fp,int y1_fp,
+                                       int x2_fp,int y2_fp,int newwidth,int newheight,
+                                       int *temprow,int color);
+static void resample_1d_fixed_point(int *dst,int *src,int x1_fp,int x2_fp,int n);
+static double resample_single_fixed_point(int *y,int x1_fp,int x2_fp);
 #ifdef HAVE_PNG_LIB
 static void bmp_read_png_from_memory(png_structp png_ptr,void *buf,int nbytes);
 #endif
@@ -2488,6 +2492,14 @@ int bmp_resample(WILLUSBITMAP *dest,WILLUSBITMAP *src,double x1,double y1,
     int color,hmax,row,col,dy;
     static char *funcname="bmp_resample";
 
+    if (newwidth==0 || newheight==0)
+        return(-1);
+    /* Quick check if we should use simple bmp_copy() call */
+    if (x1==0. && y1==0. && x2==newwidth && y2==newheight)
+        {
+        bmp_copy(dest,src);
+        return(0);
+        }
     /* Clip and sort x1,y1 and x2,y2 */
     if (x1>src->width)
         x1=src->width;
@@ -2650,8 +2662,7 @@ static void bmp_resample_1(double *tempbmp,WILLUSBITMAP *src,double x1,double y1
 **                and so on.
 **
 */
-static void resample_1d(double *dst,double *src,double x1,double x2,
-                        int n)
+static void resample_1d(double *dst,double *src,double x1,double x2,int n)
 
     {
     int i;
@@ -2670,84 +2681,276 @@ static void resample_1d(double *dst,double *src,double x1,double x2,
 static double resample_single(double *y,double x1,double x2)
 
     {
-#ifndef USE_FIXED_POINT
-	int i,i1,i2;
-	double dx,dx1,dx2,sum;
+    int i,i1,i2;
+    double dx,dx1,dx2,sum;
 
-	i1=floor(x1);
-	i2=floor(x2);
-	if (i1==i2)
-		return(y[i1]);
-	dx=x2-x1;
-	if (dx>1.)
-		dx=1.;
-	dx1= 1.-(x1-i1);
-	dx2= x2-i2;
-	sum=0.;
-	if (dx1 > 1e-8*dx)
-		sum += dx1*y[i1];
-	if (dx2 > 1e-8*dx)
-		sum += dx2*y[i2];
-	for (i=i1+1;i<=i2-1;sum+=y[i],i++);
-	return(sum/(x2-x1));
-#else
-	int fix_x1, fix_x2;
-	int i,i1,i2;
-	int dx,dx1,dx2,sum=0;
+    i1=floor(x1);
+    i2=floor(x2);
+    if (i1==i2)
+        return(y[i1]);
+    dx=x2-x1;
+    if (dx>1.)
+        dx=1.;
+    dx1= 1.-(x1-i1);
+    dx2= x2-i2;
+    sum=0.;
+    if (dx1 > 1e-8*dx)
+        sum += dx1*y[i1];
+    if (dx2 > 1e-8*dx)
+        sum += dx2*y[i2];
+    for (i=i1+1;i<=i2-1;sum+=y[i],i++);
+    return(sum/(x2-x1));
+    }
 
-	fix_x1=(int)(x1*1024);
-	fix_x2=(int)(x2*1024);
-	i1    =fix_x1>>10;
-	i2    =fix_x2>>10;
-	if (i1>=i2)
-		return(y[i1]);
 
-	dx1  = 1024 - (fix_x1-i1*1024);
-	dx2  = fix_x2 - i2*1024;
 
-	sum += dx1*(int)(y[i1]);
-	sum += dx2*(int)(y[i2]);
-	for (i=i1+1; i<=i2-1; sum+=1024*(int)(y[i]),i++);
-	return((double)(sum/(fix_x2-fix_x1)));
-#endif
+
+/*
+** Determine fixed-point accuracy of resample function
+*/
+#define FPBITS     10
+#define FPPIXBITS   8
+/*
+** Derived quantities
+*/
+#define FPMULT     (1<<FPBITS)
+#define FPMAX      ((1<<(31-FPBITS))-1)
+#define FPPIXMULT  (1<<FPPIXBITS)
+#define FPARMAX    (1<<(22-FPPIXBITS))
+#define FPDIMMAX   (1<<(30-FPBITS))
+/*
+** Resample (re-size) bitmap, but use fixed-point and all integer math.
+** Only slightly less accurate than floating point, but faster.
+*/
+int bmp_resample_fixed_point(WILLUSBITMAP *dest,WILLUSBITMAP *src,double fx1,double fy1,
+                             double fx2,double fy2,int newwidth,int newheight)
+
+    {
+    int gray,maxlen,colorplanes;
+    /* Assumes integers are 32-bit */
+    int *tempbmp;
+    int *temprow;
+    int x1_fp,y1_fp,x2_fp,y2_fp,swidth_fp,sheight_fp;
+    int color,hmax,row,col,dy,dx;
+    static char *funcname="bmp_resample";
+
+    if (newwidth==0 || newheight==0)
+        return(-1);
+    /* Quick check if we should use simple bmp_copy() call */
+    if (fx1==0. && fy1==0. && fx2==newwidth && fy2==newheight)
+        {
+        bmp_copy(dest,src);
+        return(0);
+        }
+    /*
+    ** Make sure we won't have fixed-precision overruns.
+    ** If so, just use the float routine
+    */
+    if (fabs(fx2-fx1)*fabs(fy2-fy1)/(newheight*newwidth) > FPARMAX
+          || fx1>FPDIMMAX || fx2>FPDIMMAX || fy1>FPDIMMAX || fy2>FPDIMMAX
+          || newwidth>FPDIMMAX || newheight>FPDIMMAX
+          || src->width>FPDIMMAX || src->height>FPDIMMAX)
+        return(bmp_resample(dest,src,fx1,fy1,fx2,fy2,newwidth,newheight));
+
+    /* Convert to fixed-point integers */
+    x1_fp=fx1*FPMULT+0.5;
+    y1_fp=fy1*FPMULT+0.5;
+    x2_fp=fx2*FPMULT+0.5;
+    y2_fp=fy2*FPMULT+0.5;
+    swidth_fp = src->width<<FPBITS;
+    sheight_fp = src->height<<FPBITS;
+    /* Clip and sort x1,y1 and x2,y2 */
+    if (x1_fp>swidth_fp)
+        x1_fp=swidth_fp;
+    else if (x1_fp<0)
+        x1_fp=0;
+    if (x2_fp>swidth_fp)
+        x2_fp=swidth_fp;
+    else if (x2_fp<0)
+        x2_fp=0;
+    if (y1_fp>sheight_fp)
+        y1_fp=sheight_fp;
+    else if (y1_fp<0)
+        y1_fp=0;
+    if (y2_fp>sheight_fp)
+        y2_fp=sheight_fp;
+    else if (y2_fp<0)
+        y2_fp=0;
+    if (x2_fp<x1_fp)
+        {
+        int t;
+        t=x2_fp;
+        x2_fp=x1_fp;
+        x1_fp=t;
+        }
+    if (y2_fp<y1_fp)
+        {
+        int t;
+        t=y2_fp;
+        y2_fp=y1_fp;
+        y1_fp=t;
+        }
+    dy=(y2_fp-y1_fp)>>FPBITS;
+    dy += 2;
+    if (x2_fp==x1_fp || y2_fp==y1_fp)
+        return(-2);
+
+    /* Allocate temp storage */
+    dx = (x2_fp-x1_fp)>>FPBITS;
+    maxlen = dx > dy+newheight ? dx : dy+newheight;
+    maxlen += 16;
+    hmax = newheight > dy ? newheight : dy;
+    if (!willus_mem_alloc((double **)&temprow,maxlen*sizeof(int),funcname))
+        return(-1);
+    if (!willus_mem_alloc((double **)&tempbmp,hmax*newwidth*sizeof(int),funcname))
+        {
+        willus_mem_free((double **)&temprow,funcname);
+        return(-1);
+        }
+    if ((gray=bmp_is_grayscale(src))!=0)
+        {
+        int i;
+        dest->bpp=8;
+        for (i=0;i<256;i++)
+            dest->red[i]=dest->blue[i]=dest->green[i]=i;
+        }
+    else
+        dest->bpp=24;
+    dest->width=newwidth;
+    dest->height=newheight;
+    dest->type=WILLUSBITMAP_TYPE_NATIVE;
+    if (!bmp_alloc(dest))
+        {
+        willus_mem_free((double **)&tempbmp,funcname);
+        willus_mem_free((double **)&temprow,funcname);
+        return(-1);
+        }
+    colorplanes = gray ? 1 : 3;
+    for (color=0;color<colorplanes;color++)
+        {
+        bmp_resample_1_fixed_point(tempbmp,src,x1_fp,y1_fp,x2_fp,y2_fp,newwidth,newheight,
+                                   temprow,gray ? -1 : color);
+        for (row=0;row<newheight;row++)
+            {
+            unsigned char *p;
+            int *s;
+            p=bmp_rowptr_from_top(dest,row)+color;
+            s=&tempbmp[row*newwidth];
+            if (colorplanes==1)
+                for (col=0;col<newwidth;p[0]=(s[0]+(FPPIXMULT/2-1))>>FPPIXBITS,col++,s++,p++);
+            else
+                for (col=0;col<newwidth;p[0]=(s[0]+(FPPIXMULT/2-1))>>FPPIXBITS,col++,s++,p+=colorplanes);
+            }
+        }
+    willus_mem_free((double **)&tempbmp,funcname);
+    willus_mem_free((double **)&temprow,funcname);
+    return(0);
+    }
+
+
+static void bmp_resample_1_fixed_point(int *tempbmp,WILLUSBITMAP *src,int x1_fp,int y1_fp,
+                                       int x2_fp,int y2_fp,int newwidth,int newheight,
+                                       int *temprow,int color)
+
+    {
+    int row,col,x0,dx,y0,dy;
+
+    x0=x1_fp>>FPBITS;
+    dx=((x2_fp+(FPMULT-1))>>FPBITS)-x0;
+    x1_fp-=(x0<<FPBITS);
+    x2_fp-=(x0<<FPBITS);
+    y0=y1_fp>>FPBITS;
+    dy=((y2_fp+(FPMULT-1))>>FPBITS)-y0;
+    y1_fp-=(y0<<FPBITS);
+    y2_fp-=(y0<<FPBITS);
+    if (src->type==WILLUSBITMAP_TYPE_WIN32 && color>=0)
+        color=2-color;
+    for (row=0;row<dy;row++)
+        {
+        unsigned char *p;
+        p=bmp_rowptr_from_top(src,row+y0);
+        if (src->bpp==8)
+            {
+            switch (color)
+                {
+                case -1:
+                    for (col=0,p+=x0;col<dx;col++,p++)
+                        temprow[col]=(((unsigned int)p[0])<<FPPIXBITS);
+                    break;
+                case 0:
+                    for (col=0,p+=x0;col<dx;col++,p++)
+                        temprow[col]=src->red[p[0]]<<FPPIXBITS;
+                    break;
+                case 1:
+                    for (col=0,p+=x0;col<dx;col++,p++)
+                        temprow[col]=src->green[p[0]]<<FPPIXBITS;
+                    break;
+                case 2:
+                    for (col=0,p+=x0;col<dx;col++,p++)
+                        temprow[col]=src->blue[p[0]]<<FPPIXBITS;
+                    break;
+                }
+            }
+        else
+            {
+            p+=color;
+            for (col=0,p+=3*x0;col<dx;temprow[col]=(((unsigned int)p[0])<<FPPIXBITS),col++,p+=3);
+            }
+        resample_1d_fixed_point(&tempbmp[row*newwidth],temprow,x1_fp,x2_fp,newwidth);
+        }
+    for (col=0;col<newwidth;col++)
+        {
+        int *p,*s;
+        p=&tempbmp[col];
+        s=&temprow[dy];
+        for (row=0;row<dy;row++,p+=newwidth)
+            temprow[row]=p[0];
+        resample_1d_fixed_point(s,temprow,y1_fp,y2_fp,newheight);
+        p=&tempbmp[col];
+        for (row=0;row<newheight;row++,p+=newwidth,s++)
+            p[0]=s[0];
+        }
     }
 
 
 /*
-** Crop all edge pixels of bitmap that match the color of the upper
-** left corner pixel
+** Fixed point version of resample_1d().
 */
-void bmp_crop_edge(WILLUSBITMAP *bmp)
+static void resample_1d_fixed_point(int *dst,int *src,int x1_fp,int x2_fp,int n)
 
     {
-    unsigned char *p0,*p;
-    int i,j,pbw,imin,imax,jmin,jmax;
+    int i,new_fp,last_fp;
 
-    p0=bmp_rowptr_from_top(bmp,0);
-    pbw=bmp->bpp>>3;
-    imin=bmp->height+1;
-    imax=-1;
-    jmax=-1;
-    jmin=bmp->width+1;
-    for (i=0;i<bmp->height;i++)
+    last_fp=x1_fp;
+    for (i=0;i<n;i++)
         {
-        p=bmp_rowptr_from_top(bmp,i);
-        for (j=0;j<bmp->width;j++,p+=pbw)
-            if (memcmp(p,p0,pbw))
-                {
-                if (i<imin)
-                    imin=i;
-                if (i>imax)
-                    imax=i;
-                if (j<jmin)
-                    jmin=j;
-                if (j>jmax)
-                    jmax=j;
-                }
+        /* Needs to go to double to prevent integer overflow */
+        new_fp=(int)(x1_fp+(double)(x2_fp-x1_fp)*(i+1)/n+.5);
+        dst[i] = resample_single_fixed_point(src,last_fp,new_fp);
+        last_fp=new_fp;
         }
-    if (imax>=0)
-        bmp_crop(bmp,imin,jmin,(imax-imin+1),(jmax-jmin+1));
     }
+
+
+static double resample_single_fixed_point(int *y,int x1_fp,int x2_fp)
+
+    {
+    int i,i1,i2;
+    int dx_fp,dx1_fp,dx2_fp,sum;
+
+    i1=x1_fp>>FPBITS;
+    i2=x2_fp>>FPBITS;
+    if (i1==i2)
+        return(y[i1]);
+    dx_fp = x2_fp-x1_fp;
+    dx1_fp = FPMULT-(x1_fp-(i1<<FPBITS));
+    dx2_fp = x2_fp-(i2<<FPBITS);
+    sum= ((dx1_fp*y[i1]+(FPMULT/2))>>FPBITS) + ((dx2_fp*y[i2]+(FPMULT/2))>>FPBITS);
+    for (i=i1+1;i<=i2-1;sum+=y[i],i++);
+    return((sum<=FPMAX) ? ((sum<<FPBITS)+(FPMULT/2))/dx_fp : ((double)sum*FPMULT+(FPMULT/2))/dx_fp);
+    }
+
+
         
 
 /*
