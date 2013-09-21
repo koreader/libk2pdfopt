@@ -111,7 +111,8 @@ $(K2PDFOPT_A): $(K2PDFOPT_O) tesseract_capi
 	$(AR) rcs $@ $(K2PDFOPT_O) $(TESSERACT_API_O)
 
 $(K2PDFOPT_SO): $(K2PDFOPT_O) tesseract_capi
-	$(CC) $(TARGET_ASHLDFLAGS) -o $@ $(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS)
+	$(CC) $(TARGET_ASHLDFLAGS) -o $@ \
+		$(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS) $(MUPDF_LIB)
 	ln -sf $(K2PDFOPT_SO) libk2pdfopt.so
 	
 all: tesseract $(TARGET)
