@@ -210,9 +210,11 @@ typedef double  real;
 #ifndef HAVE_JPEG_LIB
 #define HAVE_JPEG_LIB
 #endif
+*/
 #ifndef HAVE_MUPDF_LIB
 #define HAVE_MUPDF_LIB
 #endif
+/*
 #ifndef HAVE_GHOSTSCRIPT
 #define HAVE_GHOSTSCRIPT
 #endif
