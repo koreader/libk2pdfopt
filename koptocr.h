@@ -38,8 +38,10 @@ void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 		char *datadir, char *lang, char *ocr_type,
 		int allow_spaces, int std_proc);
 
-void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
+void k2pdfopt_get_reflowed_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 		int x, int y, int w, int h);
 
+void k2pdfopt_get_native_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
+        int x, int y, int w, int h);
 #endif
 

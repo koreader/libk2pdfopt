@@ -55,6 +55,11 @@ TARGET_ALIBS= $(TARGET_XLIBS) $(LIBS) $(TARGET_LIBS)
 
 K2PDFOPT_A= libk2pdfopt.a
 K2PDFOPT_SO= $(TARGET_SONAME)
+
+LEPTONICA_LIB= liblept.so
+TESSERACT_LIB= libtesseract.so
+K2PDFOPT_LIB= libk2pdfopt.so.$(MAJVER)
+
 ##############################################################################
 # Object file rules.
 ##############################################################################
@@ -67,7 +72,7 @@ K2PDFOPT_SO= $(TARGET_SONAME)
 ##############################################################################
 # Target file rules.
 ##############################################################################
-leptonica:
+$(LEPTONICA_LIB):
 ifdef EMULATE_READER
 	cd $(LEPTONICA_DIR) && ./configure \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(CFLAGS)' \
@@ -82,7 +87,7 @@ else
 endif
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept.so* ./
 	
-tesseract: leptonica
+$(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cp $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/
 ifdef EMULATE_READER
 	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure \
@@ -103,19 +108,19 @@ else
 endif
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract.so* ./
 	
-tesseract_capi: $(TESSERACT_MOD)/tesscapi.cpp tesseract
+tesseract_capi: $(TESSERACT_MOD)/tesscapi.cpp $(TESSERACT_LIB)
 	$(TARGET_CXX) $(CXXFLAGS) -c $(TESSCAPI_CFLAGS) -o $(TESSERACT_API_O) $<
 	$(TARGET_DYNCXX) $(CXXFLAGS) -c $(TESSCAPI_CFLAGS) -o $(TESSERACT_API_DYNO) $<
 
 $(K2PDFOPT_A): $(K2PDFOPT_O) tesseract_capi
 	$(AR) rcs $@ $(K2PDFOPT_O) $(TESSERACT_API_O)
 
-$(K2PDFOPT_SO): $(K2PDFOPT_O) tesseract_capi
+$(K2PDFOPT_LIB): $(K2PDFOPT_O) tesseract_capi
 	$(CC) $(TARGET_ASHLDFLAGS) -o $@ \
 		$(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS) $(MUPDF_LIB)
-	ln -sf $(K2PDFOPT_SO) libk2pdfopt.so
+	ln -sf $(K2PDFOPT_LIB) libk2pdfopt.so
 	
-all: tesseract $(TARGET)
+all: $(TESSERACT_LIB) $(LEPTONICA_LIB) $(K2PDFOPT_LIB)
 
 clean:
 	rm -rf *.o
