@@ -61,6 +61,7 @@ void masterinfo_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
     masterinfo->bmp.bpp=k2settings->dst_color ? 24 : 8;
     for (i=0;i<256;i++)
         masterinfo->bmp.red[i]=masterinfo->bmp.blue[i]=masterinfo->bmp.green[i]=i;
+    wrectmaps_init(&masterinfo->rectmaps);
     wrapbmp_init(&masterinfo->wrapbmp,k2settings->dst_color);
 #ifdef HAVE_MUPDF_LIB
     if (k2settings->use_crop_boxes)
@@ -100,6 +101,7 @@ void masterinfo_free(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
 #endif
     wrapbmp_free(&masterinfo->wrapbmp);
     bmp_free(&masterinfo->bmp);
+    wrectmaps_free(&masterinfo->rectmaps);
     }
 
 
@@ -526,6 +528,18 @@ exit(10);
             }
         }
 #endif
+
+    /* Store rect map to masterinfo */
+    int j;
+    for (j = 0; j < wrectmaps->n; j++) {
+        WRECTMAPS *rectmaps = &masterinfo->rectmaps;
+        WRECTMAP *newrmap = &wrectmaps->wrectmap[j];
+        if (newrmap->coords[2].x > 0 && newrmap->coords[2].y > 0) {
+            wrectmaps_add_wrectmap(rectmaps, newrmap);
+            WRECTMAP *lastrmap = &rectmaps->wrectmap[rectmaps->n - 1];
+            lastrmap->coords[1].y += masterinfo->rows + gap_start;
+        }
+    }
 
     /* Add tmp bitmap to dst */
     srcbytespp = tmp->bpp==24 ? 3 : 1;

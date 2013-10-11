@@ -61,8 +61,11 @@ typedef struct KOPTContext {
 	int precache;
 	int debug;
 	int cjkchar;
-	BOXA *boxa;
-	NUMA *nai;
+	BOXA *rboxa;    // word boxes in reflowed page
+	NUMA *rnai;     // word boxes indices in reflowed page
+	BOXA *nboxa;    // word boxes in native page
+	NUMA *nnai;     // word boxes indices in native page
+	WRECTMAPS rectmaps; // rect maps between reflowed and native pages
 	BBox bbox;
 	char *language;
 	WILLUSBITMAP dst;
