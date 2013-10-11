@@ -80,29 +80,38 @@ void k2pdfopt_tocr_end() {
 }
 
 void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
-		int x, int y, int w, int h) {
+		int x, int y, int w, int h, int box_type) {
 	static K2PDFOPT_SETTINGS _k2settings, *k2settings;
 	PIX *pixs, *pixt, *pixb;
 	int words;
-	BOXA *boxa;
+	BOXA **pboxa;
+	NUMA **pnai;
 
 	/* Initialize settings */
 	k2settings = &_k2settings;
 	k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
 	k2pdfopt_settings_sanity_check(k2settings);
 
-	if (src->bpp == 8) {
+	if (box_type == 0) {
+        pboxa = &kctx->rboxa;
+        pnai = &kctx->rnai;
+    } else if (box_type == 1) {
+        pboxa = &kctx->nboxa;
+        pnai = &kctx->nnai;
+    }
+
+	if (*pboxa == NULL && *pnai == NULL && src->bpp == 8) {
 		assert(x + w <= src->width);
 		assert(y + h <= src->height);
 		pixs = bitmap2pix(src, x, y, w, h);
 		if (kctx->cjkchar) {
 			k2pdfopt_get_word_boxes_from_tesseract(pixs, kctx->cjkchar,
-					&kctx->boxa, &kctx->nai);
+					pboxa, pnai);
 		} else {
 			pixb = pixConvertTo1(pixs, 128);
 			k2pdfopt_pixGetWordBoxesInTextlines(pixb,
 					7*kctx->dev_dpi/150, 1, 10, 10, 300, 100,
-					&kctx->boxa, &kctx->nai);
+					pboxa, pnai);
 			pixDestroy(&pixb);
 		}
 
@@ -113,6 +122,16 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 		}
 		pixDestroy(&pixs);
 	}
+}
+
+void k2pdfopt_get_reflowed_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
+        int x, int y, int w, int h) {
+    k2pdfopt_get_word_boxes(kctx, src, x, y, w, h, 0);
+}
+
+void k2pdfopt_get_native_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
+        int x, int y, int w, int h) {
+    k2pdfopt_get_word_boxes(kctx, src, x, y, w, h, 1);
 }
 
 PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h) {

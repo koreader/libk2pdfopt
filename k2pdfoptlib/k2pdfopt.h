@@ -494,6 +494,7 @@ typedef struct
     WILLUSBITMAP *preview_bitmap;
     int preview_captured;  /* = 1 if preview bitmap obtained */
     WRAPBMP wrapbmp;  /* See WRAPBMP structure */
+    WRECTMAPS rectmaps;  /* Holds rect maps for output bitmap */
     WPDFPAGEINFO pageinfo;  /* Holds crop boxes for native PDF output */
     int rows;             /* Rows stored within the bmp structure */
     int published_pages;  /* Count of published pages */
