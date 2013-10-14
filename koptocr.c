@@ -39,7 +39,7 @@ l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs, l_int32 maxsize,
 static int k2pdfopt_tocr_inited = 0;
 
 void k2pdfopt_tocr_init(char *datadir, char *lang) {
-	if (!strncmp(lang, k2pdfopt_tocr_get_language, 32)) {
+	if (strncmp(lang, k2pdfopt_tocr_get_language(), 32)) {
 		k2pdfopt_tocr_end();
 	}
 	if (!k2pdfopt_tocr_inited) {
