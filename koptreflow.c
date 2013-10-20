@@ -37,7 +37,7 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     WILLUSBITMAP _srcgrey, *srcgrey;
     WILLUSBITMAP *src, *dst;
     BMPREGION region;
-    int i, bw, martop, marbot, marleft, marright;
+    int i, bw, marbot, marleft;
 
     src = &kctx->src;
     srcgrey = &_srcgrey;
@@ -68,18 +68,16 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 
     /* copy master bitmap to context dst bitmap */
     dst = &kctx->dst;
-    martop = (int) (k2settings->dst_dpi * k2settings->dst_martop + .5);
     marbot = (int) (k2settings->dst_dpi * k2settings->dst_marbot + .5);
     marleft = (int) (k2settings->dst_dpi * k2settings->dst_marleft + .5);
-    marright = (int) (k2settings->dst_dpi * k2settings->dst_marright + .5);
     dst->bpp = masterinfo->bmp.bpp;
     dst->width = masterinfo->bmp.width;
-    dst->height = masterinfo->rows + martop + marbot;
+    dst->height = masterinfo->rows + marbot;
     bmp_alloc(dst);
     bmp_fill(dst, 255, 255, 255);
     bw = bmp_bytewidth(&masterinfo->bmp);
     for (i = 0; i < masterinfo->rows; i++)
-        memcpy(bmp_rowptr_from_top(dst, i + martop),
+        memcpy(bmp_rowptr_from_top(dst, i),
                 bmp_rowptr_from_top(&masterinfo->bmp, i), bw);
 
     kctx->page_width = kctx->dst.width;
@@ -92,7 +90,6 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     for (j = 0; j < masterinfo->rectmaps.n; j++) {
         WRECTMAP * rectmap = &masterinfo->rectmaps.wrectmap[j];
         rectmap->coords[1].x += marleft;
-        rectmap->coords[1].y += martop;
         BOX* rlbox = boxCreate(rectmap->coords[1].x,
                               rectmap->coords[1].y,
                               rectmap->coords[2].x,
