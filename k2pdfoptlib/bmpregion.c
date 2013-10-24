@@ -1441,6 +1441,69 @@ printf("ftw 03\n");
     if (mingap < 2)
         mingap = 2;
 
+    /*
+     * Calculate gap size for fixed and non-fixed pitch words.
+     * We assume that pitch mean is smaller than pitch medium for fixed pitch languages
+     * like CJKs and pitch medium is larger than pitch mean for non-fixed pitch languages.
+     */
+    if (k2settings->auto_word_spacing) {
+        int gapthr = 0;
+        int gaplen = 0;
+        int pitchlen = 0;
+        int gapcount = 0;
+        int pitchcount = 0;
+        int gp[256];
+        int pp[256];
+        //printf("colcount = [");
+        for (i=newregion->c1;i<=newregion->c2;i++) {
+            int thiscount = newregion->colcount[i];
+            //printf("%d,", thiscount);
+            if (thiscount <= gapthr) {
+                if (pitchcount > 0) gaplen++;
+            } else {
+                pitchlen++;
+            }
+            if (thiscount > gapthr && gaplen > 0) {
+                if (gapcount >= 256) break;
+                gp[gapcount++] = gaplen;
+                gaplen = 0;
+            }
+            if (thiscount <= gapthr && pitchlen > 0) {
+                if (pitchcount >= 256) break;
+                pp[pitchcount++] = pitchlen;
+                pitchlen = 0;
+            }
+        }
+        //printf("]\n");
+        //printf("gaplens = [");
+        for (i=0; i<gapcount; i++) {
+            //printf("%d,", gp[i]);
+        }
+        //printf("]\n");
+        //printf("pitchlens = [");
+        for (i=0; i<pitchcount; i++) {
+            //printf("%d,", pp[i]);
+        }
+        //printf("]\n");
+        gapcount--;  //remove the last gap
+
+        if (pitchcount > 10 && gapcount > 10) {
+            int gap_medium, pitch_medium;
+            double pitch_mean, gap_mean;
+            sorti(gp, gapcount);
+            sorti(pp, pitchcount);
+            pitch_medium = pp[pitchcount/2];
+            pitch_mean = (pp[0] + pp[pitchcount-1])/2.0;
+            gap_medium = gp[gapcount/2];
+            gap_mean = (gp[0] + gp[gapcount-1])/2.0;
+            //printf("%f\t%d\t%d\n", pitch_mean, pitch_medium, gap_medium);
+            double gap = pitch_mean / pitch_medium * gap_medium;
+            //printf("caculated gap:%.2f, delta:%.2f\n", gap, gap-mingap);
+            if (gap < 2) gap = 2;
+            mingap = gap;
+        }
+    }
+
 #if (WILLUSDEBUGX & 0x1000)
 printf("ftw 04\n");
 #endif
