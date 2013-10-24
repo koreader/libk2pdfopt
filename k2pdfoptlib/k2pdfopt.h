@@ -246,6 +246,7 @@ typedef struct
     double row_split_fom;  /* Used by breakinfo_find_doubles() */
     int text_wrap;
     double word_spacing;
+    int auto_word_spacing;
     double display_width_inches; /* Device width = dst_width / dst_dpi */
     char pagelist[1024];
     int column_fitted;

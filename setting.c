@@ -59,7 +59,6 @@ void k2pdfopt_settings_init_from_koptcontext(K2PDFOPT_SETTINGS *k2settings, KOPT
 	k2settings->dst_width = k2settings->dst_userwidth;
 	k2settings->dst_height = k2settings->dst_userheight;
 	k2settings->vertical_line_spacing = kctx->line_spacing;
-	k2settings->word_spacing = kctx->word_spacing;
 	k2settings->text_wrap = kctx->wrap;
 	k2settings->src_autostraighten = kctx->straighten;
 	k2settings->preserve_indentation = kctx->indent;
@@ -69,6 +68,14 @@ void k2pdfopt_settings_init_from_koptcontext(K2PDFOPT_SETTINGS *k2settings, KOPT
 	k2settings->user_src_dpi = kctx->dev_dpi*kctx->quality;
 	k2settings->defect_size_pts = kctx->defect_size;
 	k2settings->dst_gamma = kctx->contrast;
+
+	if (kctx->word_spacing < 0) {
+	    k2settings->auto_word_spacing = 1;
+	    k2settings->word_spacing = 0.15;
+	} else {
+	    k2settings->auto_word_spacing = 0;
+	    k2settings->word_spacing = kctx->word_spacing;
+	}
 
 	if (kctx->trim == 0) {
 		k2settings->mar_left = 0;
