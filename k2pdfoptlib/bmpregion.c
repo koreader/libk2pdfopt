@@ -1443,8 +1443,9 @@ printf("ftw 03\n");
 
     /*
      * Calculate gap size for fixed and non-fixed pitch words.
-     * We assume that pitch mean is smaller than pitch medium for fixed pitch languages
-     * like CJKs and pitch medium is larger than pitch mean for non-fixed pitch languages.
+     * We assume that fixed pitch charaters like CJK have pitch size close to
+     * line height, while non-fixed pitch charaters have pitch size less than
+     * 0.7 line height.
      */
     if (k2settings->auto_word_spacing) {
         int gapthr = 0;
@@ -1475,29 +1476,29 @@ printf("ftw 03\n");
             }
         }
         //printf("]\n");
-        //printf("gaplens = [");
+
+        /*printf("gaplens = [");
         for (i=0; i<gapcount; i++) {
-            //printf("%d,", gp[i]);
+            printf("%d,", gp[i]);
         }
-        //printf("]\n");
-        //printf("pitchlens = [");
+        printf("]\n");
+        printf("pitchlens = [");
         for (i=0; i<pitchcount; i++) {
-            //printf("%d,", pp[i]);
+            printf("%d,", pp[i]);
         }
-        //printf("]\n");
-        gapcount--;  //remove the last gap
+        printf("]\n");*/
+
+        gapcount--;  //discard the last gap
 
         if (pitchcount > 10 && gapcount > 10) {
-            int gap_medium, pitch_medium;
-            double pitch_mean, gap_mean;
+            int gap_medium, pitch_medium, rheight;
+            double gap;
             sorti(gp, gapcount);
             sorti(pp, pitchcount);
-            pitch_medium = pp[pitchcount/2];
-            pitch_mean = (pp[0] + pp[pitchcount-1])/2.0;
             gap_medium = gp[gapcount/2];
-            gap_mean = (gp[0] + gp[gapcount-1])/2.0;
-            //printf("%f\t%d\t%d\n", pitch_mean, pitch_medium, gap_medium);
-            double gap = pitch_mean / pitch_medium * gap_medium;
+            pitch_medium = pp[pitchcount/2];
+            rheight = newregion->r2 - newregion->r1;
+            gap = 0.7 * rheight / pitch_medium * gap_medium;
             //printf("caculated gap:%.2f, delta:%.2f\n", gap, gap-mingap);
             if (gap < 2) gap = 2;
             mingap = gap;
