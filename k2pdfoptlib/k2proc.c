@@ -1760,7 +1760,7 @@ static void multiline_params_calculate(MULTILINE_PARAMS *mlp,BMPREGION *region,
 
     {
     int i,nls,nch,textheight,ragged_right;
-    double *id,*c1,*c2,*ch,*lch,*ls,*h5050;
+    double *id,*c1,*c2,*ch,*lch,*ls,*h5050,*calic1,*calic2,*indent;
     static char *funcname="multiline_params_calculate";
     TEXTROWS *textrows;
 
@@ -1807,13 +1807,16 @@ k2printf("    i1=%d, i2=%d, mlp->nlines=%d\n",mlp->i1,mlp->i2,mlp->nlines);
     /*
     ** Allocate arrays for determining median values
     */
-    willus_dmem_alloc_warn(13,(void **)&c1,sizeof(double)*7*mlp->nlines,funcname,10);
+    willus_dmem_alloc_warn(13,(void **)&c1,sizeof(double)*10*mlp->nlines,funcname,10);
     c2=&c1[mlp->nlines];
     ch=&c2[mlp->nlines];
     lch=&ch[mlp->nlines];
     ls=&lch[mlp->nlines];
     id=&ls[mlp->nlines];
     h5050=&id[mlp->nlines];
+    calic1=&h5050[mlp->nlines];
+    calic2=&calic1[mlp->nlines];
+    indent=&calic2[mlp->nlines];
     for (i=0;i<mlp->nlines;i++)
         id[i]=i;
 
@@ -1827,6 +1830,12 @@ k2printf("    i1=%d, i2=%d, mlp->nlines=%d\n",mlp->i1,mlp->i2,mlp->nlines);
         textrow=&textrows->textrow[i];
         c1[i-mlp->i1]=(double)textrow->c1;
         c2[i-mlp->i1]=(double)textrow->c2;
+        calic1[i-mlp->i1]=region->c1;
+        calic2[i-mlp->i1]=region->c2;
+        if (k2settings->src_left_to_right)
+            indent[i-mlp->i1]=c1[i-mlp->i1]-region->c1;
+        else
+            indent[i-mlp->i1]=region->c2-c2[i-mlp->i1];
         if (i<mlp->i2 && mlp->maxgap < textrow->gap)
             {
             mlp->maxgap = textrow->gap;
@@ -1868,6 +1877,25 @@ k2printf("   Row %2d: (%4d,%4d) - (%4d,%4d) rowbase=%4d, ch=%d, lch=%d, h5050=%d
         mlp->median_h5050 = median_val(h5050,nch);
         }
     textheight=bmpregion_textheight(region,k2settings,mlp->i1,mlp->i2);
+
+    /*
+    ** Calibrate indentation
+    ** Median indent is added to calic1/2 array for each row so that
+    ** rows indented at median indentation still get wrapped.
+    */
+    double median_indent;
+
+    if (mlp->nlines>3)
+        {
+        array_sort(indent, mlp->nlines);
+        median_indent = indent[mlp->nlines/2];
+        if (k2settings->src_left_to_right)
+            for (i=mlp->i1;i<=mlp->i2;i++)
+                calic1[i-mlp->i1]=region->c1 + median_indent;
+        else
+            for (i=mlp->i1;i<=mlp->i2;i++)
+                calic2[i-mlp->i1]=region->c2 - median_indent;
+        }
 
     /*
     ** Determine regular line spacing for this region
@@ -1954,8 +1982,8 @@ k2printf("ragged_right=%d\n",ragged_right);
 
         TEXTROW *textrow;
         textrow=&textrows->textrow[i];
-        i1f = (double)(c1[i-mlp->i1]-region->c1)/(region->c2-region->c1+1);
-        i2f = (double)(region->c2-c2[i-mlp->i1])/(region->c2-region->c1+1);
+        i1f = (double)(c1[i-mlp->i1]-calic1[i-mlp->i1])/(region->c2-region->c1+1);
+        i2f = (double)(calic2[i-mlp->i1]-c2[i-mlp->i1])/(region->c2-region->c1+1);
         ilf = k2settings->src_left_to_right ? i1f : i2f;
         ilfi = ilf*(region->c2-region->c1+1)/region->dpi; /* Indent in inches */
         ifmin = i1f<i2f ? i1f : i2f;
@@ -1963,9 +1991,9 @@ k2printf("ragged_right=%d\n",ragged_right);
         if (ifmin < .01)
             ifmin=0.01;
         if (k2settings->src_left_to_right)
-            indent1 = (double)(c1[i-mlp->i1]-region->c1) / textheight;
+            indent1 = (double)(c1[i-mlp->i1]-calic1[i-mlp->i1]) / textheight;
         else
-            indent1 = (double)(region->c2 - c2[i-mlp->i1]) / textheight;
+            indent1 = (double)(calic2[i-mlp->i1] - c2[i-mlp->i1]) / textheight;
         if (!region_is_centered)
             {
             mlp->indented[i-mlp->i1]=(indent1 > 0.5 && ilfi < 1.2 && ilf < .25);
@@ -1994,9 +2022,9 @@ k2printf("    indent1=%g, i1f=%g, i2f=%g\n",indent1,i1f,i2f);
                 mlp->just[i-mlp->i1] = mlp->indented[i-mlp->i1] || (i2f < i1f+.01) ? 8 : 0;
             }
         if (k2settings->src_left_to_right)
-            del = (double)(region->c2 - textrow->c2);
+            del = (double)(calic2[i-mlp->i1] - textrow->c2);
         else
-            del = (double)(textrow->c1 - region->c1);
+            del = (double)(textrow->c1 - calic1[i-mlp->i1]);
         /* Should we keep wrapping after this line? */
         if (!ragged_right)
             mlp->short_line[i-mlp->i1] = (del/textheight > 0.5);
