@@ -89,7 +89,6 @@ endif
 	
 $(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cp $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/
-	cp $(TESSERACT_MOD)/tessedit.cpp $(TESSERACT_DIR)/ccmain/
 ifdef EMULATE_READER
 	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure \
 		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
