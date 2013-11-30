@@ -94,10 +94,10 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
                               rectmap->coords[1].y,
                               rectmap->coords[2].x,
                               rectmap->coords[2].y);
-        BOX* nlbox = boxCreate(rectmap->coords[0].x/kctx->zoom + kctx->bbox.x0,
-                              rectmap->coords[0].y/kctx->zoom + kctx->bbox.y0,
-                              rectmap->coords[2].x*rectmap->srcdpiw/k2settings->dst_dpi/kctx->zoom,
-                              rectmap->coords[2].y*rectmap->srcdpih/k2settings->dst_dpi/kctx->zoom);
+        BOX* nlbox = boxCreate(rectmap->coords[0].x*k2settings->src_dpi/rectmap->srcdpiw/kctx->zoom + kctx->bbox.x0,
+                              rectmap->coords[0].y*k2settings->src_dpi/rectmap->srcdpih/kctx->zoom + kctx->bbox.y0,
+                              rectmap->coords[2].x*k2settings->src_dpi/rectmap->srcdpiw/kctx->zoom,
+                              rectmap->coords[2].y*k2settings->src_dpi/rectmap->srcdpih/kctx->zoom);
         boxaAddBox(rboxa, rlbox, L_INSERT);
         boxaAddBox(nboxa, nlbox, L_INSERT);
         wrectmaps_add_wrectmap(&kctx->rectmaps, rectmap);
