@@ -52,7 +52,7 @@ static int wzfile_status_special(char *archfile,char *filename,char *subarch);
 ** Opens pseudo-archive path.  If the file opened is a temporary file
 ** (because it had to be extracted from an archive file), then tempname
 ** contains the temporary name and should be removed with
-** wzfile_fully_remove() when it is done being processed, since
+** wfile_remove_file_plus_parent_dir() when it is done being processed, since
 ** the directory it is contained within is also a temporary file.
 **
 ** Initial call should have archfile=NULL.
@@ -88,7 +88,7 @@ WZFILE *wzopen_special(char *archfile,char *filename,char *tempname)
             if (!archive_extract(archfile,subarch,tempname2))
                 return(NULL);
             wf=wzopen_special(tempname2,newname,tempname);
-            wzfile_fully_remove(tempname2);
+            wfile_remove_file_plus_parent_dir(tempname2);
             return(wf);
             }
         return(NULL);
@@ -119,21 +119,6 @@ WZFILE *wzopen_special(char *archfile,char *filename,char *tempname)
         strcpy(newarch,pathname);
         return(wzopen_special(newarch,&filename[i+1],tempname));
         }
-    }
-
-/*
-** Removes tempfile and the directory containing it.
-*/
-void wzfile_fully_remove(char *tempfile)
-
-    {
-    char path[MAXFILENAMELEN];
-
-    if (tempfile[0]=='\0')
-        return;
-    remove(tempfile);
-    wfile_basepath(path,tempfile);
-    wfile_remove_dir(path,0);
     }
 
 

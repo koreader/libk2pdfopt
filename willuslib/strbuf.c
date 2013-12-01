@@ -109,6 +109,17 @@ void strbuf_init(STRBUF *sbuf)
     }
 
 
+void strbuf_cat_ex(STRBUF *sbuf,char *s)
+
+    {
+    if (s!=NULL && s[0]!='\0')
+        {
+        strbuf_ensure(sbuf,(sbuf->s==NULL?0:strlen(sbuf->s))+strlen(s)+2);
+        strcat(sbuf->s,s);
+        }
+    }
+
+
 void strbuf_cat(STRBUF *sbuf,char *s)
 
     {

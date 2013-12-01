@@ -324,6 +324,17 @@ char *wsys_full_exe_name(char *s)
     }
 
 
+void wsys_append_nul_redirect(char *s)
+
+    {
+#if (defined(WIN32) || defined(WIN64))
+    strcat(s," 1> nul 2> nul");
+#else
+    strcat(s," > /dev/null");
+#endif
+    }
+
+
 int wsys_which(char *exactname,char *exename)
 
     {

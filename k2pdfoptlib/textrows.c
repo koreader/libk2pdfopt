@@ -227,11 +227,14 @@ void textrows_compute_row_gaps(TEXTROWS *textrows,int r2)
     }
 
 
+/*
+** v2.10:  Tosses out figures for computing statistics
+*/
 void textrows_remove_small_rows(TEXTROWS *textrows,K2PDFOPT_SETTINGS *k2settings,
                                 double fracrh,double fracgap,BMPREGION *region)
 
     {
-    int i,j,mg,mh,mg0,mg1;
+    int i,j,mg,mh,mg0,mg1,nr,ng;
     int c1,c2,nc;
     int *rh,*gap;
     static char *funcname="textrows_remove_small_rows";
@@ -246,19 +249,27 @@ k2printf("@textrows_remove_small_rows(fracrh=%g,fracgap=%g)\n",fracrh,fracgap);
     nc=c2-c1+1;
     willus_dmem_alloc_warn(16,(void **)&rh,2*sizeof(int)*textrows->n,funcname,10);
     gap=&rh[textrows->n];
-    for (i=0;i<textrows->n;i++)
+    for (i=nr=ng=0;i<textrows->n;i++)
         {
-        rh[i]=textrows->textrow[i].r2-textrows->textrow[i].r1+1;
+        /* v2.10:  Don't include figures in statistics */
+        if (textrows->textrow[i].type==REGION_TYPE_FIGURE)
+            continue;
+        rh[nr++]=textrows->textrow[i].r2-textrows->textrow[i].r1+1;
         if (i<textrows->n-1)
-            gap[i]=textrows->textrow[i].gapblank;
+            gap[ng++]=textrows->textrow[i].gapblank;
         }
-    sorti(rh,textrows->n);
-    sorti(gap,textrows->n-1);
-    mh=rh[textrows->n/2];
+    if (nr<2)
+        {
+        willus_dmem_free(16,(double **)&rh,funcname);
+        return;
+        }
+    sorti(rh,nr);
+    sorti(gap,ng);
+    mh=rh[nr/2];
     mh *= fracrh;
     if (mh<1)
         mh=1;
-    mg0=gap[(textrows->n-1)/2];
+    mg0=gap[ng/2];
     mg = mg0*fracgap;
     mg1 = mg0*0.7;
     if (mg<1)
@@ -267,6 +278,7 @@ k2printf("@textrows_remove_small_rows(fracrh=%g,fracgap=%g)\n",fracrh,fracgap);
 k2printf("mh = %d x %g = %d\n",rh[textrows->n/2],fracrh,mh);
 k2printf("mg = %d x %g = %d\n",gap[textrows->n/2],fracgap,mg);
 #endif
+    willus_dmem_free(16,(double **)&rh,funcname);
     for (i=0;i<textrows->n;i++)
         {
         TEXTROW *textrow;
@@ -357,7 +369,6 @@ k2printf("    mh = %d, mg = %d\n",rh[textrows->n/2],gap[(textrows->n-1)/2]);
         textrows->n--;
         i--;
         }
-    willus_dmem_free(16,(double **)&rh,funcname);
     }
 
 

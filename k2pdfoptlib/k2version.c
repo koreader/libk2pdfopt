@@ -1,4 +1,4 @@
-char *k2pdfopt_version = "v2.02";
+char *k2pdfopt_version = "v2.12";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
@@ -18,6 +18,80 @@ char *k2pdfopt_version = "v2.02";
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **
 ** VERSION HISTORY
+** v2.12     30 NOV 2013
+**           BUG FIXES
+**           - No longer writes k2pdfopt_out.png when previewing in the GUI.
+**           - Removed DLL dependencies from 64-bit Windows compile.
+**
+** v2.11     28 NOV 2013
+**           BUG FIXES (MW WINDOWS GUI)
+**           - Several routines in k2gui_cbox.c which are called from k2file.c
+**             during the conversion were not correctly working during a preview
+**             and were resulting in garbage sometimes being sent to the
+**             desktop screen if the preview button was clicked after a file
+**             conversion.  This has been fixed.
+**
+** v2.10     23 NOV 2013
+**           NEW FEATURES
+**           - The PDF "Outlines" tree (often called "bookmarks" by PDF viewers)
+**             that helps you navigate the PDF file and is usually shown in the left
+**             pane of the PDF viewer is now preserved in the converted file.  Or
+**             you can create your own bookmarks from a simple text file if your
+**             PDF source file doesn't have one (or if you want to change it).
+**             See the -toc, -toclist, and -tocsave command-line options.
+**             (toc = Table of Contents.)  Destination page breaks are forced
+**             at outline anchor pages by default (see -bp option).
+**           - A new -cbox option allows you to specify a crop box to be applied
+**             to each page.  You can specify more than one, and each separate
+**             crop box will be rendered to a different output page, similar to
+**             the way the -grid option works.  See -cbox in the command usage.
+**             Using -mode crop with -cbox, you can crop a source PDF file to
+**             a destination PDF file.  You can specify different crop boxes
+**             for even and odd pages, as well.
+**           - The -bpl option now allows you to specify a list of source pages
+**             where destination page breaks will be forced.
+**           - Three new modes:  -mode trim causes the source page to be trimmed and
+**             the destination to be sized to the trimmed source.  -mode fitpage
+**             is similar, but squeezes the trimmed source page into the specified
+**             device output screen size.  -mode crop is a complement to the -cbox
+**             option and causes each cropped box to be placed on a new page the
+**             size of the cropped box.
+**
+**           ENHANCEMENTS
+**           - Windows versions are compiled with gcc 4.8.2.
+**           - The Win64 binary is now compressed with UPX 3.91w which finally is
+**             able to compress the Win64/PE format.
+**            
+**           BUG FIXES
+**           - In native output, consecutive streams now delimited by white space. 
+**             http://www.mobileread.com/forums/showthread.php?p=2655550#post2655550
+**           - Pages with no "/Contents" entry are correctly handled.
+**           - Re-wrote masterinfo_break_point() to make use of 
+**             bmpregion_find_textrows() so that decisions on where to break
+**             pages in the "fitwidth" mode should be more consistent and also
+**             will be affected by the -gtr option.
+**             http://www.mobileread.com/forums/showthread.php?p=2686067#post2686067
+**           - Removed last vestiges of -pi option (interactive menu 'w' option
+**             was incorrectly still using it).
+**           - The vert_line_erase() function in k2bmp.c correctly handle the
+**             cbmp pointer when it is an 8-bit bitmap now.
+**           - Fixed a flow problem in k2file.c (k2pdfopt_proc_one() function)
+**             which was causing the GUI preview not to work with -mode copy.
+**           - The textrows_remove_small_rows() function no longer includes
+**             figures (REGION_TYPE_FIGURE) when doing statistics on the row
+**             heights.
+**
+** v2.03     21 SEP 2013
+**           ENHANCEMENTS
+**           - MuPDF library now uses the Sumatra versions of pdf-font.c and
+**             pdf-fontfile.c so that it correctly checks Windows system fonts
+**             for non-embedded fonts in the PDF file.
+**
+**           BUG FIXES
+**           - Native mode is correctly turned off as the default setting.
+**           - Native mode output works correctly from the MS Windows GUI.
+**           - Check boxes made consistent (native/wrap/OCR) with quick
+**             sanity check call.
 **
 ** v2.02     16 SEP 2013
 **           ENHANCEMENTS

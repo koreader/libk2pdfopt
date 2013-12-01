@@ -1331,7 +1331,12 @@ printf("1. textrow[%d] = figure.\n",textrows->n-1);
 
     /* Remove rows with text height that seems to be too small */
     if (remove_small_rows)
+        {
+        /* textrows_remove_small_rows needs types determined */
+        for (i=0;i<textrows->n;i++)
+            textrow_determine_type(region,k2settings,i);
         textrows_remove_small_rows(textrows,k2settings,0.25,0.5,region);
+        }
 
     /* Compute gaps between rows and row heights again */
     textrows_compute_row_gaps(textrows,region->r2);

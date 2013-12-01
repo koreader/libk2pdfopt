@@ -407,6 +407,8 @@ void k2gui_cbox_error(char *filename,int statuscode)
                           "File overwrite not allowed","","Uknown error"};
     char buf[512];
 
+    if (k2gui_cbox==NULL || !k2gui_cbox->converting)
+        return;
     if (statuscode<1 || statuscode>5)
         statuscode=1;
     sprintf(buf,"Conversion of file %s aborted (%s).",filename,err[statuscode-1]);
@@ -580,7 +582,7 @@ void k2gui_cbox_set_files_completed(int nfiles,char *message)
     char buf[256];
     int color;
 
-    if (k2gui_cbox==NULL)
+    if (k2gui_cbox==NULL || !k2gui_cbox->converting)
         return;
     if (message==NULL)
         sprintf(buf,"%d of %d file%s completed.",nfiles,k2gui_cbox->num_files,k2gui_cbox->num_files==1?"":"s");
@@ -617,7 +619,7 @@ void k2gui_cbox_set_pages_completed(int n,char *message)
     int color;
     double progress;
 
-    if (k2gui_cbox==NULL)
+    if (k2gui_cbox==NULL || !k2gui_cbox->converting)
         return;
     color=0xd0ffd0;
     if (k2gui_cbox->num_pages>0)
@@ -639,7 +641,7 @@ void k2gui_cbox_set_pages_completed(int n,char *message)
 void k2gui_cbox_set_num_files(int nfiles)
 
     {
-    if (k2gui_cbox!=NULL)
+    if (k2gui_cbox!=NULL && k2gui_cbox->converting)
         k2gui_cbox->num_files=nfiles;
     }
 
@@ -647,7 +649,7 @@ void k2gui_cbox_set_num_files(int nfiles)
 void k2gui_cbox_set_num_pages(int npages)
 
     {
-    if (k2gui_cbox!=NULL)
+    if (k2gui_cbox!=NULL && k2gui_cbox->converting)
         k2gui_cbox->num_pages=npages;
     }
 
@@ -655,7 +657,7 @@ void k2gui_cbox_set_num_pages(int npages)
 void k2gui_cbox_set_filename(char *name)
 
     {
-    if (k2gui_cbox!=NULL)
+    if (k2gui_cbox!=NULL && k2gui_cbox->converting)
         {
         strncpy(k2gui_cbox->filename,k2gui_short_name(name),255);
         k2gui_cbox->filename[255]='\0';
@@ -679,7 +681,7 @@ printf("\n error count set to %d\n\n",k2gui_cbox->error_count);
 void k2gui_cbox_increment_error_count(void)
 
     {
-    if (k2gui_cbox!=NULL)
+    if (k2gui_cbox!=NULL && k2gui_cbox->converting)
         {
         k2gui_cbox->error_count++;
 #if (WILLUSDEBUG & 0x2000)
