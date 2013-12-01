@@ -63,7 +63,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     ocrwords_init(&k2settings->dst_ocrwords);
 #endif
     k2settings->dst_dither=1;
-    k2settings->dst_break_pages=0;
+    k2settings->dst_break_pages=1;
     k2settings->render_dpi=167;
     k2settings->fit_columns=1;
     k2settings->user_src_dpi=-2.0;
@@ -116,7 +116,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->dst_negative=0;
     k2settings->exit_on_complete=-1;
     k2settings->show_marked_source=0;
-    k2settings->use_crop_boxes=1;
+    k2settings->use_crop_boxes=0;
     k2settings->preserve_indentation=1;
     k2settings->defect_size_pts=0.75;
     k2settings->max_vertical_gap_inches=0.25;
@@ -153,6 +153,13 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2pdfopt_settings_set_to_device(k2settings,devprofile_get("k2"));
     k2settings->dst_width = k2settings->dst_userwidth;
     k2settings->dst_height = k2settings->dst_userheight;
+
+    /* v2.10 */
+    k2settings->use_toc = -1;
+    k2settings->toclist[0]='\0';
+    k2settings->tocsavefile[0]='\0';
+    k2settings->bpl[0]='\0';
+    k2settings->cropboxes.n=0;
     }
 
 
@@ -198,13 +205,7 @@ int k2pdfopt_settings_set_to_device(K2PDFOPT_SETTINGS *k2settings,DEVPROFILE *dp
     }
 
 
-/*
-** Check / adjust k2pdfopt user input settings.
-**
-** This function is called before beginning the conversion of each new document...?
-**
-*/
-void k2pdfopt_settings_sanity_check(K2PDFOPT_SETTINGS *k2settings)
+void k2pdfopt_settings_quick_sanity_check(K2PDFOPT_SETTINGS *k2settings)
 
     {
 /* printf("@k2pdfopt_settings_sanity_check, k2settings=%p.\n",k2settings); */
@@ -234,6 +235,19 @@ void k2pdfopt_settings_sanity_check(K2PDFOPT_SETTINGS *k2settings)
     if (k2settings->dst_ocr)
         k2settings->use_crop_boxes=0;
 #endif
+    }
+
+
+/*
+** Check / adjust k2pdfopt user input settings.
+**
+** This function is called before beginning the conversion of each new document...?
+**
+*/
+void k2pdfopt_settings_sanity_check(K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    k2pdfopt_settings_quick_sanity_check(k2settings);
 
     /*
     ** Apply display resolution
@@ -363,9 +377,9 @@ void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
 
     {
     static int count=0;
-    static double wu=0.; /* Store untrimmed width, height */
-    static double hu=0.;
-    double swidth_in,sheight_in;
+//    static double wu=0.; /* Store untrimmed width, height */
+//    static double hu=0.;
+    double twidth_in,theight_in,swidth_in,sheight_in;
     int new_width,new_height,zeroarea;
     WPDFPAGEINFO *pageinfo;
 
@@ -378,45 +392,47 @@ printf("@k2pdfopt_settings_set_margins_and_devsize(region=%p,trimmed=%d)\n",regi
         {
         count=0;
         k2pdfopt_settings_set_device_margins(k2settings);
-        swidth_in = 8.5;
-        sheight_in = 11.0;
+        twidth_in=swidth_in = 8.5;
+        theight_in=sheight_in = 11.0;
         }
     else
         {
         count++;
-        if (trimmed)
-            {
-            swidth_in = (double)(region->c2-region->c1+1) / region->dpi;
-            if (swidth_in < 1.0)
-                swidth_in = 1.0;
-            sheight_in = (double)(region->r2-region->r1+1) / region->dpi;
-            if (sheight_in < 1.0)
-                sheight_in = 1.0;
-            if (region->c2-region->c1<=0 || region->r2-region->r1<=0)
-                zeroarea=1;
-            }
-        else
-            {
-            swidth_in = (double)region->bmp->width / region->dpi;
-            sheight_in = (double)region->bmp->height / region->dpi;
-            }
+        twidth_in = (double)(region->c2-region->c1+1) / region->dpi;
+        if (twidth_in < 1.0)
+            twidth_in = 1.0;
+        theight_in = (double)(region->r2-region->r1+1) / region->dpi;
+        if (theight_in < 1.0)
+            theight_in = 1.0;
+        if (region->c2-region->c1<=0 || region->r2-region->r1<=0)
+            zeroarea=1;
+        swidth_in = (double)region->bmp->width / region->dpi;
+        sheight_in = (double)region->bmp->height / region->dpi;
         }
+
+/*    
     if (trimmed)
         {
-        if (wu<=0.)
-            wu=swidth_in;
-        if (hu<=0.)
-            hu=sheight_in;
+    if (wu<=0.)
+        wu=twidth_in;
+    if (hu<=0.)
+        hu=theight_in;
+    if (wu<=0.)
+        wu=swidth_in;
+    if (hu<=0.)
+        hu=sheight_in;
         }
     else
         {
         wu=swidth_in;
         hu=sheight_in;
         }
+printf("wu=%g, hu=%g\n",wu,hu);
+*/
     new_width=devsize_pixels(k2settings->dst_userwidth,k2settings->dst_userwidth_units,
-                             wu,swidth_in,k2settings->dst_dpi);
+                             swidth_in,twidth_in,k2settings->dst_dpi);
     new_height=devsize_pixels(k2settings->dst_userheight,k2settings->dst_userheight_units,
-                              hu,sheight_in,k2settings->dst_dpi);
+                              sheight_in,theight_in,k2settings->dst_dpi);
     if (k2settings->dst_landscape)
         int_swap(new_width,new_height)
     if (count==1 || (count>1 && (new_width!=k2settings->dst_width || new_height!=k2settings->dst_height)))

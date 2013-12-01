@@ -1,7 +1,7 @@
 K2pdfopt build help.
 http://willus.com
 Original: 7 September 2012
-Last updated: 16 September 2013 (v2.02)
+Last updated: 30 November 2013 (v2.12)
 
 This "read me" file describes the source code distribution for k2pdfopt.
 
@@ -68,9 +68,8 @@ Notes
    library with the mods that I put into the zlib_mod folder (gzwrite.c and
    gzlib.c).  Search on "WILLUS MOD" in those files to see where I modified them.
 
-2. I disabled a couple of the MuPDF warnings by modifying two MuPDF source
-   files.  I also modified stm_buffer.c.  Mods are in the mupdf_mod folder.
-   Search for "willus" in the files to find the mods.
+2. Mods to the released MuPDF library are in the mupdf_mod folder.
+   Search for "willus" or "sumatra" or "bugs" in the files to find the mods.
 
 3. Tesseract requires my small C API file plus three custom-modified source files.
    These are in the tesseract_mod folder.  Search for "willus" in the files to
@@ -96,8 +95,8 @@ Notes
       libraries, it will be quite small (~300 KiB in windows).
 
 
-Build Steps for k2pdfopt on Windows
------------------------------------
+Build Steps for k2pdfopt on Windows (gcc 4.8.2)
+-----------------------------------------------
 My compile steps with gcc (MinGW) are as follows (assuming all the libraries are built
 to libxxx.a files in d:\3rdparty_lib and headers are in d:\3rdparty_include):
 

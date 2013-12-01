@@ -25,6 +25,8 @@
 
 static void pageregions_grid(PAGEREGIONS *pageregions,BMPREGION *region,
                              K2PDFOPT_SETTINGS *k2settings,int level);
+static void pageregions_from_cropboxes(PAGEREGIONS *pageregions,BMPREGION *region,
+                                       K2PDFOPT_SETTINGS *k2settings,int srcpageno);
 static void pageregions_find_next_level(PAGEREGIONS *pageregions_sorted,BMPREGION *srcregion,
                                         K2PDFOPT_SETTINGS *k2settings,int level);
 static double median_val(double *x,int n);
@@ -106,29 +108,38 @@ void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
     /* Find page regions */     
     pageregions=&_pageregions;
     pageregions_init(pageregions);
-    gridded = (k2settings->src_grid_cols > 0 && k2settings->src_grid_rows > 0);
-    if (gridded)
-        pageregions_grid(pageregions,region,k2settings,0);
+
+    /* Did user specify specific crop regions? */
+    gridded=0;
+    if (k2settings->cropboxes.n>0)
+        pageregions_from_cropboxes(pageregions,region,k2settings,masterinfo->pageinfo.srcpage);
     else
         {
-        int maxlevels;
-        if (k2settings->max_columns<=1)
-            maxlevels=1;
-        else if (k2settings->max_columns<=2)
-            maxlevels=2;
+        gridded = (k2settings->src_grid_cols > 0 && k2settings->src_grid_rows > 0);
+        if (gridded)
+            pageregions_grid(pageregions,region,k2settings,0);
         else
-            maxlevels=3;
-        pageregions_find(pageregions,region,k2settings,maxlevels);
+            {
+            int maxlevels;
+            if (k2settings->max_columns<=1)
+                maxlevels=1;
+            else if (k2settings->max_columns<=2)
+                maxlevels=2;
+            else
+                maxlevels=3;
+            pageregions_find(pageregions,region,k2settings,maxlevels);
+            }
         }
-
     trim_regions = ((k2settings->vertical_break_threshold<-1.5
                        || k2settings->dst_fit_to_page==-2
-                       || gridded)
+                       || gridded
+                       || k2settings->cropboxes.n>0)
                        && (k2settings->dst_userwidth_units==UNITS_TRIMMED
                            || k2settings->dst_userheight_units==UNITS_TRIMMED));
 
 
     /* Process page regions */
+/*
 #if (!(WILLUSDEBUGX & 0x200))
     if (k2settings->debug)
 #endif
@@ -141,6 +152,7 @@ void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                 pageregions->pageregion[i].bmpregion.c2,
                 pageregions->pageregion[i].bmpregion.r2);
         }
+*/
     for (ipr=0;ipr<pageregions->n;ipr++)
         {
         int level,fitcols;
@@ -159,7 +171,7 @@ void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
 
         /* Process this region */
         level = pageregions->pageregion[ipr].level;
-        if (gridded || !pageregions->pageregion[ipr].fullspan)
+        if (k2settings->cropboxes.n>0 || gridded || !pageregions->pageregion[ipr].fullspan)
             {
             level *= 2;
             fitcols = k2settings->fit_columns;
@@ -195,7 +207,8 @@ static void pageregions_grid(PAGEREGIONS *pageregions,BMPREGION *region,
     BMPREGION *srcregion,_srcregion;
 
     srcregion=&_srcregion;
-    (*srcregion)=(*region);
+    bmpregion_init(srcregion);
+    bmpregion_copy(srcregion,region,0);
     nr=k2settings->src_grid_cols*k2settings->src_grid_rows;
     for (i=0;i<nr;i++)
         {
@@ -238,6 +251,55 @@ static void pageregions_grid(PAGEREGIONS *pageregions,BMPREGION *region,
                 srcregion->r1=0;
             }
         pageregions_add_pageregion(pageregions,srcregion,level,0);
+        }
+    }
+
+
+/*
+** Determine page regions from user-specified crop boxes.
+*/
+static void pageregions_from_cropboxes(PAGEREGIONS *pageregions,BMPREGION *region,
+                                       K2PDFOPT_SETTINGS *k2settings,int srcpageno)
+
+    {
+    int i;
+    BMPREGION *srcregion,_srcregion;
+
+    srcregion=&_srcregion;
+    bmpregion_init(srcregion);
+    bmpregion_copy(srcregion,region,0);
+    for (i=0;i<k2settings->cropboxes.n;i++)
+        {
+        K2CROPBOX *cropbox;
+
+        cropbox=&k2settings->cropboxes.cropbox[i];
+        /* If no even pages and page is even, skip */
+        if (!(cropbox->flags&1) && !(srcpageno&1))
+            continue;
+        /* If no odd pages and page is odd, skip */
+        if (!(cropbox->flags&2) && (srcpageno&1))
+            continue;
+        srcregion->c1 = cropbox->left*k2settings->src_dpi;
+        if (srcregion->c1<0)
+            srcregion->c1=0;
+        if (srcregion->c1 > region->bmp8->width-1)
+            srcregion->c1=region->bmp8->width-1;
+        srcregion->c2 = (cropbox->left+cropbox->width)*k2settings->src_dpi;
+        if (srcregion->c2<srcregion->c1)
+            srcregion->c2=srcregion->c1;
+        if (srcregion->c2> region->bmp8->width-1)
+            srcregion->c2=region->bmp8->width-1;
+        srcregion->r1 = cropbox->top*k2settings->src_dpi;
+        if (srcregion->r1<0)
+            srcregion->r1=0;
+        if (srcregion->r1 > region->bmp8->height-1)
+            srcregion->r1=region->bmp8->height-1;
+        srcregion->r2 = (cropbox->top+cropbox->height)*k2settings->src_dpi;
+        if (srcregion->r2<srcregion->r1)
+            srcregion->r2=srcregion->r1;
+        if (srcregion->r2 > region->bmp8->height-1)
+            srcregion->r2=region->bmp8->height-1;
+        pageregions_add_pageregion(pageregions,srcregion,0,0);
         }
     }
 
@@ -697,6 +759,7 @@ gotone++;
         psrc=bmp_rowptr_from_top(k2settings->dst_color ? newregion->bmp : newregion->bmp8,i)+bpp*newregion->c1;
         memcpy(pdst,psrc,nc*bpp);
         }
+
     /*
     ** Now scale to appropriate destination size.
     **
@@ -1359,7 +1422,7 @@ k2printf("    vertical_break_threshold=%g\n",k2settings->vertical_break_threshol
     allow_text_wrapping=k2settings->text_wrap;
     allow_vertical_breaks=(k2settings->vertical_break_threshold > -1.5);
     /* Special case to break pages at "green" gaps */
-    if (k2settings->dst_break_pages==2)
+    if (k2settings->dst_break_pages==3)
         allow_vertical_breaks=0;
     justification_flags=0x8f; /* Don't know region justification status yet.  Use user settings. */
     rbdelta=-1;
@@ -1563,7 +1626,7 @@ aprintf(ANSI_RED "mi->mandatory_region_gap changed to 1 by vertically_break." AN
             bmpregion_add(bregion,k2settings,masterinfo,allow_text_wrapping,trim_flags,
                           allow_vertical_breaks,force_scale,justification_flags,caller_id,
                           marking_flags,rbdelta,region_is_centered);
-            if (k2settings->dst_break_pages==2)
+            if (k2settings->dst_break_pages==3)
                 masterinfo_flush(masterinfo,k2settings);
             regcount++;
             i1=i2+1;

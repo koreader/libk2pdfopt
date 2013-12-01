@@ -25,11 +25,6 @@
 #ifdef WIN32
 
 #include <windows.h>
-#include <tlhelp32.h>
-#if (!defined(__DMC__))
-#include <psapi.h>
-#endif
-/* #include <process.h> */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -2170,10 +2165,10 @@ static int fwbp_count;
 int win_has_own_window(void)
 
     {
-    fwbp_pid=GetCurrentProcessId(); // win_getppid(0);
+    fwbp_pid=GetCurrentProcessId(); /* win_getppid(0); */
     if (fwbp_pid==0)
         return(0);
-    // fwbp_handle=NULL;
+    /* fwbp_handle=NULL; */
     fwbp_count=0;
     EnumWindows((WNDENUMPROC)find_win_by_procid,0L);
     return(fwbp_count>0);
@@ -2199,32 +2194,5 @@ static BOOL CALLBACK find_win_by_procid(HWND hwnd,LPARAM lp)
         }
     return(TRUE);
     }
-
-
-int win_getppid(int pid)
-
-    {    int ppid = 0;
-    HANDLE h = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    PROCESSENTRY32 pe = { 0 };
-    pe.dwSize = sizeof(PROCESSENTRY32);
-
-    //assume first arg is the PID to get the PPID for, or use own PID
-    if (pid==0)
-        pid = GetCurrentProcessId();
-    if (Process32First(h,&pe))
-        {
-        do
-            {
-            if (pe.th32ProcessID == pid)
-                {
-                ppid=pe.th32ParentProcessID;
-break;
-                }
-            } while (Process32Next(h,&pe));
-        }
-    CloseHandle(h);
-    return(ppid);
-    }
-
 
 #endif /* WIN32 */

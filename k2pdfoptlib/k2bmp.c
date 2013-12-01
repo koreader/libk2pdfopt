@@ -519,7 +519,8 @@ fclose(f);
     }
 
 /*
-** bmp must be grayscale! (cbmp = color, can be null)
+** bmp must be grayscale! (cbmp might be color, might be grayscale, can be null)
+** Handles cbmp either 8-bit or 24-bit in v2.10.
 */
 void bmp_detect_vertical_lines(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,
                                double dpi,/* double minwidth_in, */
@@ -673,6 +674,8 @@ exit(10);
 /*
 ** Calculate max vert line length.  Line is terminated by nw consecutive white pixels
 ** on either side.
+**
+** v2.10--handle cbmp 8-bit correctly.
 */
 static int vert_line_erase(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,WILLUSBITMAP *tmp,
                     int row0,int col0,double tanth,double minheight_in,
@@ -680,10 +683,22 @@ static int vert_line_erase(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,WILLUSBITMAP *tm
                     double dpi,int erase_vertical_lines)
 
     {
-    int lw,cc,maxdev,nw,dir,i,n;
+    int lw,cc,maxdev,nw,dir,i,n,cbpp;
     int *c1,*c2,*w;
     static char *funcname="vert_line_erase";
 
+#if (WILLUSDEBUGX & 0x8000)
+printf("@vert_line_erase(row0=%d,col0=%d,tanth=%g,minheight_in=%g\n"
+       "                 maxwidth_in=%g,white_thresh=%d,dpi=%g,evl=%d\n",
+row0,col0,tanth,minheight_in,
+maxwidth_in,white_thresh,dpi,erase_vertical_lines);
+printf("     bmp = %d x %d x %d\n",bmp->width,bmp->height,bmp->bpp);
+if (cbmp!=NULL)
+printf("     cbmp = %d x %d x %d\n",cbmp->width,cbmp->height,cbmp->bpp);
+if (tmp!=NULL)
+printf("     tmp = %d x %d x %d\n",tmp->width,tmp->height,tmp->bpp);
+#endif
+    cbpp = (cbmp!=NULL && cbmp->bpp==24) ? 3 : 1;
     willus_dmem_alloc_warn(26,(void **)&c1,sizeof(int)*3*bmp->height,funcname,10);
     c2=&c1[bmp->height];
     w=&c2[bmp->height];
@@ -703,12 +718,18 @@ static int vert_line_erase(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,WILLUSBITMAP *tm
         {
         int del,brc;
 
+#if (WILLUSDEBUGX & 0x8000)
+printf("dir=%d\n",dir);
+#endif
         brc = 0;
         for (del=(dir==-1)?0:1;1;del++)
             {
             int r,c;
             unsigned char *p;
 
+#if (WILLUSDEBUGX & 0x8000)
+printf("del=%d\n",del);
+#endif
             r=row0+dir*del;
             if (r<0 || r>bmp->height-1)
                 break;
@@ -766,6 +787,9 @@ static int vert_line_erase(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,WILLUSBITMAP *tm
                 c2[r]=bmp->width-1;
             }
         }
+#if (WILLUSDEBUGX & 0x8000)
+printf("n=%d\n",n);
+#endif
     if (n>1)
         sorti(w,n);
 /*
@@ -776,6 +800,9 @@ printf("n=%d, w[%d]=%d, w[%d]=%d (mw=%g)\n",n,n/4,w[n/4],3*n/4,w[3*n/4],maxwidth
                || w[3*n/4] > (int)(maxwidth_in*dpi)
                || (erase_vertical_lines==1 && w[n-1] > maxwidth_in*dpi))
         {
+#if (WILLUSDEBUGX & 0x8000)
+printf("Erasing area in temp bitmap.\n");
+#endif
         /* Erase area in temp bitmap */
         for (i=0;i<bmp->height;i++)
             {
@@ -792,15 +819,27 @@ printf("n=%d, w[%d]=%d, w[%d]=%d (mw=%g)\n",n,n/4,w[n/4],3*n/4,w[3*n/4],maxwidth
         }
     else
         {
+#if (WILLUSDEBUGX & 0x8000)
+printf("Erasing line width in source\n");
+#endif
         /* Erase line width in source bitmap */
         lw=w[3*n/4]+nw*2;
+#if (WILLUSDEBUGX & 0x8000)
+printf("1. lw=%d\n",lw);
+#endif
         if (lw > maxwidth_in*dpi/2)
             lw=maxwidth_in*dpi/2;
+#if (WILLUSDEBUGX & 0x8000)
+printf("2. lw=%d\n",lw);
+#endif
         for (i=0;i<bmp->height;i++)
             {
             unsigned char *p;
             int c0,cmin,cmax,count,white;
 
+#if (WILLUSDEBUGX & 0x8000)
+printf("i=%d\n",i);
+#endif
             if (c1[i]<0 || c2[i]<0)
                 continue;
             c0=col0+(i-row0)*tanth;
@@ -810,32 +849,60 @@ printf("n=%d, w[%d]=%d, w[%d]=%d (mw=%g)\n",n,n/4,w[n/4],3*n/4,w[3*n/4],maxwidth
             cmax=c0+lw+1;
             if (cmax>c2[i])
                 cmax=c2[i];
+#if (WILLUSDEBUGX & 0x8000)
+printf("A\n");
+#endif
             p=bmp_rowptr_from_top(bmp,i);
             c0 = (p[cmin] > p[cmax]) ? cmin : cmax;
             white=p[c0];
+#if (WILLUSDEBUGX & 0x8000)
+printf("B\n");
+#endif
             if (white <= white_thresh)
                 white = white_thresh+1;
             if (white>255)
                 white=255;
+#if (WILLUSDEBUGX & 0x8000)
+printf("C\n");
+#endif
             count=(cmax-cmin)+1;
             p=&p[cmin];
+#if (WILLUSDEBUGX & 0x8000)
+printf("D\n");
+#endif
             for (;count>0;count--,p++)
                 (*p)=white;
+#if (WILLUSDEBUGX & 0x8000)
+printf("E\n");
+#endif
             if (cbmp!=NULL)
                 {
                 unsigned char *p0;
+
                 p=bmp_rowptr_from_top(cbmp,i);
-                p0=p+c0*3;
-                p=p+cmin*3;
+                p0=p+c0*cbpp;
+                p=p+cmin*cbpp;
                 count=(cmax-cmin)+1;
-                for (;count>0;count--,p+=3)
-                    {
-                    p[0]=p0[0];
-                    p[1]=p0[1];
-                    p[2]=p0[2];
-                    }
+#if (WILLUSDEBUGX & 0x8000)
+printf("F width=%d, ht=%d, bpp=%d, c0=%d, cmin=%d, i=%d, count=%d\n",cbmp->width,cbmp->height,cbmp->bpp,c0,cmin,i,count);
+#endif
+                if (cbpp==3)
+                    for (;count>0;count--,p+=3)
+                        {
+                        p[0]=p0[0];
+                        p[1]=p0[1];
+                        p[2]=p0[2];
+                        }
+                else
+                    memset(p,p0[0],count);
+#if (WILLUSDEBUGX & 0x8000)
+printf("G\n");
+#endif
                 }
             }
+#if (WILLUSDEBUGX & 0x8000)
+printf("   done.\n");
+#endif
         }
     willus_dmem_free(26,(double **)&c1,funcname);
     return(1);

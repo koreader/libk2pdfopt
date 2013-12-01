@@ -548,11 +548,21 @@ int wfile_date(const char *filename,struct tm *filedate)
 /*
 ** Add/subtract seconds from date
 */
-void wfile_date_add_seconds(struct tm *date,int secs)
+void wfile_date_add_seconds(struct tm *date,double secs)
 
     {
-    int min;
+    int min,isecs;
 
+    while (secs>=86400.)
+        {
+        wfile_increment_day(date);
+        secs-=86400.;
+        }
+    while (secs<=-86400.)
+        {
+        wfile_decrement_day(date);
+        secs+=86400.;
+        }
     while (secs>=3600)
         {
         wfile_date_increment_hour(date);
@@ -567,7 +577,8 @@ void wfile_date_add_seconds(struct tm *date,int secs)
         {
         min=secs/60;
         secs -= (min*60);
-        date->tm_sec += secs;
+        isecs = (int)(secs+.5);
+        date->tm_sec += isecs;
         if (date->tm_sec > 59)
             {
             date->tm_sec -= 60;
@@ -585,7 +596,8 @@ void wfile_date_add_seconds(struct tm *date,int secs)
         secs = -secs;
         min=secs/60;
         secs -= (min*60);
-        date->tm_sec -= secs;
+        isecs = (int)(secs+.5);
+        date->tm_sec -= isecs;
         if (date->tm_sec < 0)
             {
             date->tm_sec += 60;
@@ -613,7 +625,7 @@ void wfile_date_add_hours(struct tm *date,int nhours)
             wfile_date_decrement_hour(date);
     }
 
-
+/*
 void wfile_date_increment_hour(struct tm *date)
 
     {
@@ -662,6 +674,7 @@ void wfile_date_decrement_hour(struct tm *date)
             }
         }
     }
+*/
    
 
 /*
@@ -3274,4 +3287,20 @@ static int wfile_correct_exe(char *basename,char *correctname,char *fullname)
         }
 #endif
     return(1);
+    }
+
+
+/*
+** Removes tempfile and the directory containing it.
+*/
+void wfile_remove_file_plus_parent_dir(char *tempfile)
+
+    {
+    char path[MAXFILENAMELEN];
+
+    if (tempfile[0]=='\0')
+        return;
+    remove(tempfile);
+    wfile_basepath(path,tempfile);
+    wfile_remove_dir(path,0);
     }

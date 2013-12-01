@@ -37,6 +37,7 @@
 ** 0x1000 = find text words
 ** 0x2000 = GUI
 ** 0x4000 = Keep console for GUI debugging
+** 0x8000 = vertical line detection
 **
 */
 
@@ -55,7 +56,7 @@
 #include <willus.h>
 
 /* Uncomment below if compiling for Kindle PDF Viewer */
-#define K2PDFOPT_KINDLEPDFVIEWER
+/* #define K2PDFOPT_KINDLEPDFVIEWER  */
 
 /*
 ** The HAVE_..._LIB defines should now be carried over from willus.h,
@@ -69,11 +70,9 @@
 #ifdef HAVE_GOCR_LIB
 #undef HAVE_GOCR_LIB
 #endif
-*/
 #ifdef HAVE_TESSERACT_LIB
 #undef HAVE_TESSERACT_LIB
 #endif
-/*
 #ifdef HAVE_DJVU_LIB
 #undef HAVE_DJVU_LIB
 #endif
@@ -149,6 +148,19 @@
 /*
 ** DATA STRUCTURES
 */
+typedef struct
+    {
+    int flags;                     /* Bit 0 = even, Bit 1 = odd (3=both) */
+    double left,top,width,height;  /* inches from upper-left corner of page */
+    } K2CROPBOX;
+
+#define MAXK2CROPBOXES 32
+
+typedef struct
+    {
+    K2CROPBOX cropbox[MAXK2CROPBOXES];
+    int n;
+    } K2CROPBOXES;
 
 /*
 ** K2PDFOPT_SETTINGS stores user settings that affect the document processing.
@@ -248,6 +260,10 @@ typedef struct
     double word_spacing;
     double display_width_inches; /* Device width = dst_width / dst_dpi */
     char pagelist[1024];
+    char bpl[2048];  /* Page break list--see -bpl option */
+    int use_toc;
+    char toclist[2048];
+    char tocsavefile[MAXFILENAMELEN];
     int column_fitted;
     double lm_org,bm_org,tm_org,rm_org,dpi_org;
     double contrast_max;
@@ -271,6 +287,7 @@ typedef struct
     int src_grid_cols;
     int src_grid_overlap_percentage;
     int src_grid_order; /* 0=down then across, 1=across then down */
+    K2CROPBOXES cropboxes; /* Crop boxes */
     /*
     ** Preview options
     */
@@ -282,18 +299,6 @@ typedef struct
     double no_wrap_ar_limit; /* -arlim */
     double no_wrap_height_limit_inches; /* -whmax */
     double little_piece_threshold_inches; /* -rwmin */
-    /*
-    ** Keeping track of vertical gaps
-    **
-    ** These vars removed from k2settings as of v2.00.  Gaps between regions
-    ** are kept track of in the masterinfo->lastrow var now.  See masterinfo_add_bitmap().
-    */
-    /* double last_scale_factor_internal; */
-    /* int line_spacing_internal; */ /* If > 0, try to maintain regular line spacing.  If < 0,   */
-                             /* indicates desired vert. gap before next region is added. */
-    /* int last_rowbase_internal; */ /* Pixels between last text row baseline and current end */
-                             /* of destination bitmap. */
-    /* int gap_override_internal; */ /* If > 0, apply this gap in wrapbmp_flush() and then reset. */
     } K2PDFOPT_SETTINGS;
 
 
@@ -488,13 +493,16 @@ typedef struct
     {
     char srcfilename[MAXFILENAMELEN];
     char ocrfilename[MAXFILENAMELEN];
-    PDFFILE outfile;  /* PDF output file data structure */
+    int outline_srcpage_completed; /* Which source page was last checked in the outline */
+    PDFFILE outfile;      /* PDF output file data structure */
+    WPDFOUTLINE *outline; /* PDF outline / bookmarks structure--loaded by MuPDF only */
     WILLUSBITMAP bmp; /* Master output bitmap collects pages that will go to */
                       /* the output device */
     WILLUSBITMAP *preview_bitmap;
     int preview_captured;  /* = 1 if preview bitmap obtained */
     WRAPBMP wrapbmp;  /* See WRAPBMP structure */
     WPDFPAGEINFO pageinfo;  /* Holds crop boxes for native PDF output */
+    int srcpages;         /* Total pages in source file */
     int rows;             /* Rows stored within the bmp structure */
     int published_pages;  /* Count of published pages */
     int bgcolor;
@@ -705,6 +713,7 @@ void k2pdfopt_conversion_init(K2PDFOPT_CONVERSION *k2conv);
 void k2pdfopt_conversion_close(K2PDFOPT_CONVERSION *k2conv);
 void k2pdfopt_settings_copy(K2PDFOPT_SETTINGS *dst,K2PDFOPT_SETTINGS *src);
 int  k2pdfopt_settings_set_to_device(K2PDFOPT_SETTINGS *k2settings,DEVPROFILE *dp);
+void k2pdfopt_settings_quick_sanity_check(K2PDFOPT_SETTINGS *k2settings);
 void k2pdfopt_settings_sanity_check(K2PDFOPT_SETTINGS *k2settings);
 void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings);
 void k2pdfopt_settings_restore_output_dpi(K2PDFOPT_SETTINGS *k2settings);
@@ -760,6 +769,7 @@ void masterinfo_remove_top_rows(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2sett
 int masterinfo_get_next_output_page(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
                                     int flushall,WILLUSBITMAP *bmp,double *bmpdpi,
                                     int *size_reduction,void *ocrwords);
+int masterinfo_should_flush(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings);
 
 /* k2publish.c */
 void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int flushall);
@@ -773,6 +783,7 @@ void k2ocr_ocrwords_fill_in_ex(OCRWORDS *words,BMPREGION *region,K2PDFOPT_SETTIN
 
 /* pagelist.c */
 int pagelist_valid_page_range(char *pagelist);
+int pagelist_includes_page(char *pagelist,int pageno,int maxpages);
 int pagelist_page_by_index(char *pagelist,int index,int maxpages);
 int pagelist_count(char *pagelist,int maxpages);
 
@@ -925,6 +936,7 @@ char *k2gui_short_name(char *filename);
 void k2gui_preview_toggle_size(int increment);
 void k2gui_preview_refresh(void);
 void k2gui_preview_paint(void);
+int  k2gui_previewing(void);
 
 /* k2gui_cbox.c */
 int  k2gui_cbox_converting(void);

@@ -76,6 +76,20 @@ masterinfo->preview_bitmap->width,masterinfo->preview_bitmap->height,masterinfo-
                 }
             continue;
             }
+
+        /* v2.10, Put destination page in outline / bookmarks */
+/*
+printf("use_toc=%d, outline=%p, spc=%d, srcpage=%d\n",k2settings->use_toc,masterinfo->outline,masterinfo->outline_srcpage_completed,masterinfo->pageinfo.srcpage);
+*/
+        if (k2settings->use_toc!=0 
+             && masterinfo->outline!=NULL
+             && masterinfo->outline_srcpage_completed!=masterinfo->pageinfo.srcpage)
+             {
+             wpdfoutline_set_dstpage(masterinfo->outline,masterinfo->pageinfo.srcpage,
+                                     masterinfo->published_pages);
+             masterinfo->outline_srcpage_completed = masterinfo->pageinfo.srcpage;
+             }
+
         /*
         ** Nothing to do inside loop if using crop boxes -- they all
         ** get written after all pages have been processed.
@@ -131,6 +145,7 @@ ocrwords->word[i].text);
             if (masterinfo->ocrfilename[0]!='\0')
                 ocrwords_to_textfile(ocrwords,masterinfo->ocrfilename,
                                      masterinfo->published_pages>1);
+
             pdffile_add_bitmap_with_ocrwords(&masterinfo->outfile,bmp,bmpdpi,
                                              k2settings->jpeg_quality,size_reduction,
                                              ocrwords,k2settings->dst_ocr_visibility_flags);

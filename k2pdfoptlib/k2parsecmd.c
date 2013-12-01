@@ -105,6 +105,7 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
         MINUS_OPTION("-guimin",guimin,2)
 #endif
         MINUS_OPTION("-?",show_usage,2)
+        MINUS_OPTION("-toc",use_toc,1)
         MINUS_OPTION("-sp",echo_source_page_count,1)
         MINUS_OPTION("-neg",dst_negative,1)
         MINUS_OPTION("-hy",hyphen_detect,1)
@@ -250,25 +251,32 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
             if (setvals==1)
                 {
                 if (!stricmp(cl->cmdarg,"pdfr") 
-                          || !stricmp(cl->cmdarg,"copy"))
+                          || !stricmp(cl->cmdarg,"copy")
+                          || !stricmp(cl->cmdarg,"trim")
+                          || !stricmp(cl->cmdarg,"crop")
+                          || !stricmp(cl->cmdarg,"tm"))
                     {
+                    int tm,crop;
+
+                    crop=(!stricmp(cl->cmdarg,"crop"));
+                    tm=(!stricmp(cl->cmdarg,"trim") || !stricmp(cl->cmdarg,"tm"));
                     /* -n- -wrap- -col 1 -vb -2 -w -1 -h -1 -dpi 150 -rt 0 -c -t- -f2p -2 */
                     /* -m 0 -om 0 -pl 0 -pr 0 -pt 0 -pb 0 -mc- */
-                    k2settings->use_crop_boxes=0;
+                    k2settings->use_crop_boxes= (tm||crop) ? 1 : 0;
 #ifdef HAVE_OCR_LIB
-                    k2settings->dst_ocr='m';
+                    k2settings->dst_ocr=(tm||crop) ? 0 : 'm';
 #endif
                     k2settings->text_wrap=0;
                     k2settings->max_columns=1;
                     k2settings->vertical_break_threshold=-2;
                     k2settings->dst_userwidth=1.0;
-                    k2settings->dst_userwidth_units=UNITS_SOURCE;
+                    k2settings->dst_userwidth_units=(tm||crop) ? UNITS_TRIMMED : UNITS_SOURCE;
                     k2settings->dst_userheight=1.0;
-                    k2settings->dst_userheight_units=UNITS_SOURCE;
+                    k2settings->dst_userheight_units=(tm||crop) ? UNITS_TRIMMED : UNITS_SOURCE;
                     k2settings->dst_dpi=150;
                     k2settings->src_rot=0.;
                     k2settings->dst_color=1;
-                    k2settings->src_trim=0;
+                    k2settings->src_trim=tm ? 1 : 0;
                     k2settings->dst_fit_to_page=-2;
                     k2settings->mar_left=k2settings->mar_top=k2settings->mar_right=k2settings->mar_bot=0.;
                     k2settings->dst_mar=k2settings->dst_marleft=k2settings->dst_martop=k2settings->dst_marright=k2settings->dst_marbot=0.;
@@ -277,8 +285,13 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                     }
                 else if (!stricmp(cl->cmdarg,"fw") 
                           || !stricmp(cl->cmdarg,"sopdf")
-                          || !stricmp(cl->cmdarg,"fitwidth"))
+                          || !stricmp(cl->cmdarg,"fitwidth")
+                          || !stricmp(cl->cmdarg,"fp")
+                          || !stricmp(cl->cmdarg,"fitpage"))
                     {
+                    int fitpage;
+
+                    fitpage=(!stricmp(cl->cmdarg,"fp") || !stricmp(cl->cmdarg,"fitpage"));
                     /* -wrap- -col 1 -vb -2 -t -ls */
                     k2settings->use_crop_boxes=1;
 #ifdef HAVE_OCR_LIB
@@ -288,7 +301,9 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                     k2settings->max_columns=1;
                     k2settings->vertical_break_threshold=-2;
                     k2settings->src_trim=1;
-                    k2settings->dst_landscape=1;
+                    if (fitpage)
+                        k2settings->dst_fit_to_page=-2;
+                    k2settings->dst_landscape=fitpage ? 0 : 1;
                     }
                 else if (!stricmp(cl->cmdarg,"2col")
                           || !stricmp(cl->cmdarg,"2-column")
@@ -406,18 +421,19 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
             continue;
             }
         if (!stricmp(cl->cmdarg,"-bp") || !stricmp(cl->cmdarg,"-bp-")
+                                       || !stricmp(cl->cmdarg,"-bp--")
                                        || !stricmp(cl->cmdarg,"-bp+"))
             {
             if (cl->cmdarg[3]=='-')
                 {
                 if (setvals==1)
-                    k2settings->dst_break_pages=0;
+                    k2settings->dst_break_pages = (cl->cmdarg[4]=='-' ? 0 : 1);
                 continue;
                 }
             if (cl->cmdarg[3]=='+')
                 {
                 if (setvals==1)
-                    k2settings->dst_break_pages=2;
+                    k2settings->dst_break_pages=3;
                 continue;
                 }
             if (cmdlineinput_next(cl)==NULL)
@@ -430,7 +446,7 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
             else
                 {
                 if (setvals==1)
-                    k2settings->dst_break_pages=1;
+                    k2settings->dst_break_pages=2;
                 readnext=0;
                 }
             continue;
@@ -876,6 +892,79 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                 }
             continue;
             }
+        if (!stricmp(cl->cmdarg,"-cbox-"))
+            {
+            if (setvals==1)
+                k2settings->cropboxes.n=0;
+            continue;
+            }
+        if (!stricmp(cl->cmdarg,"-cbox")
+            || !stricmp(cl->cmdarg,"-cboxe")
+            || !stricmp(cl->cmdarg,"-cboxo"))
+            {
+            int c;
+
+            c=tolower(cl->cmdarg[5]);
+            if (cmdlineinput_next(cl)==NULL)
+                break;
+            if (setvals==1)
+                {
+                double v[4];
+                int na,index;
+
+                if (k2settings->cropboxes.n>=MAXK2CROPBOXES)
+                    {
+                    static int warned=0;
+                    if (!warned && !quiet)
+                        {
+                        k2printf(TTEXT_WARN "\a\n** Max crop boxes exceeded (max=%d). **\n\n",
+                                 MAXK2CROPBOXES);
+                        k2printf(TTEXT_WARN "\a\n** Crop box %s and subsequent ignored. **\n\n",
+                                 cl->cmdarg);
+                        }
+                    warned=1;
+                    continue;
+                    }
+                na=string_read_doubles(cl->cmdarg,v,4);
+                if (na!=4)
+                    {
+                    if (!quiet)
+                        k2printf(TTEXT_WARN "\a\n** Crop box %s is invalid and will be ignored. **\n\n"
+                        TTEXT_NORMAL,cl->cmdarg);
+                    }
+                else
+                    {
+                    index=k2settings->cropboxes.n;
+                    k2settings->cropboxes.cropbox[index].flags=(c=='e')?1:(c=='o'?2:3);
+                    k2settings->cropboxes.cropbox[index].left=v[0];
+                    k2settings->cropboxes.cropbox[index].top=v[1];
+                    k2settings->cropboxes.cropbox[index].width=v[2];
+                    k2settings->cropboxes.cropbox[index].height=v[3];
+                    k2settings->cropboxes.n++;
+                    }
+                }
+            continue;
+            }
+        if (!stricmp(cl->cmdarg,"-pad"))
+            {
+            if (cmdlineinput_next(cl)==NULL)
+                break;
+            if (setvals==1)
+                {
+                double v[4];
+                int na;
+                na=string_read_doubles(cl->cmdarg,v,4);
+                if (na>=1)
+                    k2settings->pad_left=k2settings->pad_top=k2settings->pad_right=k2settings->pad_bottom=v[0];
+                if (na>=2)
+                    k2settings->pad_top=k2settings->pad_right=k2settings->pad_bottom=v[1];
+                if (na>=3)
+                    k2settings->pad_right=k2settings->pad_bottom=v[2];
+                if (na>=4)
+                    k2settings->pad_bottom=v[3];
+                }
+            continue;
+            }
         if (!strnicmp(cl->cmdarg,"-hq",3))
             {
             if (setvals==1)
@@ -915,6 +1004,9 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                 readnext=0;
             continue;
             }
+        NEEDS_STRING("-toclist",toclist,2047);
+        NEEDS_STRING("-tocsave",tocsavefile,MAXFILENAMELEN-1);
+        NEEDS_STRING("-bpl",bpl,2047);
         NEEDS_STRING("-p",pagelist,1023)
 #ifdef HAVE_OCR_LIB
         NEEDS_STRING("-ocrout",ocrout,127)

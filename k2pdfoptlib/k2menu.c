@@ -278,11 +278,18 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
             }
         else if (!stricmp(buf,"bp"))
             {
-            status=userinput_string("Break output pages at end of each input page",ansyesno,k2settings->dst_break_pages?"y":"n");
+            int bpo;
+            printf("Page breaking options:\n"
+                   "1. Absolutely no special page breaks.\n"
+                   "2. Special page breaks at bookmark positions only.\n"
+                   "3. Break pages after each source page.\n"
+                   "4. Break pages at each \"green\" boundary.\n"
+                   "5. Put a gap between each source page.\n");
+            bpo = k2settings->dst_break_pages < 0 ? 5 : k2settings->dst_break_pages+1;
+            status=userinput_integer("Enter option",bpo,&bpo,1,5);
             if (status<0)
                 return(status);
-            k2settings->dst_break_pages=(status==0) ? 1 : 0;
-            if (!k2settings->dst_break_pages)
+            if (bpo==5)
                 {
                 double x;
                 x=0.;
@@ -295,10 +302,16 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
                     strbuf_sprintf(usermenu,"-bp %g",x);
                     }
                 else
+                    {
+                    k2settings->dst_break_pages=1;
                     strbuf_sprintf(usermenu,"-bp-");
+                    }
                 }
             else
-                strbuf_sprintf(usermenu,"-bp");
+                {
+                k2settings->dst_break_pages=bpo-1;
+                strbuf_sprintf(usermenu,"-bp%s",bpo==4?"+":(bpo==3?"":(bpo==2?"-":"--")));
+                }
             status=userinput_integer("Fit-to-page value",k2settings->dst_fit_to_page,&k2settings->dst_fit_to_page,
                                  -2,999);
             if (status<0)
@@ -559,8 +572,8 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
             }
         else if (!stricmp(buf,"mo"))
             {
-            static char *modename[]={"default","copy","fitwidth","2-column","grid",""};
-            static char *shortname[]={"def","copy","fw","2col","grid"};
+            static char *modename[]={"default","copy","trim","crop","fitwidth","fitpage","2-column","grid",""};
+            static char *shortname[]={"def","copy","tm","crop","fw","fp","2col","grid"};
             double v[3];
 
             status=userinput_string("Operating mode",modename,"default");
@@ -862,11 +875,13 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
                 if (!status)
                     k2settings->text_wrap=2;
                 strbuf_sprintf(usermenu,"-wrap%s",k2settings->text_wrap==2?"+":"");
+                /*
                 status=userinput_string("Preserve indentation",ansyesno,k2settings->preserve_indentation?"y":"n");
                 if (status<0)
                     return(status);
                 k2settings->preserve_indentation=!status;
                 strbuf_sprintf(usermenu,"-pi%s",k2settings->preserve_indentation?"":"-");
+                */
                 status=userinput_string("Detect/eliminate hyphens",ansyesno,k2settings->hyphen_detect?"y":"n");
                 if (status<0)
                     return(status);

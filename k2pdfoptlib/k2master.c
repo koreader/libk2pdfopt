@@ -42,7 +42,7 @@ static void find_word_gaps_using_wrectmaps(WRECTMAPS *wrectmaps,int **pgappos,
 static void find_word_gaps_using_textrow(WILLUSBITMAP *src,K2PDFOPT_SETTINGS *k2settings,
                                          int **pgappos,int **pgapsize,int *png,int whitethresh,
                                          int dpi);
-static int masterinfo_break_point(MASTERINFO *masterinfo,int maxsize);
+static int masterinfo_break_point(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int maxsize);
 
 
 void masterinfo_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
@@ -51,9 +51,13 @@ void masterinfo_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
     extern char *k2pdfopt_version;
     int i;
 
+    /* Init outline / bookmarks */
+    masterinfo->outline=NULL;
+    masterinfo->outline_srcpage_completed=-1;
     masterinfo->preview_bitmap=NULL;
     masterinfo->preview_captured=0;
     masterinfo->published_pages=0;
+    masterinfo->srcpages = -1;
     masterinfo->wordcount=0;
     masterinfo->debugfolder[0]='\0';
     bmp_init(&masterinfo->bmp);
@@ -100,6 +104,7 @@ void masterinfo_free(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
 #endif
     wrapbmp_free(&masterinfo->wrapbmp);
     bmp_free(&masterinfo->bmp);
+    wpdfoutline_free(masterinfo->outline);
     }
 
 
@@ -131,9 +136,9 @@ int masterinfo_new_source_page_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2
     int white;
 
     white=k2settings->src_whitethresh;
+    masterinfo->pageinfo.srcpage = pageno;
     if (k2settings->use_crop_boxes)
         {
-        masterinfo->pageinfo.srcpage = pageno;
         masterinfo->pageinfo.srcpage_rot_deg=0.;
         masterinfo->pageinfo.srcpage_fine_rot_deg = 0.;
         }
@@ -653,7 +658,9 @@ printf("maxgap_pixels=%d\n",maxgap_pixels);
     ** mandatory_region_gap==4 means this is the first bitmap being added for the whole
     **                    document, so we don't need to add a gap in that case, either.
     */
-    if (masterinfo->mandatory_region_gap==1)
+    if (k2settings->dst_fit_to_page==-2)
+        gap_pixels = 0;
+    else if (masterinfo->mandatory_region_gap==1)
         gap_pixels= k2settings_gap_override(k2settings) ? 0 
                                 : masterinfo->page_region_gap_in*region->dpi;
     else if (textrow[0].type==REGION_TYPE_FIGURE || lastrow->type==REGION_TYPE_FIGURE)
@@ -875,7 +882,7 @@ k2printf("start:  mi->rows=%d, rr=%d\n",masterinfo->rows,rr);
         return(0);
 
     /* Get a suitable breaking point for the next page */
-    bp=masterinfo_break_point(masterinfo,maxsize);
+    bp=masterinfo_break_point(masterinfo,k2settings,maxsize);
     if (k2settings->verbose)
         k2printf("bp: maxsize=%d, bp=%d, r0=%d\n",maxsize,bp,r0);
 #if (WILLUSDEBUGX & 64)
@@ -1074,6 +1081,30 @@ k2printf("mi->published_pages=%d\n",masterinfo->published_pages);
 
 
 /*
+** Return 0 if master bitmap should not be flushed.
+**        NZ if it should be flushed.
+** Based on user settings for page breaks.
+** v2.10
+**
+*/
+int masterinfo_should_flush(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    if (k2settings_gap_override(k2settings))
+        return(0);
+    if (k2settings->dst_break_pages==0)
+        return(0);
+    if (k2settings->dst_break_pages>1)
+        return(1);
+    /* Check list of pages where user has requested a page break */
+    if (k2settings->bpl[0]!='\0' && pagelist_includes_page(k2settings->bpl,masterinfo->pageinfo.srcpage+1,masterinfo->srcpages))
+        return(1);
+    /* Check outline / bookmarks if available */
+    return(wpdfoutline_includes_srcpage(masterinfo->outline,masterinfo->pageinfo.srcpage+1,1)>0 ? 1 : 0);
+    }
+
+
+/*
 ** Correctly complete crop boxes that are associated with this output page
 **
 ** box->x1,y1,userx,usery start out as:
@@ -1222,7 +1253,23 @@ static void bmp_pad_and_mark(WILLUSBITMAP *dst,WILLUSBITMAP *src,K2PDFOPT_SETTIN
 
     {
     int i,r,r0,bw,bytespp,pl,pr,pt,pb;
-
+/*
+printf("Pad:  %d,%d,%d,%d\n",k2settings->pad_left,
+k2settings->pad_top,
+k2settings->pad_right,
+k2settings->pad_bottom);
+printf("OM:  %g,%g,%g,%g\n",
+k2settings->dst_marleft,
+k2settings->dst_martop,
+k2settings->dst_marright,
+k2settings->dst_marbot);
+printf("Mar: %g,%g,%g,%g\n",
+k2settings->mar_left,
+k2settings->mar_top,
+k2settings->mar_right,
+k2settings->mar_bot);
+printf("usecropboxes=%d\n",k2settings->use_crop_boxes);
+*/
     r0=(int)(bmpdpi*k2settings->dst_martop+.5);
     if (k2settings->dst_landscape)
         {
@@ -1565,6 +1612,7 @@ static void find_word_gaps_using_textrow(WILLUSBITMAP *src,K2PDFOPT_SETTINGS *k2
     }
 
 
+#if 0
 /*
 ** Find gaps in the master bitmap so that it can be broken into regions
 ** which go onto separate pages.
@@ -1578,10 +1626,14 @@ static int masterinfo_break_point(MASTERINFO *masterinfo,int maxsize)
     int bp1f,bp2f;
     int bp1e,bp2e;
 
-/*
 k2printf("@breakpoint, mi->rows=%d, maxsize=%d\n",masterinfo->rows,maxsize);
 k2printf("    fit_to_page=%d\n",(int)masterinfo->fit_to_page);
-*/
+{
+static int count=1;
+char filename[256];
+sprintf(filename,"page%04d.png",count++);
+bmp_write(&masterinfo->bmp,filename,stdout,100);
+}
     /* masterinfo->fit_to_page==-2 means user specified -f2p -2 which means */
     /* flush entire contents of master to single page every time.   */
     if (masterinfo->rows<maxsize || masterinfo->fit_to_page==-2)
@@ -1595,10 +1647,8 @@ k2printf("    fit_to_page=%d\n",(int)masterinfo->fit_to_page);
     else
         scanheight=maxsize;
     /* If available rows almost exactly fit page, just send the whole thing */
-/*
 k2printf("    scanheight=%d, mi->rows=%d, fabs=%g\n",scanheight,masterinfo->rows,
 fabs((double)scanheight/masterinfo->rows-1.));
-*/
     if (masterinfo->fit_to_page==0 && (abs(scanheight-masterinfo->rows)<=1
              || fabs((double)scanheight/masterinfo->rows-1.)<.002))
         return(masterinfo->rows);
@@ -1633,8 +1683,8 @@ fabs((double)scanheight/masterinfo->rows-1.));
         {
         if (rowcount[i]==0)
             {
-// if (cw==0)
-// k2printf("%d black\n",fc);
+if (cw==0)
+k2printf("%d black\n",fc);
             cw++;
             if (fc>figure)
                 {
@@ -1664,29 +1714,27 @@ fabs((double)scanheight/masterinfo->rows-1.));
             }
         else
             {
-// if (fc==0)
-// k2printf("%d white\n",cw);
+if (fc==0)
+k2printf("%d white\n",cw);
             cw=0;
             nwc++;
             fc++;
             }
         }
-/*
 {
 static int count=0;
 FILE *out;
 count++;
 k2printf("rows=%d, gs=%d, scanheight=%d, bp1=%d, bp2=%d\n",masterinfo->rows,goodsize,scanheight,bp1,bp2);
 k2printf("     bp1f=%d, bp2f=%d, bp1e=%d, bp2e=%d\n",bp1f,bp2f,bp1e,bp2e);
-bmp_write(&masterinfo->bmp,"master.png",stdout,100);
-out=fopen("rc.dat","w");
-for (i=0;i<scanheight;i++)
-fprintf(out,"%d\n",rowcount[i]);
-fclose(out);
-if (count==2)
-exit(10);
+//bmp_write(&masterinfo->bmp,"master.png",stdout,100);
+//out=fopen("rc.dat","w");
+//for (i=0;i<scanheight;i++)
+//fprintf(out,"%d\n",rowcount[i]);
+//fclose(out);
+// if (count==2)
+// exit(10);
 }
-*/
     willus_dmem_free(29,(double **)&rowcount,funcname);
     if (masterinfo->fit_to_page==0)
         {
@@ -1707,4 +1755,118 @@ exit(10);
     if (bp2e > 0)
         return(bp2e);
     return(bp1e);
+    }
+#endif /* 0 */
+
+
+/*
+** Find gaps in the master bitmap so that it can be broken into regions
+** which go onto separate pages.
+**
+** maxsize is the ideal desired bitmap size to fit the page.
+** Depending on the fit_to_page setting, the bitmap can actually go
+** beyond this.
+**
+** Re-written to use bmpregion_find_textrows() in v2.10.
+**
+*/
+static int masterinfo_break_point(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int maxsize)
+
+    {
+    int scanheight,j,r1,r2,r1a,r2a;
+    BMPREGION region;
+    WILLUSBITMAP *bmp,_bmp;
+
+/*
+k2printf("@breakpoint, mi->rows=%d, maxsize=%d\n",masterinfo->rows,maxsize);
+k2printf("    fit_to_page=%d\n",(int)masterinfo->fit_to_page);
+{
+static int count=1;
+char filename[256];
+sprintf(filename,"page%04d.png",count++);
+bmp_write(&masterinfo->bmp,filename,stdout,100);
+}
+*/
+    /* masterinfo->fit_to_page==-2 means user specified -f2p -2 which means */
+    /* flush entire contents of master to single page every time.   */
+    if (masterinfo->rows<maxsize || masterinfo->fit_to_page==-2)
+        return(masterinfo->rows);
+
+    /* scanheight tells how far down the master bitmap to scan */
+    if (masterinfo->fit_to_page==-1)
+        scanheight=masterinfo->rows;
+    else if (masterinfo->fit_to_page>0)
+        scanheight=(int)(((1.+masterinfo->fit_to_page/100.)*maxsize)+.5);
+    else
+        scanheight=maxsize;
+    /* If available rows almost exactly fit page, just send the whole thing */
+/*
+k2printf("    scanheight=%d, mi->rows=%d, fabs=%g\n",scanheight,masterinfo->rows,
+fabs((double)scanheight/masterinfo->rows-1.));
+*/
+    if (masterinfo->fit_to_page==0 && (abs(scanheight-masterinfo->rows)<=1
+             || fabs((double)scanheight/masterinfo->rows-1.)<.002))
+        return(masterinfo->rows);
+    if (scanheight > masterinfo->rows)
+        scanheight=masterinfo->rows;
+
+    /*
+    ** Find text rows (and gaps between)
+    */
+    bmp=&_bmp;
+    bmp_init(bmp);
+    if (bmp_is_grayscale(&masterinfo->bmp))
+        bmp_copy(bmp,&masterinfo->bmp);
+    else
+        bmp_convert_to_grayscale_ex(bmp,&masterinfo->bmp);
+    bmp->height=scanheight*1.4;
+    if (bmp->height >  masterinfo->rows)
+        bmp->height = masterinfo->rows;
+    bmpregion_init(&region);
+    region.bgcolor=masterinfo->bgcolor;
+    region.c1=0;
+    region.c2=bmp->width-1;
+    region.r1=0;
+    region.r2=bmp->height-1;
+    region.bmp8=bmp;
+    region.bmp=bmp;
+    region.dpi=k2settings->dst_dpi;
+    bmpregion_find_textrows(&region,k2settings,0,1);
+/*
+{
+static int count=1;
+char filename[256];
+sprintf(filename,"page%04d.png",count);
+bmp_write(bmp,filename,stdout,100);
+printf("\nmaxsize=%d, scanheight=%d, dst_dpi=%d\n",maxsize,scanheight,k2settings->dst_dpi);
+printf("OUTPUT PAGE %d\n",count++);
+for (j=0;j<region.textrows.n;j++)
+{
+printf("%d. ",j+1);
+textrow_echo(&region.textrows.textrow[j],stdout);
+}
+}
+*/
+    bmp_free(bmp);
+    for (r1a=r2a=r1=r2=j=0;j<region.textrows.n;j++)
+        {
+        TEXTROW *row;
+
+        row=&region.textrows.textrow[j];
+        r2=row->r2+1;
+        if (j<region.textrows.n-1)
+            r2a=(row->r2+region.textrows.textrow[j+1].r1)/2; /* Midpoint */
+        else
+            r2a=r2;
+        if (row->r2 > maxsize)
+            break;
+        r1=r2;
+        r1a=r2a;
+        }
+    bmpregion_free(&region);
+    if (r1a<=maxsize)
+        r1=r1a;
+    if (r2a<=scanheight)
+        r2=r2a;
+    return(r1<maxsize*.25 ? (r2<scanheight ? r2:scanheight) : r1);
     }
