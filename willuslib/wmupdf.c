@@ -37,7 +37,7 @@ static void info_update(pdf_document *xref,char *producer);
 static void dict_put_string(pdf_document *doc,pdf_obj *dict,char *key,char *string);
 static void wmupdf_page_bbox(pdf_obj *srcpage,double *bbox_array);
 static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINFO *pageinfo,
-                                  int use_forms,FILE *out);
+                                  int use_forms,WPDFOUTLINE *wpdfoutline,FILE *out);
 static void set_clip_array(double *xclip,double *yclip,double rot_deg,double width,double height);
 static void cat_pdf_double(char *buf,double x);
 static void wmupdf_convert_pages_to_forms(pdf_document *xref,fz_context *ctx,int *srcpageused);
@@ -78,6 +78,13 @@ static int  wtextchar_compare_vert(WTEXTCHAR *c1,WTEXTCHAR *c2,int type);
 */
 static void wtextchars_sort_horizontally_by_position(WTEXTCHARS *wtc);
 static int  wtextchar_compare_horiz(WTEXTCHAR *c1,WTEXTCHAR *c2);
+/*
+** Outline functions
+*/
+static WPDFOUTLINE *wpdfoutline_convert_from_fitz_outline(fz_outline *fzoutline);
+static void pdf_create_outline(pdf_document *doc,pdf_obj *outline_root,pdf_obj *orref,WPDFOUTLINE *outline);
+static void pdf_create_outline_1(pdf_document *doc,pdf_obj *parent,pdf_obj *parentref,pdf_obj *dict,pdf_obj *dictref,int drefnum,WPDFOUTLINE *outline);
+static pdf_obj *anchor_reference(pdf_document *doc,int pageno);
 
 
 int wmupdf_numpages(char *filename)
@@ -401,7 +408,8 @@ int wmupdf_info_field(char *infile,char *label,char *buf,int maxlen)
 ** use_forms==0:  Old-style reconstruction where the pages are not turned into XObject Forms.
 ** use_forms==1:  New-style where pages are turned into XObject forms.
 */
-int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_forms,FILE *out)
+int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_forms,
+                      WPDFOUTLINE *wpdfoutline,FILE *out)
 
     {
     pdf_document *xref;
@@ -445,7 +453,7 @@ int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_
             nprintf(out,"wmupdf_remake_pdf:  Cannot authenticate PDF file %s.\n",infile);
             return(-3);
             }
-        status=wmupdf_pdfdoc_newpages(xref,ctx,pageinfo,use_forms,out);
+        status=wmupdf_pdfdoc_newpages(xref,ctx,pageinfo,use_forms,wpdfoutline,out);
         if (status<0)
             {
             pdf_close_document(xref);
@@ -567,7 +575,7 @@ static void wmupdf_page_bbox(pdf_obj *srcpage,double *bbox_array)
 
 
 static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINFO *pageinfo,
-                                  int use_forms,FILE *out)
+                                  int use_forms,WPDFOUTLINE *wpdfoutline,FILE *out)
 
     {
     static char *funcname="wmupdf_pdfdoc_newpages";
@@ -575,7 +583,7 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
     pdf_obj *srcpageobj,*srcpagecontents;
     pdf_obj *destpageobj,*destpagecontents,*destpageresources;
     double srcx0,srcy0;
-    int qref,i,i0,pagecount,srccount,destpageref,nbb;
+    int qref,i,i0,pagecount,srccount,destpageref,nbb,numpages;
     int *srcpageused;
     char *bigbuf;
     double srcpagerot;
@@ -612,7 +620,9 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
     pdf_dict_puts(root,"Type",pdf_dict_gets(oldroot,"Type"));
     pdf_dict_puts(root,"Pages",pages);
     pdf_update_object(xref,pdf_to_num(oldroot),root);
+/*
     pdf_drop_obj(root);
+*/
 
     /* Parent indirectly references the /Pages object in the file */
     /* (Each new page we create has to point to this.)            */
@@ -645,7 +655,6 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
         pdf_obj *s1indirect,*qindirect,*rotobj;
         static double cpm[3][3],m[3][3],m1[3][3];
         static double xclip[4],yclip[4];
-
 /*
 printf("box[%d/%d], srccount=%d\n",i,pageinfo->boxes.n,srccount);
 if (i<pageinfo->boxes.n)
@@ -945,7 +954,8 @@ printf("Clip path:\n    %7.2f %7.2f\n    %7.2f,%7.2f\n    %7.2f,%7.2f\n"
         wmupdf_convert_pages_to_forms(xref,ctx,srcpageused);
 
     /* Update page count and kids array */
-    countobj = pdf_new_int(xref, pdf_array_len(kids));
+    numpages = pdf_array_len(kids);
+    countobj = pdf_new_int(xref, numpages);
     pdf_dict_puts(pages, "Count", countobj);
     pdf_drop_obj(countobj);
     pdf_dict_puts(pages, "Kids", kids);
@@ -960,6 +970,25 @@ printf("Clip path:\n    %7.2f %7.2f\n    %7.2f,%7.2f\n    %7.2f,%7.2f\n"
         willus_mem_free((double **)&bigbuf,funcname);
         willus_mem_free((double **)&srcpageused,funcname);
         }
+
+    /* Outline */
+    if (wpdfoutline!=NULL)
+        {
+        pdf_obj *outline_root,*ori;
+        int ref;
+
+        wpdfoutline_fill_in_blank_dstpages(wpdfoutline,numpages);
+/* wpdfoutline_echo(wpdfoutline,0,1,stdout); */
+        ref = pdf_create_object(xref);
+        outline_root = pdf_new_dict(xref,4);
+        ori = pdf_new_indirect(xref,ref,0);
+        pdf_create_outline(xref,outline_root,ori,wpdfoutline);
+        pdf_update_object(xref,ref,outline_root);
+        pdf_drop_obj(outline_root);
+        pdf_dict_puts(root,"Outlines",ori);
+        pdf_drop_obj(ori);
+        }
+    pdf_drop_obj(root);
     return(0);
     }
 
@@ -1074,25 +1103,31 @@ static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ct
     /* Concatenate all indirect streams from source page directly into it. */
 /* printf("Adding streams to source page %d (pageref=%d, pagegen=%d)...\n",pageno,pageref,pagegen); */
     streamlen=0;
-    if (pdf_is_array(srcpagecontents))
+    /* k2pdfopt v2.10:  check if NULL--can be NULL on empty page */
+    if (srcpagecontents!=NULL)
         {
-        int k;
-        for (k=0;k<pdf_array_len(srcpagecontents);k++)
+        if (pdf_is_array(srcpagecontents))
             {
-            pdf_obj *obj;
-            obj=pdf_array_get(srcpagecontents,k);
-            if (pdf_is_indirect(obj))
-                pdf_resolve_indirect(obj);
-            streamlen=add_to_srcpage_stream(xref,ctx,pageref,pagegen,obj);
+            int k;
+            for (k=0;k<pdf_array_len(srcpagecontents);k++)
+                {
+                pdf_obj *obj;
+                obj=pdf_array_get(srcpagecontents,k);
+                if (pdf_is_indirect(obj))
+                    pdf_resolve_indirect(obj);
+                streamlen=add_to_srcpage_stream(xref,ctx,pageref,pagegen,obj);
+                }
             }
+        else
+            {
+            if (pdf_is_indirect(srcpagecontents))
+                pdf_resolve_indirect(srcpagecontents);
+            streamlen=add_to_srcpage_stream(xref,ctx,pageref,pagegen,srcpagecontents);
+            }
+        compressed=stream_deflate(xref,ctx,pageref,pagegen,&streamlen);
         }
     else
-        {
-        if (pdf_is_indirect(srcpagecontents))
-            pdf_resolve_indirect(srcpagecontents);
-        streamlen=add_to_srcpage_stream(xref,ctx,pageref,pagegen,srcpagecontents);
-        }
-    compressed=stream_deflate(xref,ctx,pageref,pagegen,&streamlen);
+        compressed=0;
     len=pdf_dict_len(srcpageobj);
     for (i=0;i<len;i++)
         {
@@ -1193,7 +1228,11 @@ static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,
     fz_buffer *dstbuf;
     int dstlen;
 
-// printf("@add_to_srcpage_stream()...pageref=%d\n",pageref);
+/*
+printf("@add_to_srcpage_stream()...pageref=%d\n",pageref);
+printf("srcdict=%p\n",srcdict);
+printf("pdf_to_num(srcdict)=%d\n",pdf_to_num(srcdict));
+*/
     srcbuf=pdf_load_stream(xref,pdf_to_num(srcdict),pdf_to_gen(srcdict));
     if (srcbuf==NULL)
         {
@@ -1219,9 +1258,23 @@ printf("    dstlen before = %d\n",dstlen);
 printf("    srclen = %d\n",fz_buffer_storage(ctx,srcbuf,NULL));
 printf("    srcptr = %p\n",srcbuf->data);
 */
+    /*
+    ** v2.04 fix:  Insert white space between consecutive streams.
+    **             Bug found by agelos100 on mobileread.
+    */
+    if (dstlen>0)
+        {
+        char whitespace[2];
+
+        whitespace[0]=' ';
+        whitespace[1]='\0';
+        fz_write_buffer(ctx,dstbuf,whitespace,1);
+        }
     fz_write_buffer(ctx,dstbuf,srcbuf->data,fz_buffer_storage(ctx,srcbuf,NULL));
     dstlen=fz_buffer_storage(ctx,dstbuf,NULL);
-// printf("    dstlen after = %d\n",dstlen);
+/*
+printf("    dstlen after = %d\n",dstlen);
+*/
     fz_drop_buffer(ctx,srcbuf);
     pdf_update_stream(xref,pageref,dstbuf);
     fz_drop_buffer(ctx,dstbuf);
@@ -2046,4 +2099,193 @@ static int wtextchar_compare_horiz(WTEXTCHAR *c1,WTEXTCHAR *c2)
     {
     return(c1->xp-c2->xp);
     }
+
+
+/*
+** Get outline of PDF file into WPDFOUTLINE structure
+*/
+WPDFOUTLINE *wpdfoutline_read_from_pdf_file(char *filename)
+
+    {
+    fz_context *ctx;
+    fz_document *doc;
+    fz_outline *fzoutline;
+    WPDFOUTLINE *wpdfoutline;
+
+    doc=NULL;
+    ctx = fz_new_context(NULL,NULL,FZ_STORE_DEFAULT);
+    if (!ctx)
+        return(NULL);
+    fz_set_aa_level(ctx,8);
+    fz_try(ctx) { doc=fz_open_document(ctx,filename); }
+    fz_catch(ctx) 
+        { 
+        fz_free_context(ctx);
+        return(NULL);
+        }
+    fzoutline=fz_load_outline(doc);
+    wpdfoutline=wpdfoutline_convert_from_fitz_outline(fzoutline);
+    if (fzoutline!=NULL)
+        fz_free_outline(ctx,fzoutline);
+    fz_close_document(doc);
+    fz_free_context(ctx);
+    return(wpdfoutline);
+    }
+
+
+/*
+** Convert fz_outline structure to WPDFOUTLINE structure
+*/
+static WPDFOUTLINE *wpdfoutline_convert_from_fitz_outline(fz_outline *fzoutline)
+
+    {
+    static char *funcname="wpdfoutline_convert_from_fitz_outline";
+    WPDFOUTLINE *x;
+    void *p;
+
+    if (fzoutline==NULL)
+        return(NULL);
+    willus_mem_alloc_warn(&p,sizeof(WPDFOUTLINE),funcname,10);
+    x=(WPDFOUTLINE *)p;
+    wpdfoutline_init(x);
+    if (fzoutline->title!=NULL)
+        {
+        willus_mem_alloc_warn(&p,strlen(fzoutline->title)+1,funcname,10);
+        x->title=p;
+        strcpy(x->title,fzoutline->title);
+        }
+    if (fzoutline->dest.kind==FZ_LINK_GOTO || fzoutline->dest.kind==FZ_LINK_GOTOR)
+        x->srcpage=fzoutline->dest.ld.gotor.page;
+    else
+        x->srcpage=-1;
+    x->dstpage=-1;
+    x->next = wpdfoutline_convert_from_fitz_outline(fzoutline->next);
+    x->down = wpdfoutline_convert_from_fitz_outline(fzoutline->down);
+    return(x);
+    }
+
+
+/*
+** Save outline stored in "outline" to outline_root object.
+*/
+static void pdf_create_outline(pdf_document *doc,pdf_obj *outline_root,pdf_obj *orref,WPDFOUTLINE *outline)
+
+    {
+    int ref;
+    pdf_obj *first,*firstref;
+
+    ref = pdf_create_object(doc);
+    first = pdf_new_dict(doc,4);
+    firstref = pdf_new_indirect(doc,ref,0);
+    pdf_create_outline_1(doc,outline_root,orref,first,firstref,ref,outline);
+    }
+
+/*
+** Recursive
+*/
+static void pdf_create_outline_1(pdf_document *doc,pdf_obj *parent,pdf_obj *parentref,pdf_obj *dict,pdf_obj *dictref,int drefnum,WPDFOUTLINE *outline)
+
+    {
+    int count;
+    pdf_obj *first,*prev;
+
+    prev=NULL;
+    first=dictref;
+    count=0;
+    while (outline)
+        {
+        pdf_obj *title,*nextdict,*nextdictref,*aref;
+        int nextdictrefnum;
+        char *de;
+
+        /* Convert UTF-8 to PDF-encoding */
+        de=malloc(strlen(outline->title)+2);
+        if (de==NULL)
+            de=outline->title;
+        else
+            wpdf_docenc_from_utf8(de,outline->title,strlen(outline->title)+1);
+        title=pdf_new_string(doc,de,strlen(de));
+        pdf_dict_puts(dict,"Title",title);
+        pdf_drop_obj(title);
+        if (de!=outline->title)
+            free(de);
+        aref=anchor_reference(doc,outline->dstpage);
+        pdf_dict_puts(dict,"A",aref);
+        pdf_drop_obj(aref);
+        count++;
+        if (parentref!=NULL)
+           pdf_dict_puts(dict,"Parent",parentref);
+        if (prev!=NULL)
+           pdf_dict_puts(dict,"Prev",prev);
+        if (outline->down)
+            {
+            pdf_obj *newdict,*newdictref;
+            int newdictrefnum;
+
+            newdictrefnum = pdf_create_object(doc);
+            newdict = pdf_new_dict(doc,4);
+            newdictref = pdf_new_indirect(doc,newdictrefnum,0);
+            pdf_create_outline_1(doc,dict,dictref,newdict,newdictref,newdictrefnum,outline->down);
+            }
+        pdf_update_object(doc,drefnum,dict);
+        if (outline->next==NULL)
+            break;
+        nextdictrefnum = pdf_create_object(doc);
+        nextdict = pdf_new_dict(doc,4);
+        nextdictref = pdf_new_indirect(doc,nextdictrefnum,0);
+        pdf_dict_puts(dict,"Next",nextdictref);
+        if (dictref!=first)
+            {
+            pdf_drop_obj(dictref);
+            pdf_drop_obj(dict);
+            }
+        prev=dictref;
+        dictref=nextdictref;
+        dict=nextdict;
+        drefnum=nextdictrefnum;
+        outline = outline->next;
+        }
+    pdf_dict_puts(parent,"First",first);
+    pdf_dict_puts(parent,"Last",dictref);
+    {
+    pdf_obj *countobj;
+
+    countobj=pdf_new_int(doc,count);
+    pdf_dict_puts(parent,"Count",countobj);
+    pdf_drop_obj(countobj);
+    }
+    pdf_update_object(doc,drefnum,dict);
+    pdf_drop_obj(dict);
+    pdf_drop_obj(dictref);
+    }
+
+
+static pdf_obj *anchor_reference(pdf_document *doc,int pageno)
+
+    {
+    pdf_obj *pageref;
+    pdf_obj *anchor,*anchorref;
+    pdf_obj *array;
+    pdf_obj *name;
+    int arefnum;
+
+    pageref=pdf_lookup_page_obj(doc,pageno);
+    arefnum = pdf_create_object(doc);
+    anchor = pdf_new_dict(doc,4);
+    anchorref = pdf_new_indirect(doc,arefnum,0);
+    array = pdf_new_array(doc,2);
+    pdf_array_push(array,pageref);
+    name = pdf_new_name(doc,"Fit");
+    pdf_array_push(array,name);
+    pdf_drop_obj(name);
+    pdf_dict_puts(anchor,"D",array);
+    pdf_drop_obj(array);
+    name = pdf_new_name(doc,"GoTo");
+    pdf_dict_puts(anchor,"S",name);
+    pdf_drop_obj(name);
+    pdf_update_object(doc,arefnum,anchor);
+    pdf_drop_obj(anchor);
+    return(anchorref);
+    }
+    
 #endif /* HAVE_MUPDF_LIB */

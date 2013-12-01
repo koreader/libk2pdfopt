@@ -121,11 +121,12 @@ int k2printf(char *fmt,...)
     va_start(args,fmt);
 #ifdef HAVE_K2GUI
     if (k2gui_active() && k2gui_cbox_converting())
-{
-status=avprintf(stdout,fmt,args);
+        {
+#if (WILLUSDEBUGX & 0x4000)
+        status=avprintf(stdout,fmt,args);
+#endif          
         status=k2gui_cbox_vprintf(stdout,fmt,args);
-
-}
+        }
     else
 #endif
     status=avprintf(stdout,fmt,args);

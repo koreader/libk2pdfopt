@@ -1308,10 +1308,10 @@ static int filelist_recursive_archive_add(FILELIST *dst,int index,
                         count+=filelist_recursive_archive_add(dst,index,
                                       archdir2,temparch,
                                   include_only,exclude,recursive,dirstoo);
-                        wzfile_fully_remove(temparch);
+                        wfile_remove_file_plus_parent_dir(temparch);
                         }
                      wzclose(src);
-                     wzfile_fully_remove(tempname);
+                     wfile_remove_file_plus_parent_dir(tempname);
                      }
                  }
             }

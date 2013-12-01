@@ -68,6 +68,8 @@ typedef struct
     } WILLUSCHARINFO;
 
 
+
+
 static WILLUSCHARINFO Helvetica[224] =
     {
     /*    */ {-1.00000,-1.00000,-1.00000,-1.00000, 0.27792},
@@ -300,6 +302,8 @@ static int lastfont=-1;
 static double lastfontsize=-1;
 
 static void pdffile_start(PDFFILE *pdf,int pages_at_end);
+static int pdffile_page_reference(PDFFILE *pdf,int pageno);
+static void pdf_utf8_out(FILE *out,char *s);
 static void pdffile_unicode_map(PDFFILE *pdf,WILLUSCHARMAPLIST *cmaplist,int nf);
 static void thumbnail_create(WILLUSBITMAP *thumb,WILLUSBITMAP *bmp);
 static void pdffile_bmp_stream(PDFFILE *pdf,WILLUSBITMAP *bmp,int quality,int halfsize,int thumb);
@@ -330,6 +334,17 @@ static int  willuscharmaplist_maxcid(WILLUSCHARMAPLIST *list);
 static int  willuscharmaplist_cid_index(WILLUSCHARMAPLIST *list,int unichar);
 static void willuscharmaplist_populate(WILLUSCHARMAPLIST *cmaplist,OCRWORDS *ocrwords);
 static void willuscharmaplist_populate_string(WILLUSCHARMAPLIST *cmaplist,char *s);
+
+/* Outline support functions */
+static int wpdfoutline_num_anchors_on_level(WPDFOUTLINE *outline,int *rc);
+static int wpdfoutline_within(WPDFOUTLINE *outline,WPDFOUTLINE *outline1);
+static int wpdfoutline_index(WPDFOUTLINE *outline,WPDFOUTLINE *outline1);
+static int wpdfoutline_num_anchors_recursive(WPDFOUTLINE *outline);
+static WPDFOUTLINE *wpdfoutline_by_index(WPDFOUTLINE *outline,int n);
+static WPDFOUTLINE *wpdfoutline_previous(WPDFOUTLINE *outline,WPDFOUTLINE *outline1);
+static WPDFOUTLINE *wpdfoutline_parent(WPDFOUTLINE *outline,WPDFOUTLINE *outline1);
+static int legal_pdf_encoded_byte(int c);
+
 
 FILE *pdffile_init(PDFFILE *pdf,char *filename,int pages_at_end)
 
@@ -377,6 +392,11 @@ static void pdffile_start(PDFFILE *pdf,int pages_at_end)
     else
         fprintf(pdf->f,"2");
     fprintf(pdf->f," 0 R\n"
+                   "/Outlines ");
+    fflush(pdf->f);
+    fseek(pdf->f,0L,1);
+    pdf->object[pdf->n-1].ptr[2]=ftell(pdf->f);
+    fprintf(pdf->f,"       0 R\n"
                    "/Type /Catalog\n"
                    ">>\n"
                    "endobj\n");
@@ -402,6 +422,145 @@ static void pdffile_start(PDFFILE *pdf,int pages_at_end)
         }
     else
         pdf->pae=0;
+    }
+
+
+int pdffile_page_count(PDFFILE *pdf)
+
+    {
+    int i,np;
+
+    for (np=i=0;i<pdf->n;i++)
+        if (pdf->object[i].flags&1)
+            np++;
+    return(np);
+    }
+
+
+static int pdffile_page_reference(PDFFILE *pdf,int pageno)
+
+    {
+    int i,np;
+
+    for (np=i=0;i<pdf->n;i++)
+        if (pdf->object[i].flags&1)
+            {
+            np++;
+            if (np==pageno)
+                return(i+1);
+            }
+    return(-1);
+    }
+
+
+/*
+** Must be called after all pages are added
+*/
+void pdffile_add_outline(PDFFILE *pdf,WPDFOUTLINE *outline)
+
+    {
+    int i,n0,n,nl,np,rcount;
+
+    if (outline==NULL)
+        return;
+    np=pdffile_page_count(pdf);
+    wpdfoutline_fill_in_blank_dstpages(outline,np);
+    n=wpdfoutline_num_anchors_recursive(outline);
+    if (n==0)
+         return;
+    nl=wpdfoutline_num_anchors_on_level(outline,&rcount);
+    /* Outline head */
+    pdffile_new_object(pdf,4);
+    fprintf(pdf->f,"<<\n"
+                   "  /Count %d\n"
+                   "  /First %d 0 R\n"
+                   "  /Last %d 0 R\n"
+                   "  /Type /Outlines\n"
+                   ">>\n"
+                   "endobj\n\n",
+                   nl,pdf->n+1,pdf->n+1+rcount*2);
+    n0=pdf->n+1;
+    for (i=0;i<n;i++)
+        {
+        WPDFOUTLINE *local,*next;
+
+        pdffile_new_object(pdf,8);
+        local=wpdfoutline_by_index(outline,i);
+        fprintf(pdf->f,"<<\n"
+                       "  /A %d 0 R\n",pdf->n+1);
+        if (local->down!=NULL)
+            {
+            int nl2,rc2;
+
+            nl2=wpdfoutline_num_anchors_on_level(local->down,&rc2);
+            fprintf(pdf->f,"  /Count %d\n"
+                           "  /First %d 0 R\n"
+                           "  /Last %d 0 R\n",
+                           nl2,
+                           pdf->n+2,
+                           pdf->n+2+rc2*2);
+            }
+        if (local->next!=NULL)
+            {
+            int rc2;
+            rc2=wpdfoutline_num_anchors_recursive(local->down);
+            fprintf(pdf->f,"  /Next %d 0 R\n",pdf->n+2+rc2*2);
+            }
+        next=wpdfoutline_previous(outline,local);
+        if (next!=NULL)
+            fprintf(pdf->f,"  /Prev %d 0 R\n",n0+wpdfoutline_index(outline,next)*2);
+        next=wpdfoutline_parent(outline,local);
+        if (next!=NULL)
+            fprintf(pdf->f,"  /Parent %d 0 R\n",n0+wpdfoutline_index(outline,next)*2);
+        else
+            fprintf(pdf->f,"  /Parent %d 0 R\n",n0-1);
+        fprintf(pdf->f,"  /Title ");
+        pdf_utf8_out(pdf->f,local->title);
+        fprintf(pdf->f,"\n"
+                       ">>\n"
+                       "endobj\n\n");
+        pdffile_new_object(pdf,16);
+        fprintf(pdf->f,"<<\n"
+                       "  /D [ %d 0 R /Fit ]\n"
+                       "  /S /GoTo\n"
+                       ">>\n"
+                       "endobj\n\n",pdffile_page_reference(pdf,local->dstpage+1));
+        }
+    }
+
+
+static void pdf_utf8_out(FILE *out,char *s)
+
+    {
+    static char *funcname="pdf_utf8_out";
+    int i,len,docenc;
+    int *d;
+    unsigned char *de;
+
+    willus_mem_alloc_warn((void **)&de,strlen(s)+2,funcname,10);
+    docenc=wpdf_docenc_from_utf8((char *)de,s,strlen(s)+1);
+    if (docenc)
+        {
+        fprintf(out,"(");
+        for (i=0;de[i]!='\0';i++)
+            if (de[i]>=32 && de[i]<=127)
+                fputc(de[i],out);
+            else
+                fprintf(out,"\\%03o",de[i]);
+        fprintf(out,")");
+        }
+    willus_mem_free((double **)&de,funcname);
+    if (docenc)
+        return;
+    /* If UTF-8 text can't be PDF document-encoded, convert to Unicode-16 */
+    len=strlen(s)+2;
+    willus_mem_alloc_warn((void **)&d,sizeof(int)*len,funcname,10);
+    len=utf8_to_unicode(d,s,len-1);
+    fprintf(out,"<FEFF");
+    for (i=0;i<len;i++)
+        fprintf(out,"%04X",d[i]);
+    fprintf(out,">");
+    willus_mem_free((double **)&d,funcname);
     }
 
 
@@ -855,7 +1014,28 @@ void pdffile_finish(PDFFILE *pdf,char *title,char *author,char *producer,char *c
 
     time(&now);
     today=(*localtime(&now));
+
+    /* Insert outline reference if available */
+    for (i=0;i<pdf->n;i++)
+        if (pdf->object[i].flags&4)
+            break;
+    if (i<pdf->n)
+        {
+        fflush(pdf->f);
+        fseek(pdf->f,pdf->object[0].ptr[2],0);
+        sprintf(nbuf,"%6d",i+1);
+        fwrite(nbuf,1,6,pdf->f);
+        }
+    else
+        {
+        fflush(pdf->f);
+        fseek(pdf->f,pdf->object[0].ptr[2]-10,0);
+        strcpy(nbuf,"%% ");
+        fwrite(nbuf,1,3,pdf->f);
+        }
+        
     ptr=0; /* Avoid compiler warning */
+    fseek(pdf->f,0L,2);
     if (pdf->pae==0)
         {
         pdffile_new_object(pdf,0);
@@ -892,6 +1072,7 @@ void pdffile_finish(PDFFILE *pdf,char *title,char *author,char *producer,char *c
         {
         fseek(pdf->f,ptr,0);
         }
+
     pdffile_new_object(pdf,0);
     if (producer==NULL)
         sprintf(buf,"WILLUS lib %s",willuslibversion());
@@ -1571,3 +1752,371 @@ static void willuscharmaplist_populate_string(WILLUSCHARMAPLIST *cmaplist,char *
             willuscharmaplist_add_charmap(cmaplist,d[i]);
     willus_mem_free((double **)&d,funcname);
     }
+
+
+void wpdfoutline_init(WPDFOUTLINE *wpdfoutline)
+
+    {
+    wpdfoutline->title=NULL;
+    wpdfoutline->next=NULL;
+    wpdfoutline->down=NULL;
+    wpdfoutline->srcpage=-1;
+    wpdfoutline->dstpage=-1;
+    }
+
+
+void wpdfoutline_free(WPDFOUTLINE *wpdfoutline)
+
+    {
+    if (wpdfoutline==NULL)
+        return;
+    wpdfoutline_free(wpdfoutline->down);
+    wpdfoutline->down=NULL;
+    wpdfoutline_free(wpdfoutline->next);
+    wpdfoutline->next=NULL;
+    wpdfoutline->srcpage=-1;
+    wpdfoutline->dstpage=-1;
+    }
+
+
+WPDFOUTLINE *wpdfoutline_read_from_text_file(char *filename)
+
+    {
+    FILE *f;
+    WPDFOUTLINE *outline0,*outline,*parent[16];
+    char buf[512];
+    int level,count;
+
+    for (level=0;level<16;level++)
+        parent[level]=NULL;
+    f=fopen(filename,"r");
+    if (f==NULL)
+        return(NULL);
+    outline0=outline=NULL;
+    level=0;
+    count=0;
+    while (fgets(buf,511,f)!=NULL)
+        {
+        int llev,i,j;
+        WPDFOUTLINE *oline;
+
+        clean_line(buf);
+        for (llev=i=0;buf[i]!='\0' && (buf[i]<'0' || buf[i]>'9');i++)
+            if (buf[i]=='+')
+               llev++;
+        for (j=i;buf[j]>='0' && buf[j]<='9';j++);
+        count++;
+        oline=malloc(sizeof(WPDFOUTLINE));
+        wpdfoutline_init(oline);
+        oline->srcpage=atoi(&buf[i])-1;
+        clean_line(&buf[j]);
+        oline->title=malloc(strlen(&buf[j])+1);
+        strcpy(oline->title,&buf[j]);
+        oline->dstpage=-1;
+        if (count==1)
+            {
+            level=llev;
+            outline0=outline=oline;
+            parent[0]=outline;
+            continue;
+            }
+        if (llev > 15)
+            {
+            printf("pdfwrite:  Exceeded max outline sub-levels (15).\n");
+            exit(10);
+            }
+        if (llev > level)
+            {
+            parent[level]=outline;
+            outline->down=oline;
+            outline=outline->down;
+            level=llev;
+            continue;
+            }
+        if (llev!=level)
+            {
+            for (i=llev;i>=0;i--)
+                if (parent[i]!=NULL)
+                    {
+                    outline=parent[i];
+                    break;
+                    }
+            level=i;
+            }
+        outline->next=oline;
+        outline=outline->next;
+        parent[llev]=outline;
+        }
+    fclose(f);
+    return(outline0);
+    }
+        
+        
+/*
+** srcpage and dstpage start at 1!
+*/
+void wpdfoutline_set_dstpage(WPDFOUTLINE *outline,int srcpage,int dstpage)
+
+    {
+/*
+printf("\n@wpdfoutline_set_dstpage(srcpage=%d,dstpage=%d)\n",srcpage,dstpage);
+*/
+    if (outline==NULL)
+        return;
+    if (outline->dstpage<0 || outline->srcpage>=srcpage-1)
+        outline->dstpage=dstpage-1;
+    wpdfoutline_set_dstpage(outline->down,srcpage,dstpage);
+    wpdfoutline_set_dstpage(outline->next,srcpage,dstpage);
+    }
+
+
+/*
+** pageno starts at 1
+**
+** Returns outline level where page number is found.  Higher level = more sub-bulleted.
+**
+*/
+int wpdfoutline_includes_srcpage(WPDFOUTLINE *outline,int pageno,int level)
+
+    {
+    int status;
+
+    if (outline==NULL)
+        return(0);
+    if (outline->srcpage==pageno-1)
+        return(level);
+    if ((status=wpdfoutline_includes_srcpage(outline->down,pageno,level+1))!=0)
+        return(status);
+    return(wpdfoutline_includes_srcpage(outline->next,pageno,level));
+    }
+
+
+void wpdfoutline_echo(WPDFOUTLINE *outline,int level,int count,FILE *out)
+
+    {
+    int i;
+
+    if (outline==NULL)
+        return;
+    for (i=0;i<level;i++)
+        fprintf(out,"    ");
+    fprintf(out,"%2d. %s (sp. %d, dp. %d)\n",count,outline->title,outline->srcpage+1,outline->dstpage+1);
+    wpdfoutline_echo(outline->down,level+1,1,out);
+    wpdfoutline_echo(outline->next,level,count+1,out);
+    }
+
+
+void wpdfoutline_echo2(WPDFOUTLINE *outline,int level,FILE *out)
+
+    {
+    int i;
+
+    if (outline==NULL)
+        return;
+    for (i=0;i<level;i++)
+        fprintf(out,"+");
+    fprintf(out,"%d %s\n",outline->srcpage+1,outline->title);
+    wpdfoutline_echo2(outline->down,level+1,out);
+    wpdfoutline_echo2(outline->next,level,out);
+    }
+
+
+static int wpdfoutline_num_anchors_on_level(WPDFOUTLINE *outline,int *rc)
+
+    {
+    int i,na;
+
+    for (na=i=0;outline!=NULL;i++,outline=outline->next)
+        if (outline->next!=NULL)
+            na += wpdfoutline_num_anchors_recursive(outline->down)+1;
+    if (rc!=NULL)
+        (*rc)=na;
+    return(i);
+    }
+
+
+static int wpdfoutline_num_anchors_recursive(WPDFOUTLINE *outline)
+
+    {
+    if (outline==NULL)
+        return(0);
+    return(wpdfoutline_num_anchors_recursive(outline->down)
+            + wpdfoutline_num_anchors_recursive(outline->next)
+            + 1);
+    }
+
+
+static int wpdfoutline_within(WPDFOUTLINE *outline,WPDFOUTLINE *outline1)
+
+    {
+    if (outline==NULL)
+        return(0);
+    if (outline==outline1)
+        return(1);
+    if (wpdfoutline_within(outline->down,outline1))
+        return(1);
+    return(wpdfoutline_within(outline->next,outline1));
+    }
+
+
+static int wpdfoutline_index(WPDFOUTLINE *outline,WPDFOUTLINE *outline1)
+
+    {
+    int na;
+
+    if (outline==NULL || outline==outline1)
+        return(0);
+    if (wpdfoutline_within(outline->down,outline1))
+        return(1+wpdfoutline_index(outline->down,outline1));
+    na=wpdfoutline_num_anchors_recursive(outline->down);
+    return(1+na+wpdfoutline_index(outline->next,outline1));
+    }
+
+
+static WPDFOUTLINE *wpdfoutline_by_index(WPDFOUTLINE *outline,int n)
+
+    {
+    int nr;
+
+    if (n==0 || outline==NULL)
+        return(outline);
+    if (outline->down!=NULL)
+        {
+        nr=wpdfoutline_num_anchors_recursive(outline->down);
+        if (nr>=n)
+            return(wpdfoutline_by_index(outline->down,n-1));
+        n-=nr;
+        }
+    return(wpdfoutline_by_index(outline->next,n-1));
+    }
+
+
+static WPDFOUTLINE *wpdfoutline_previous(WPDFOUTLINE *outline,WPDFOUTLINE *outline1)
+
+    {
+    if (outline==NULL)
+        return(NULL);
+    if (outline->next==outline1)
+        return(outline);
+    if (wpdfoutline_within(outline->down,outline1))
+        return(wpdfoutline_previous(outline->down,outline1));
+    return(wpdfoutline_previous(outline->next,outline1));
+    }
+
+
+static WPDFOUTLINE *wpdfoutline_parent(WPDFOUTLINE *outline,WPDFOUTLINE *outline1)
+
+    {
+    if (outline==NULL)
+        return(NULL);
+    if (outline->down==outline1)
+        return(outline);
+    if (wpdfoutline_within(outline->down,outline1))
+        return(wpdfoutline_parent(outline->down,outline1));
+    return(wpdfoutline_parent(outline->next,outline1));
+    }
+
+
+int wpdfoutline_fill_in_blank_dstpages(WPDFOUTLINE *outline,int pageno)
+
+    {
+    if (outline==NULL)
+        return(pageno);
+    if (outline->dstpage<0)
+        outline->dstpage=pageno-1;
+    else
+        pageno=outline->dstpage+1;
+    pageno=wpdfoutline_fill_in_blank_dstpages(outline->down,pageno);
+    return(wpdfoutline_fill_in_blank_dstpages(outline->next,pageno));
+    }
+
+
+int wpdf_docenc_from_utf8(char *dst,char *src_utf8,int maxlen)
+
+    {
+    static char *funcname="wpdf_docenc_from_utf8";
+	int i,j,n,legal;
+    int *utf16;
+
+    legal=1;
+    n=strlen(src_utf8)+2;
+    willus_mem_alloc_warn((void **)&utf16,sizeof(int)*n,funcname,10);
+    n=utf8_to_unicode(utf16,src_utf8,n-1);
+	for (i=j=0;i<n;i++)
+        {
+        int c;
+        if ((c=legal_pdf_encoded_byte(utf16[i]))!=0)
+            {
+            if (dst!=NULL && j<maxlen)
+                dst[j++] = c;
+            }
+        else
+            legal=0;
+        }
+    if (dst!=NULL)
+        dst[j]='\0';
+    willus_mem_free((double **)&utf16,funcname);
+    return(legal);
+    }
+
+
+static int legal_pdf_encoded_byte(int c)
+
+    {
+    int k;
+    const unsigned short wpdfdoc_encoding_table[256] =
+        {
+        /* 0x0 to 0x17 except \t, \n and \r are really undefined */
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F,
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x02d8, 0x02c7, 0x02c6, 0x02d9, 0x02dd, 0x02db, 0x02da, 0x02dc,
+        0x0020, 0x0021, 0x0022, 0x0023, 0x0024, 0x0025, 0x0026, 0x0027,
+        0x0028, 0x0029, 0x002a, 0x002b, 0x002c, 0x002d, 0x002e, 0x002f,
+        0x0030, 0x0031, 0x0032, 0x0033, 0x0034, 0x0035, 0x0036, 0x0037,
+        0x0038, 0x0039, 0x003a, 0x003b, 0x003c, 0x003d, 0x003e, 0x003f,
+        0x0040, 0x0041, 0x0042, 0x0043, 0x0044, 0x0045, 0x0046, 0x0047,
+        0x0048, 0x0049, 0x004a, 0x004b, 0x004c, 0x004d, 0x004e, 0x004f,
+        0x0050, 0x0051, 0x0052, 0x0053, 0x0054, 0x0055, 0x0056, 0x0057,
+        0x0058, 0x0059, 0x005a, 0x005b, 0x005c, 0x005d, 0x005e, 0x005f,
+        0x0060, 0x0061, 0x0062, 0x0063, 0x0064, 0x0065, 0x0066, 0x0067,
+        0x0068, 0x0069, 0x006a, 0x006b, 0x006c, 0x006d, 0x006e, 0x006f,
+        0x0070, 0x0071, 0x0072, 0x0073, 0x0074, 0x0075, 0x0076, 0x0077,
+        0x0078, 0x0079, 0x007a, 0x007b, 0x007c, 0x007d, 0x007e, 0x0000,
+        0x2022, 0x2020, 0x2021, 0x2026, 0x2014, 0x2013, 0x0192, 0x2044,
+        0x2039, 0x203a, 0x2212, 0x2030, 0x201e, 0x201c, 0x201d, 0x2018,
+        0x2019, 0x201a, 0x2122, 0xfb01, 0xfb02, 0x0141, 0x0152, 0x0160,
+        0x0178, 0x017d, 0x0131, 0x0142, 0x0153, 0x0161, 0x017e, 0x0000,
+        0x20ac, 0x00a1, 0x00a2, 0x00a3, 0x00a4, 0x00a5, 0x00a6, 0x00a7,
+        0x00a8, 0x00a9, 0x00aa, 0x00ab, 0x00ac, 0x0000, 0x00ae, 0x00af,
+        0x00b0, 0x00b1, 0x00b2, 0x00b3, 0x00b4, 0x00b5, 0x00b6, 0x00b7,
+        0x00b8, 0x00b9, 0x00ba, 0x00bb, 0x00bc, 0x00bd, 0x00be, 0x00bf,
+        0x00c0, 0x00c1, 0x00c2, 0x00c3, 0x00c4, 0x00c5, 0x00c6, 0x00c7,
+        0x00c8, 0x00c9, 0x00ca, 0x00cb, 0x00cc, 0x00cd, 0x00ce, 0x00cf,
+        0x00d0, 0x00d1, 0x00d2, 0x00d3, 0x00d4, 0x00d5, 0x00d6, 0x00d7,
+        0x00d8, 0x00d9, 0x00da, 0x00db, 0x00dc, 0x00dd, 0x00de, 0x00df,
+        0x00e0, 0x00e1, 0x00e2, 0x00e3, 0x00e4, 0x00e5, 0x00e6, 0x00e7,
+        0x00e8, 0x00e9, 0x00ea, 0x00eb, 0x00ec, 0x00ed, 0x00ee, 0x00ef,
+        0x00f0, 0x00f1, 0x00f2, 0x00f3, 0x00f4, 0x00f5, 0x00f6, 0x00f7,
+        0x00f8, 0x00f9, 0x00fa, 0x00fb, 0x00fc, 0x00fd, 0x00fe, 0x00ff
+        };
+
+    for (k=1;k<256;k++)
+        if (c==wpdfdoc_encoding_table[k])
+            return(k);
+    return(0);
+    }
+
+/*
+int wpdfoutline_includes_srcpage(WPDFOUTLINE *outline,int srcpage)
+
+    {
+    if (outline==NULL)
+        return(0);
+    if (outline->srcpage==srcpage-1)
+        return(1);
+    if (wpdfoutline_includes_srcpage(outline->down,srcpage))
+        return(1);
+    return(wpdfoutline_includes_srcpage(outline->next,srcpage));
+    }
+*/

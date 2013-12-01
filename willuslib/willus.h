@@ -688,10 +688,14 @@ int wfile_findnext(wfile *wptr);
 void wfile_findclose(wfile *wptr);
 int wfile_date(const char *filename,struct tm *filedate);
 void wfile_set_mod_date(char *filename,struct tm *date);
-void wfile_date_add_seconds(struct tm *date,int secs);
+void wfile_date_add_seconds(struct tm *date,double secs);
 void wfile_date_add_hours(struct tm *date,int nhours);
+#define wfile_date_increment_hour wfile_increment_hour
+#define wfile_date_decrement_hour wfile_decrement_hour
+/*
 void wfile_date_increment_hour(struct tm *date);
 void wfile_date_decrement_hour(struct tm *date);
+*/
 int wfile_is_symlink_ex(char *filename,char *src);
 int wfile_is_symlink(char *filename);
 int wfile_is_regular_file(char *filename);
@@ -774,6 +778,7 @@ int wfile_extract_in_place(char *filename);
 int wfile_find_file(char *fullname,char *basename,char *folderlist[],char *drives,
                     int checkpath,int cwd,int exedir,char *envdir);
 int wfile_smartfind(char *fullname,char *basename,char *folder,int recursive);
+void wfile_remove_file_plus_parent_dir(char *tempfile);
 
 /* wzfile.c */
 typedef struct
@@ -782,7 +787,6 @@ typedef struct
     int   type;  /* 0 = regular, 1 = zlib file */
     } WZFILE;
 WZFILE *wzopen_special(char *archfile,char *filename,char *tempname);
-void    wzfile_fully_remove(char *tempfile);
 int     wfile_is_binary(char *filename,int maxlen);
 WZFILE *wzopen(char *filename,char *mode);
 void    wzfile_date(char *filename,struct tm *date);
@@ -901,7 +905,6 @@ int win_set_path(char *path,int syspath);
 int win_registry_search(char *data,int maxlen,char *basename,char *keyroot,int recursive);
 int win_get_user_and_domain(char *szUser,int maxlen,char *szDomain,int maxlen2);
 int win_has_own_window(void);
-int win_getppid(int pid);
 #endif
 
 /* winshell.c */
@@ -978,6 +981,7 @@ int    wsys_win32_api(void);
 int    wsys_wpid_status(int wpid);
 void   wsys_sleep(int secs);
 char  *wsys_full_exe_name(char *s);
+void   wsys_append_nul_redirect(char *s);
 int    wsys_which(char *exactname,char *exename);
 int    wsys_most_recent_in_path(char *exename,char *wildcard);
 void   wsys_computer_name(char *name,int maxlen);
@@ -1283,13 +1287,28 @@ void ocrtess_single_word_from_bmp8(char *text,int maxlen,WILLUSBITMAP *bmp8,
 /* pdfwrite.c */
 typedef struct
     {
-    size_t ptr[2];
-    int    flags;    // 1 = new page; 2 = needs parent reference
+    size_t ptr[3];
+    int    flags;    /*
+                     ** 1 = new page
+                     ** 2 = needs parent reference
+                     ** 4 = outline head
+                     ** 8 = outline title
+                     ** 16 = page anchor
+                     */
     } PDFOBJECT;
+
+typedef struct wpdfoutline_s
+    {
+    char *title;
+    int srcpage; /* 0 = first page */
+    int dstpage; /* 0 = first page */
+    struct wpdfoutline_s *next;
+    struct wpdfoutline_s *down;
+    } WPDFOUTLINE;
 
 typedef struct
     {
-    PDFOBJECT *object;
+    PDFOBJECT *object; /* PDF reference number = index + 1 */
     int n;
     int na;
     int imc;    // Image count
@@ -1300,6 +1319,8 @@ typedef struct
 
 FILE *pdffile_init(PDFFILE *pdf,char *filename,int pages_at_end);
 void pdffile_close(PDFFILE *pdf);
+int  pdffile_page_count(PDFFILE *pdf);
+void pdffile_add_outline(PDFFILE *pdf,WPDFOUTLINE *outline);
 void pdffile_add_bitmap(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,int quality,int halfsize);
 void pdffile_add_bitmap_with_ocrwords(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,
                                       int quality,int halfsize,OCRWORDS *ocrwords,
@@ -1307,6 +1328,16 @@ void pdffile_add_bitmap_with_ocrwords(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,
 void pdffile_finish(PDFFILE *pdf,char *title,char *author,char *producer,char *cdate);
 int  pdf_numpages(char *filename);
 void ocrwords_box(OCRWORDS *ocrwords,WILLUSBITMAP *bmp);
+void wpdfoutline_init(WPDFOUTLINE *wpdfoutline);
+void wpdfoutline_init(WPDFOUTLINE *wpdfoutline);
+void wpdfoutline_free(WPDFOUTLINE *wpdfoutline);
+void wpdfoutline_set_dstpage(WPDFOUTLINE *outline,int srcpage,int dstpage);
+int  wpdfoutline_includes_srcpage(WPDFOUTLINE *outline,int pageno,int level);
+void wpdfoutline_echo(WPDFOUTLINE *outline,int level,int count,FILE *out);
+void wpdfoutline_echo2(WPDFOUTLINE *outline,int level,FILE *out);
+int  wpdfoutline_fill_in_blank_dstpages(WPDFOUTLINE *outline,int pageno);
+WPDFOUTLINE *wpdfoutline_read_from_text_file(char *filename);
+int  wpdf_docenc_from_utf8(char *dst,char *src_utf8,int maxlen);
 
 #ifdef HAVE_MUPDF_LIB
 /* bmpmupdf.c */
@@ -1400,7 +1431,8 @@ void wpdfboxes_add_box(WPDFBOXES *boxes,WPDFBOX *box);
 void wpdfboxes_delete(WPDFBOXES *boxes,int n);
 void wpdfpageinfo_sort(WPDFPAGEINFO *pageinfo);
 int  wmupdf_info_field(char *infile,char *label,char *buf,int maxlen);
-int  wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_forms,FILE *out);
+int  wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_forms,
+                       WPDFOUTLINE *wpdfoutline,FILE *out);
 /* Character position map */
 int  wtextchars_fill_from_page(WTEXTCHARS *wtc,char *filename,int pageno,char *password);
 void wtextchars_init(WTEXTCHARS *wtc);
@@ -1410,6 +1442,7 @@ void wtextchars_add_wtextchar(WTEXTCHARS *wtc,WTEXTCHAR *textchar);
 void wtextchars_remove_wtextchar(WTEXTCHARS *wtc,int index);
 void wtextchars_rotate_clockwise(WTEXTCHARS *wtc,int rot_deg);
 void wtextchars_text_inside(WTEXTCHARS *src,char **text,double x1,double y1,double x2,double y2);
+WPDFOUTLINE *wpdfoutline_read_from_pdf_file(char *filename);
 #endif /* HAVE_MUPDF_LIB */
 
 #ifdef HAVE_DJVU_LIB
@@ -1432,6 +1465,7 @@ typedef struct
     } STRBUF;
 char *strbuf_lineno(STRBUF *buf,int line_index);
 void strbuf_init(STRBUF *sbuf);
+void strbuf_cat_ex(STRBUF *sbuf,char *s);
 void strbuf_cat(STRBUF *sbuf,char *s);
 void strbuf_cat_with_quotes(STRBUF *sbuf,char *s);
 void strbuf_cat_no_spaces(STRBUF *sbuf,char *s);

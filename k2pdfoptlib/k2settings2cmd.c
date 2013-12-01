@@ -31,6 +31,7 @@ static void integer_check(STRBUF *cmdline,char *optname,int *srcval,int dstval);
 static void double_check(STRBUF *cmdline,char *optname,double *srcval,double dstval);
 static void string_check(STRBUF *cmdline,char *optname,char *srcval,char *dstval);
 static char *unit_string(int units);
+static int cropboxes_are_different(K2CROPBOXES *src,K2CROPBOXES *dst);
 
 /*
 ** Fills cmdline with the appropriate command-line options that will
@@ -44,7 +45,7 @@ void k2pdfopt_settings_get_cmdline(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
     {
     STRBUF *shortest,_shortest;
     K2PDFOPT_SETTINGS _src0,*src0;
-    static char *modelabel[]={"def","fw","2col","copy",""};
+    static char *modelabel[]={"def","fw","fp","crop","2col","tm","copy",""};
     int i,j,nd;
 
 /*
@@ -199,7 +200,9 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
         continue;
         }
     */
+    /*
     minus_check(cmdline,"-pi",&src->preserve_indentation,dst->preserve_indentation);
+    */
     plus_minus_check(cmdline,"-wrap",&src->text_wrap,dst->text_wrap);
 #ifdef HAVE_MUPDF_LIB
     if (src->user_usegs != dst->user_usegs)
@@ -254,12 +257,17 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
     integer_check(cmdline,"-f2p",&src->dst_fit_to_page,dst->dst_fit_to_page);
     double_check(cmdline,"-vb",&src->vertical_break_threshold,dst->vertical_break_threshold);
     minus_check(cmdline,"-sm",&src->show_marked_source,dst->show_marked_source);
+    minus_check(cmdline,"-toc",&src->use_toc,dst->use_toc);
     if (src->dst_break_pages != dst->dst_break_pages)
         {
         if (dst->dst_break_pages==0)
-            strbuf_sprintf(cmdline,"-bp-");
+            strbuf_sprintf(cmdline,"-bp--");
         else if (dst->dst_break_pages==1)
+            strbuf_sprintf(cmdline,"-bp-");
+        else if (dst->dst_break_pages==2)
             strbuf_sprintf(cmdline,"-bp");
+        else if (dst->dst_break_pages==3)
+            strbuf_sprintf(cmdline,"-bp+");
         else
             strbuf_sprintf(cmdline,"-bp %g",(-1.-dst->dst_break_pages)/1000.);
         src->dst_break_pages = dst->dst_break_pages;
@@ -332,6 +340,9 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
     double_check(cmdline,"-comax",&src->column_offset_max,dst->column_offset_max);
     integer_check(cmdline,"-col",&src->max_columns,dst->max_columns);
     string_check(cmdline,"-p",src->pagelist,dst->pagelist);
+    string_check(cmdline,"-bpl",src->bpl,dst->bpl);
+    string_check(cmdline,"-toclist",src->toclist,dst->toclist);
+    string_check(cmdline,"-tocsave",src->tocsavefile,dst->tocsavefile);
     integer_check(cmdline,"-bpc",&src->dst_bpc,dst->dst_bpc);
     double_check(cmdline,"-g",&src->dst_gamma,dst->dst_gamma);
     double_check(cmdline,"-cg",&src->min_column_gap_inches,dst->min_column_gap_inches);
@@ -344,6 +355,23 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
     double_check(cmdline,"-ds",&src->document_scale_factor,dst->document_scale_factor);
     double_check(cmdline,"-idpi",&src->user_src_dpi,dst->user_src_dpi);
     integer_check(cmdline,"-odpi",&src->dst_dpi,dst->dst_dpi);
+    if (cropboxes_are_different(&src->cropboxes,&dst->cropboxes))
+        {
+        int i;
+
+        strbuf_sprintf(cmdline,"-cbox-");
+        for (i=0;i<dst->cropboxes.n;i++)
+            {
+            int c;
+            c=dst->cropboxes.cropbox[i].flags;
+            strbuf_sprintf(cmdline,"-cbox%s %g,%g,%g,%g",
+                           c==1?"e":(c==2?"o":""),
+                           dst->cropboxes.cropbox[i].left,
+                           dst->cropboxes.cropbox[i].top,
+                           dst->cropboxes.cropbox[i].width,
+                           dst->cropboxes.cropbox[i].height);
+            }
+        }
     if (src->dst_figure_justify!=dst->dst_figure_justify
            || src->dst_min_figure_height_in != dst->dst_min_figure_height_in)
         {
@@ -509,4 +537,23 @@ static char *unit_string(int units)
     else
         return(strvals[0]);
     }
+
+
+static int cropboxes_are_different(K2CROPBOXES *src,K2CROPBOXES *dst)
+
+    {
+    int i;
+
+    if (src->n != dst->n)
+        return(1);
+    for (i=0;i<src->n;i++)
+        if (fabs(src->cropbox[i].left-dst->cropbox[i].left)>1e-6
+            || fabs(src->cropbox[i].top-dst->cropbox[i].top)>1e-6
+            || fabs(src->cropbox[i].width-dst->cropbox[i].width)>1e-6
+            || fabs(src->cropbox[i].height-dst->cropbox[i].height)>1e-6
+            || src->cropbox[i].flags!=dst->cropbox[i].flags)
+            return(1);
+    return(0);
+    }
+        
 #endif /* HAVE_K2GUI */

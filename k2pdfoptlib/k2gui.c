@@ -834,22 +834,39 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                 if (!strcmp(control->name,"straighten"))
                     k2settings->src_autostraighten = checked ? 4. : -1.;
                 else if (!strcmp(control->name,"break"))
-                    k2settings->dst_break_pages= checked ? 1 : 0;
+                    k2settings->dst_break_pages= checked ? 2 : 1;
                 else if (!strcmp(control->name,"color"))
                     k2settings->dst_color= checked ? 1 : 0;
                 else if (!strcmp(control->name,"landscape"))
                     k2settings->dst_landscape = checked ? 1 : 0;
                 else if (!strcmp(control->name,"native"))
+                    {
                     k2settings->use_crop_boxes = checked ? 1 : 0;
+                    if (k2settings->use_crop_boxes)
+                        {
+#ifdef HAVE_OCR_LIB
+                        k2settings->dst_ocr=0;
+#endif
+                        k2settings->text_wrap=0;
+                        }
+                    }
                 else if (!strcmp(control->name,"r2l"))
                     k2settings->src_left_to_right = checked ? 0 : 1;
                 else if (!strcmp(control->name,"markup"))
                     k2settings->show_marked_source = checked ? 1 : 0;
                 else if (!strcmp(control->name,"wrap"))
+                    {
                     k2settings->text_wrap = checked ? 2 : 0;
+                    if (k2settings->text_wrap)
+                        k2settings->use_crop_boxes=0;
+                    }
 #ifdef HAVE_OCR_LIB
                 else if (!strcmp(control->name,"ocr"))
+                    {
                     k2settings->dst_ocr = checked ? 't' : 'm';
+                    if (k2settings->dst_ocr)
+                        k2settings->use_crop_boxes=0;
+                    }
 #endif
                 else if (!strcmp(control->name,"evl"))
                     k2settings->erase_vertical_lines = checked ? 1 : 0;
@@ -1359,6 +1376,9 @@ static WILLUSGUICONTROL *k2gui_control_with_focus(int *index)
 static void k2gui_update_controls(void)
 
     {
+    /* Make checkboxes consistent */
+    if (k2gui!=NULL && k2gui->k2conv!=NULL)
+        k2pdfopt_settings_quick_sanity_check(&k2gui->k2conv->k2settings);
     if (needs_redraw!=2)
         needs_redraw=1;
     willusgui_control_redraw(&k2gui->mainwin,1);
@@ -1876,7 +1896,7 @@ printf("dst_userwidth_units = %d\n",k2settings->dst_userwidth_units);
     ** Mode select menu
     */
     {
-    static char *modes[]={"default","copy","fitwidth","2-column",""};
+    static char *modes[]={"default","copy","trim","fitwidth","fitpage","2-column",""};
     int nmodes;
 
     for (nmodes=0;modes[nmodes][0]!='\0';nmodes++);
@@ -2407,7 +2427,7 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
                 checked=k2settings->src_autostraighten>=0.;
                 break;
             case 1:
-                checked=k2settings->dst_break_pages;
+                checked=(k2settings->dst_break_pages==2);
                 break;
             case 2:
                 checked=k2settings->dst_color;
@@ -2645,6 +2665,13 @@ static WILLUSGUICONTROL *k2gui_control_by_name(char *name)
         if (!stricmp(k2gui->control[i].name,name))
             return(&k2gui->control[i]);
     return(NULL);
+    }
+
+
+int k2gui_previewing(void)
+
+    {
+    return(k2gui->preview_processing);
     }
 
 

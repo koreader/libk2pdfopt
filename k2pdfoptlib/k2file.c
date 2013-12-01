@@ -31,6 +31,9 @@ static int k2_handle_preview(K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinf
 static int    filename_comp(char *name1,char *name2);
 static void   filename_substitute(char *dst,char *fmt,char *src,int count,char *defext0);
 static int    overwrite_fail(char *outname,double overwrite_minsize_mb);
+static int toclist_valid(char *s,FILE *out);
+static WPDFOUTLINE *wpdfoutline_from_pagelist(char *pagelist,int maxpages);
+static int tocwrites=0;
 
 
 /*
@@ -228,7 +231,7 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings0,char *filename,do
     WILLUSBITMAP _marked,*marked;
     WILLUSBITMAP preview_internal;
     int i,status,pw,np,src_type,second_time_through,or_detect,orep_detect,preview;
-    int pagecount,pagestep,pages_done;
+    int pagecount,pagestep,pages_done,local_tocwrites;
     int errcnt,pixwarn;
     FILELIST *fl,_fl;
     int folder,dpi;
@@ -245,6 +248,7 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings0,char *filename,do
 /*
 printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",filename,rot_deg,k2out->bmp);
 */
+    local_tocwrites=0;
     k2out->status = 1;
     k2settings=&_k2settings;
     k2pdfopt_settings_copy(k2settings,k2settings0);
@@ -449,6 +453,32 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
                     strcpy(mupdffilename,filename);
                 }
 #endif
+            /* Get bookmarks / outline from PDF file */
+            if (!or_detect && k2settings->use_toc!=0 && !toclist_valid(k2settings->toclist,NULL))
+                {
+                masterinfo->outline=wpdfoutline_read_from_pdf_file(mupdffilename);
+                /* Save TOC if requested */
+                if (k2settings->tocsavefile[0]!='\0')
+                    {
+                    FILE *f;
+                    f=fopen(k2settings->tocsavefile,tocwrites==0?"w":"a");
+                    if (f!=NULL)
+                        {
+                        int i;
+                        fprintf(f,"%sFILE: %s\n",tocwrites==0?"":"\n\n",mupdffilename);
+                        for (i=strlen(mupdffilename)+6;i>0;i--)
+                            fputc('-',f);
+                        fprintf(f,"\n");
+                        if (masterinfo->outline!=NULL)
+                            wpdfoutline_echo2(masterinfo->outline,0,f);
+                        else
+                            fprintf(f,"(No outline info in file.)\n");
+                        fclose(f);
+                        tocwrites++;
+                        local_tocwrites++;
+                        }
+                    }
+                }
             }
         else
 #endif
@@ -483,6 +513,14 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
         if (folder)
             filelist_free(fl);
         return(0.);
+        }
+    masterinfo->srcpages = np;
+    if (!or_detect && toclist_valid(k2settings->toclist,stdout))
+        {
+        if (pagelist_valid_page_range(k2settings->toclist))
+            masterinfo->outline=wpdfoutline_from_pagelist(k2settings->toclist,masterinfo->srcpages);
+        else
+            masterinfo->outline=wpdfoutline_read_from_text_file(k2settings->toclist);
         }
     pagecount = np<0 ? -1 : pagelist_count(k2settings->pagelist,np);
 #ifdef HAVE_K2GUI
@@ -659,23 +697,23 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
         /* Reset the display order for this source page */
         if (k2settings->show_marked_source)
             mark_source_page(k2settings,NULL,0,0xf);
-        /* If we haven't just kicked out a page... */
-        if (!k2settings_gap_override(k2settings))
+        /*
+        ** v2.10 Call masterinfo_publish() no matter what.  If we've just kicked out a
+        **       page, it doesn't matter.  It will do nothing.
+        */
+        masterinfo_publish(masterinfo,k2settings,
+                           masterinfo_should_flush(masterinfo,k2settings));
+        if (preview && k2_handle_preview(k2settings,masterinfo,k2mark_page_count,
+                                         k2settings->dst_color?marked:src,k2out))
             {
-            masterinfo_publish(masterinfo,k2settings,
-                            k2settings->dst_break_pages>0 ? k2settings->dst_break_pages : 0);
-            if (preview && k2_handle_preview(k2settings,masterinfo,k2mark_page_count,
-                                             k2settings->dst_color?marked:src,k2out))
-                {
-                bmp_free(marked);
-                bmp_free(srcgrey);
-                bmp_free(src);
-                masterinfo_free(masterinfo,k2settings);
-                if (folder)
-                    filelist_free(fl);
-                k2out->status=0;
-                return(0.);
-                }
+            bmp_free(marked);
+            bmp_free(srcgrey);
+            bmp_free(src);
+            masterinfo_free(masterinfo,k2settings);
+            if (folder)
+                filelist_free(fl);
+            k2out->status=0;
+            return(0.);
             }
         if (k2settings->show_marked_source && !preview)
             publish_marked_page(mpdf,k2settings->dst_color ? marked : src,k2settings->src_dpi);
@@ -739,7 +777,14 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
         k2out->status=0;
         return(0.);
         }
+    /*
+    ** v2.10 -- Calling masterinfo_flush() without checking if a page has just been
+    **          been flushed is fine at the end.  If there is nothing left
+    **          in the master output bitmap, it won't do anything.
+    */
+    /*
     if (k2settings->dst_break_pages<=0 && !k2settings_gap_override(k2settings))
+    */
         masterinfo_flush(masterinfo,k2settings);
     {
     char cdate[128],author[256],title[256];
@@ -759,6 +804,8 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
         author[0]=title[0]=cdate[0]='\0';
     if (!k2settings->use_crop_boxes)
         {
+        if (masterinfo->outline!=NULL)
+            pdffile_add_outline(&masterinfo->outfile,masterinfo->outline);
         pdffile_finish(&masterinfo->outfile,title,author,masterinfo->pageinfo.producer,cdate);
         pdffile_close(&masterinfo->outfile);
         }
@@ -769,7 +816,7 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
 wpdfboxes_echo(&masterinfo->pageinfo.boxes,stdout);
 #endif
 #ifdef HAVE_MUPDF_LIB
-        wmupdf_remake_pdf(mupdffilename,dstfile,&masterinfo->pageinfo,1,stdout);
+        wmupdf_remake_pdf(mupdffilename,dstfile,&masterinfo->pageinfo,1,masterinfo->outline,stdout);
 #endif
         }
     if (k2settings->show_marked_source)
@@ -804,6 +851,8 @@ wpdfboxes_echo(&masterinfo->pageinfo.boxes,stdout);
         k2printf(TTEXT_BOLD "%d words" TTEXT_NORMAL " written to " TTEXT_MAGENTA "%s" TTEXT_NORMAL " (%.1f MB).\n\n",masterinfo->wordcount,masterinfo->ocrfilename,size/1024./1024.);
         }
 #endif
+    if (local_tocwrites>0)
+        k2printf(TTEXT_BOLD "%d bytes" TTEXT_NORMAL " written to " TTEXT_MAGENTA "%s" TTEXT_NORMAL ".\n\n",(int)(wfile_size(k2settings->tocsavefile)+.5),k2settings->tocsavefile);
     masterinfo_free(masterinfo,k2settings);
     if (folder)
         filelist_free(fl);
@@ -855,10 +904,11 @@ static int k2_handle_preview(K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinf
 printf("Got preview bitmap:  %d x %d x %d.\n",
 masterinfo->preview_bitmap->width,masterinfo->preview_bitmap->height,masterinfo->preview_bitmap->bpp);
 */
-        if (k2settings->preview_page>0)
-            bmp_write(masterinfo->preview_bitmap,"k2pdfopt_out.png",NULL,100);
         if (k2out->bmp==NULL)
+            {
+            bmp_write(masterinfo->preview_bitmap,"k2pdfopt_out.png",NULL,100);
             bmp_free(masterinfo->preview_bitmap);
+            }
         }
     return(status);
     }
@@ -1013,4 +1063,58 @@ static int overwrite_fail(char *outname,double overwrite_minsize_mb)
         }
     strcpy(outname,newname);
     return(0);
+    }
+
+
+static int toclist_valid(char *s,FILE *out)
+
+    {
+    if (s[0]=='\0')
+        return(0);
+    if (pagelist_valid_page_range(s))
+        return(1);
+    if (wfile_status(s)==1)
+        return(1);
+    if (out!=NULL)
+        k2printf(ANSI_RED "\nTOC page list '%s' is not valid page range or file name."
+                 ANSI_NORMAL "\n\n",s);
+    return(0);
+    }
+
+
+/*
+** Create outline from page list
+*/
+static WPDFOUTLINE *wpdfoutline_from_pagelist(char *pagelist,int maxpages)
+
+    {
+    int i;
+    WPDFOUTLINE *outline,*outline0;
+
+    outline0=outline=NULL;
+    for (i=0;1;i++)
+        {
+        int page;
+        char buf[64];
+        WPDFOUTLINE *oline;
+
+        page=pagelist_page_by_index(pagelist,i,maxpages);
+        if (page<0)
+            break;
+        sprintf(buf,"Chapter %d",i+1);
+        oline=malloc(sizeof(WPDFOUTLINE));
+        wpdfoutline_init(oline);
+        oline->title=malloc(strlen(buf)+1);
+        strcpy(oline->title,buf);
+        oline->srcpage=page-1;
+        oline->dstpage=-1;
+        if (i==0)
+            {
+            outline0=outline=oline;
+            continue;
+            }
+        outline->next=oline;
+        outline=outline->next;
+        }
+    return(outline0);
     }

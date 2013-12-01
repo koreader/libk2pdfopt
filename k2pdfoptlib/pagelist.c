@@ -40,6 +40,22 @@ int pagelist_valid_page_range(char *s)
     }
 
 
+int pagelist_includes_page(char *pagelist,int pageno,int maxpages)
+
+    {
+    int i,n;
+
+    /* Sort of arbitrary */
+    if (maxpages < 0)
+        maxpages = 99999;
+    n=pagelist_count(pagelist,maxpages);
+    for (i=0;i<n;i++)
+        if (pagelist_page_by_index(pagelist,i,maxpages)==pageno)
+             return(1);
+    return(0);
+    }
+
+
 int pagelist_page_by_index(char *pagelist,int index,int maxpages)
 
     {
