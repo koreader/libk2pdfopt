@@ -35,7 +35,7 @@ const char* k2pdfopt_tocr_get_language();
 void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 		int x, int y, int w, int h,
 		char *word, int max_length,
-		char *datadir, char *lang, char *ocr_type,
+		char *datadir, char *lang, int ocr_type,
 		int allow_spaces, int std_proc);
 
 void k2pdfopt_get_reflowed_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
