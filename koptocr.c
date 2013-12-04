@@ -56,7 +56,7 @@ void k2pdfopt_tocr_init(char *datadir, char *lang) {
 void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 		int x, int y, int w, int h,
 		char *word, int max_length,
-		char *datadir, char *lang, char *ocr_type,
+		char *datadir, char *lang, int ocr_type,
 		int allow_spaces, int std_proc) {
 	k2pdfopt_tocr_init(datadir, lang);
 	if (k2pdfopt_tocr_inited) {
