@@ -63,11 +63,22 @@ void k2pdfopt_settings_init_from_koptcontext(K2PDFOPT_SETTINGS *k2settings, KOPT
 	k2settings->src_autostraighten = kctx->straighten;
 	k2settings->preserve_indentation = kctx->indent;
 	k2settings->max_columns = kctx->columns;
-	k2settings->src_rot = kctx->rotate;
 	k2settings->src_dpi = kctx->dev_dpi*kctx->quality;
 	k2settings->user_src_dpi = kctx->dev_dpi*kctx->quality;
 	k2settings->defect_size_pts = kctx->defect_size;
 	k2settings->dst_gamma = kctx->contrast;
+
+	if (kctx->writing_direction == 0)
+		k2settings->src_left_to_right = 1;
+	else if (kctx->writing_direction == 1)
+		k2settings->src_left_to_right = 0;
+	else if (kctx->writing_direction == 2) {
+		k2settings->src_left_to_right = 1;
+		k2settings->src_rot = 90;
+	} else if (kctx->writing_direction == 3) {
+		k2settings->src_left_to_right = 0;
+		k2settings->src_rot = 270;
+	}
 
 	if (kctx->word_spacing < 0) {
 	    k2settings->auto_word_spacing = 1;
