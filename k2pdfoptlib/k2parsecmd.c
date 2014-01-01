@@ -20,7 +20,7 @@
 
 #include "k2pdfopt.h"
 
-static void set_value_with_units(char *s,double *val,int *units);
+static void set_value_with_units(char *s,double *val,int *units,int defunits);
 static int valid_numerical_char(int c);
 static int next_is_number(CMDLINEINPUT *cl,int setvals,int quiet,int *good,int *readnext,double *dstval);
 static int next_is_integer(CMDLINEINPUT *cl,int setvals,int quiet,int *good,int *readnext,int *dstval);
@@ -438,10 +438,15 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                 }
             if (cmdlineinput_next(cl)==NULL)
                 break;
-            if (is_a_number(cl->cmdarg))
+            if (is_a_number(cl->cmdarg) || !stricmp(cl->cmdarg,"m"))
                 {
                 if (setvals==1)
-                    k2settings->dst_break_pages= -1 - (int)(atof(cl->cmdarg)*1000.+.5);
+                    {
+                    if (!stricmp(cl->cmdarg,"m"))
+                        k2settings->dst_break_pages = 4; /* Special code */
+                    else
+                        k2settings->dst_break_pages= -1 - (int)(atof(cl->cmdarg)*1000.+.5);
+                    }
                 }
             else
                 {
@@ -830,7 +835,7 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
             if (cmdlineinput_next(cl)==NULL)
                 break;
             if (setvals==1)
-                set_value_with_units(cl->cmdarg,&k2settings->dst_userheight,&k2settings->dst_userheight_units);
+                set_value_with_units(cl->cmdarg,&k2settings->dst_userheight,&k2settings->dst_userheight_units,UNITS_PIXELS);
             continue;
             }
         if (!stricmp(cl->cmdarg,"-wt"))
@@ -849,7 +854,7 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
             if (cmdlineinput_next(cl)==NULL)
                 break;
             if (setvals==1)
-                set_value_with_units(cl->cmdarg,&k2settings->dst_userwidth,&k2settings->dst_userwidth_units);
+                set_value_with_units(cl->cmdarg,&k2settings->dst_userwidth,&k2settings->dst_userwidth_units,UNITS_PIXELS);
             continue;
             }
         if (!stricmp(cl->cmdarg,"-om"))
@@ -892,25 +897,23 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                 }
             continue;
             }
-        if (!stricmp(cl->cmdarg,"-cbox-"))
+        if (!strnicmp(cl->cmdarg,"-cbox",5))
             {
-            if (setvals==1)
-                k2settings->cropboxes.n=0;
-            continue;
-            }
-        if (!stricmp(cl->cmdarg,"-cbox")
-            || !stricmp(cl->cmdarg,"-cboxe")
-            || !stricmp(cl->cmdarg,"-cboxo"))
-            {
-            int c;
+            char buf[256];
 
-            c=tolower(cl->cmdarg[5]);
+            if (cl->cmdarg[5]=='-' && cl->cmdarg[6]=='\0')
+                {
+                if (setvals==1)
+                    k2settings->cropboxes.n=0;
+                continue;
+                }
+            strncpy(buf,&cl->cmdarg[5],255);
+            buf[255]='\0';
             if (cmdlineinput_next(cl)==NULL)
                 break;
             if (setvals==1)
                 {
-                double v[4];
-                int na,index;
+                int na,index,k;
 
                 if (k2settings->cropboxes.n>=MAXK2CROPBOXES)
                     {
@@ -925,23 +928,35 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                     warned=1;
                     continue;
                     }
-                na=string_read_doubles(cl->cmdarg,v,4);
-                if (na!=4)
+                index=k2settings->cropboxes.n;
+                strcpy(k2settings->cropboxes.cropbox[index].pagelist,buf);
+                k2settings->cropboxes.cropbox[index].box[0]=0.;
+                k2settings->cropboxes.cropbox[index].box[1]=0.;
+                k2settings->cropboxes.cropbox[index].box[2]=-1.;
+                k2settings->cropboxes.cropbox[index].box[3]=-1.;
+                for (na=0,k=0;na<4;na++,k++)
+                    {
+                    int c,m;
+                    
+                    for (m=k;cl->cmdarg[k]!=',' && cl->cmdarg[k]!='\0';k++);
+                    c=cl->cmdarg[k];
+                    cl->cmdarg[k]='\0';
+                    if (k>m)
+                        set_value_with_units(&cl->cmdarg[m],
+                                         &k2settings->cropboxes.cropbox[index].box[na],
+                                         &k2settings->cropboxes.cropbox[index].units[na],
+                                         UNITS_INCHES);
+                    if (c=='\0')
+                        break;
+                    }
+                if (na==0 || na==2)
                     {
                     if (!quiet)
                         k2printf(TTEXT_WARN "\a\n** Crop box %s is invalid and will be ignored. **\n\n"
                         TTEXT_NORMAL,cl->cmdarg);
                     }
                 else
-                    {
-                    index=k2settings->cropboxes.n;
-                    k2settings->cropboxes.cropbox[index].flags=(c=='e')?1:(c=='o'?2:3);
-                    k2settings->cropboxes.cropbox[index].left=v[0];
-                    k2settings->cropboxes.cropbox[index].top=v[1];
-                    k2settings->cropboxes.cropbox[index].width=v[2];
-                    k2settings->cropboxes.cropbox[index].height=v[3];
                     k2settings->cropboxes.n++;
-                    }
                 }
             continue;
             }
@@ -1026,6 +1041,13 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
         NEEDS_INTEGER("-odpi",dst_dpi)
         NEEDS_INTEGER("-dpi",dst_dpi)
         NEEDS_VALUE("-ws",word_spacing)
+        if (k2settings->word_spacing < 0)
+            {
+            k2settings->word_spacing = -k2settings->word_spacing;
+            k2settings->auto_word_spacing = 1;
+            }
+        else
+            k2settings->auto_word_spacing = 0;
         NEEDS_VALUE("-omb",dst_marbot)
         NEEDS_VALUE("-omt",dst_martop)
         NEEDS_VALUE("-omr",dst_marright)
@@ -1053,7 +1075,7 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
     }
 
 
-static void set_value_with_units(char *s,double *val,int *units)
+static void set_value_with_units(char *s,double *val,int *units,int defunits)
 
     {
     int i;
@@ -1068,8 +1090,10 @@ static void set_value_with_units(char *s,double *val,int *units)
         (*units)=UNITS_SOURCE;
     else if (tolower(s[i])=='t')
         (*units)=UNITS_TRIMMED;
-    else
+    else if (tolower(s[i])=='p')
         (*units)=UNITS_PIXELS;
+    else
+        (*units)=defunits;
     }
 
 

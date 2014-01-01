@@ -1,0 +1,18 @@
+/* Configuration defines, set by CMAKE */
+
+#ifndef __INCLUDED_CONFIG_H__
+#define __INCLUDED_CONFIG_H__
+
+#cmakedefine HAVE_Z_LIB
+#cmakedefine HAVE_PNG_LIB
+#cmakedefine HAVE_JPEG_LIB
+#cmakedefine HAVE_JASPER_LIB
+#cmakedefine HAVE_GSL_LIB
+#cmakedefine HAVE_MUPDF_LIB
+#cmakedefine HAVE_GHOSTSCRIPT
+#cmakedefine HAVE_DJVU_LIB
+#cmakedefine HAVE_GOCR_LIB
+#cmakedefine HAVE_LEPTONICA_LIB
+#cmakedefine HAVE_TESSERACT_LIB
+
+#endif

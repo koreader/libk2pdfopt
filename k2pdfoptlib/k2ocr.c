@@ -135,7 +135,7 @@ printf("Call #1. k2ocr_ocrwords_fill_in\n");
         maxlevels = 2;
     else
         maxlevels = 3;
-    pageregions_find(pageregions,region,k2settings,maxlevels);
+    pageregions_find_columns(pageregions,region,k2settings,maxlevels);
     for (i=0;i<pageregions->n;i++)
         {
         bmpregion_find_textrows(&pageregions->pageregion[i].bmpregion,k2settings,0,1);
