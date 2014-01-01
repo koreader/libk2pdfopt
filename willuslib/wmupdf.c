@@ -28,7 +28,7 @@
 #endif
 
 #ifdef HAVE_MUPDF_LIB
-#include <mupdf.h>
+#include <mupdf/pdf.h>
 
 static void wpdfbox_determine_original_source_position(WPDFBOX *box);
 static void wpdfbox_unrotate(WPDFBOX *box,double deg);
@@ -1179,9 +1179,10 @@ static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pag
     fz_buffer *strbuf;
     int n;
     unsigned char *p;
+    static char *errmsg = ANSI_RED "** wmupdf: Error writing compressed stream to PDF file! **\n" ANSI_NORMAL;
 #ifdef HAVE_Z_LIB
     char tempfile[512];
-    gzFile gz;
+    compress_handle h;
     FILE *f;
     int nw;
 #endif
@@ -1189,16 +1190,27 @@ static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pag
     strbuf=pdf_load_stream(xref,pageref,pagegen);
     n=fz_buffer_storage(ctx,strbuf,&p);
 #ifdef HAVE_Z_LIB
+    /*
+    ** To do:  write directly to fz_buffer, or don't compress the buffer but
+    **         instead use compression options for fz_write_document.
+    */
     wfile_abstmpnam(tempfile);
-    gz=gzopen(tempfile,"sab7");
-    gzwrite(gz,p,n);
-    gzclose(gz);
+    f=fopen(tempfile,"wb");
+    if (f==NULL)
+        aprintf("%s",errmsg);
+    else
+        {
+        h=compress_start(f,7);
+        compress_write(f,h,p,n);
+        compress_done(f,h);
+        fclose(f);
+        }
     nw=wfile_size(tempfile);
     fz_resize_buffer(ctx,strbuf,nw+1);
     fz_buffer_storage(ctx,strbuf,&p);
     f=fopen(tempfile,"rb");
     if (f==NULL || fread(p,1,nw,f)<nw)
-        aprintf(ANSI_RED "** wmupdf: Error writing compressed stream to PDF file! **\n" ANSI_NORMAL);
+        aprintf("%s",errmsg);
     if (f!=NULL)
         fclose(f);
     remove(tempfile);
@@ -1219,7 +1231,9 @@ printf("    After drop, xref->table[%d].stm_buf=%p, refs=%d\n",pageref,xref->tab
 #endif
     }
 
-
+/*
+** To do:  Can we use fz_buffer_cat for this?
+*/
 static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,
                                  pdf_obj *srcdict)
 

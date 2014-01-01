@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -67,6 +67,15 @@
 **
 ** OS/X 10.6.8 gcc 4.2.1 predefines (emulator)
 **     #define __MACH__ 1
+**
+** Linux gcc 4.7.2 predefines: lots, including:
+**     #define __linux 1
+**     #define __linux__ 1
+**     #define __gnu_linux__ 1
+**     #define linux 1
+**     #define __unix__ 1
+**     #define __unix 1
+**     #define unix 1
 **
 */
 
@@ -200,6 +209,15 @@ typedef double  real;
 ** COMMENT OUT DEFINE STATEMENTS BELOW AS DESIRED.
 **
 */
+
+/*
+** CMAKE handles the defines, not this source
+** (Mod from Dirk Thierbach, 31-Dec-2013)
+*/
+#ifdef USE_CMAKE
+#include "config.h"
+#else /* USE_CMAKE */
+
 #ifndef HAVE_Z_LIB
 #define HAVE_Z_LIB
 #endif
@@ -249,6 +267,8 @@ typedef double  real;
 /* Don't have GSL */
 #undef HAVE_GSL_LIB
 #endif
+
+#endif /* USE_CMAKE */
 /*
 ** Consistency check
 */
@@ -811,6 +831,13 @@ int     wzerror(WZFILE *wz);
 int     wzprintf(WZFILE *wz,char *fmt,...);
 int     wzcompressed(WZFILE *wz);
 WZFILE *wzuncompressed(FILE *out);
+
+/* dtcompress.c */
+/* From Dirk Thierbach, 31-Dec-2013, avoids custom mod to Z-lib */
+typedef void *compress_handle;
+compress_handle compress_start(FILE* f, int level);
+void compress_done(FILE* f, compress_handle h);
+size_t compress_write(FILE* f, compress_handle h, const void *buf, size_t size);
     
 /* win.c */
 #ifdef WIN32

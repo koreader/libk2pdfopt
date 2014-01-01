@@ -150,8 +150,9 @@
 */
 typedef struct
     {
-    int flags;                     /* Bit 0 = even, Bit 1 = odd (3=both) */
-    double left,top,width,height;  /* inches from upper-left corner of page */
+    char pagelist[256];
+    double box[4]; /* index 0..3 = left,top,right,bottom */
+    int units[4];
     } K2CROPBOX;
 
 #define MAXK2CROPBOXES 32
@@ -258,6 +259,7 @@ typedef struct
     double row_split_fom;  /* Used by breakinfo_find_doubles() */
     int text_wrap;
     double word_spacing;
+    int auto_word_spacing; /* Used by KOReader */
     double display_width_inches; /* Device width = dst_width / dst_dpi */
     char pagelist[1024];
     char bpl[2048];  /* Page break list--see -bpl option */
@@ -299,6 +301,10 @@ typedef struct
     double no_wrap_ar_limit; /* -arlim */
     double no_wrap_height_limit_inches; /* -whmax */
     double little_piece_threshold_inches; /* -rwmin */
+    /*
+    ** Flag for setting device size--see k2pdfoptsettings_set_margins_and_devsize().
+    */
+    int devsize_set; /* 0 = device size not set yet */
     } K2PDFOPT_SETTINGS;
 
 
@@ -501,6 +507,9 @@ typedef struct
     WILLUSBITMAP *preview_bitmap;
     int preview_captured;  /* = 1 if preview bitmap obtained */
     WRAPBMP wrapbmp;  /* See WRAPBMP structure */
+#ifdef K2PDFOPT_KINDLEPDFVIEWER
+    WRECTMAPS rectmaps;   /* KOReader add to hold WRECTMAPs of the output bitmap */
+#endif
     WPDFPAGEINFO pageinfo;  /* Holds crop boxes for native PDF output */
     int srcpages;         /* Total pages in source file */
     int rows;             /* Rows stored within the bmp structure */
@@ -629,7 +638,7 @@ void textrow_echo(TEXTROW *textrow,FILE *out);
 /* pageregions.c */
 /*
 ** The PAGEREGIONS structure holds the set of regions which are determined
-** during the first pass of the page parsing.  See the pageregions_find()
+** during the first pass of the page parsing.  See the pageregions_find_columns()
 ** function in k2proc.c
 */
 typedef struct
@@ -697,8 +706,8 @@ void textwords_add_word_gaps(TEXTWORDS *textwords,int lcheight,double *median_ga
 void k2proc_init_one_document(void);
 void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                                MASTERINFO *masterinfo,int level,int pages_done);
-void pageregions_find(PAGEREGIONS *pageregions_sorted,BMPREGION *srcregion,
-                      K2PDFOPT_SETTINGS *k2settings,int  maxlevels);
+void pageregions_find_columns(PAGEREGIONS *pageregions_sorted,BMPREGION *srcregion,
+                              K2PDFOPT_SETTINGS *k2settings,int  maxlevels);
 void bmpregion_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                    MASTERINFO *masterinfo,int allow_text_wrapping,
                    int trim_flags,int allow_vertical_breaks,
@@ -723,6 +732,8 @@ void k2pdfopt_settings_set_region_widths(K2PDFOPT_SETTINGS *k2settings);
 int k2settings_gap_override(K2PDFOPT_SETTINGS *k2settings);
 void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
                          BMPREGION *region,MASTERINFO *masterinfo,int trimmed);
+int devsize_pixels(double user_size,int user_units,double source_size_in,
+                   double trimmed_size_in,double dst_dpi,int flags);
 
 
 /* k2mark.c */

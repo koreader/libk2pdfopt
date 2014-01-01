@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2013  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -23,7 +23,7 @@
 #include "willus.h"
 
 #ifdef HAVE_DJVU_LIB
-#include <djvu.h>
+#include <libdjvu/ddjvuapi.h>
 
 static void handle(int wait,ddjvu_context_t *ctx);
 

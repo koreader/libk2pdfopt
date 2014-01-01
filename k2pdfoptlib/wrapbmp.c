@@ -465,9 +465,6 @@ k2printf("Bitmap is %d x %d (baseline=%d)\n",wrapbmp->bmp.width,wrapbmp->bmp.hei
     region.bbox.gapblank=wrapbmp->textrow.gapblank;
     region.bbox.type=REGION_TYPE_TEXTLINE;
     region.wrectmaps=&wrapbmp->wrectmaps;
-#if (WILLUSDEBUG & 4)
-k2printf("wf:  gap=%d\n",gap);
-#endif
     if (!allow_full_justification)
         just = (wrapbmp->just & 0xcf) | 0x20;
     else

@@ -414,9 +414,12 @@ static int inflection_count(double *x,int n,int delta,int *wthresh)
     int i,i0,ni,ww,c,ct,wt,mode;
     double meandi,meandisq,f1,f2,stdev;
     double *xs;
-    static int hist[256];
+    static int *hist;
     static char *funcname="inflection_count";
 
+    /* Allocate memory for hist[] array rather than using static array */
+    /* v2.13 fix */
+    willus_dmem_alloc_warn(34,(void **)&hist,sizeof(int)*256,funcname,10);
     /* Find threshold white value that peaks must exceed */
     if ((*wthresh)<0)
         {
@@ -446,6 +449,7 @@ k2printf("wt=%d\n",wt);
         }
     else
         wt=(*wthresh);
+    willus_dmem_free(34,(double **)&hist,funcname);
     ww=n/150;
     if (ww<1)
         ww=1;

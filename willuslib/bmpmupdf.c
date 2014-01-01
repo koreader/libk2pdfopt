@@ -23,7 +23,7 @@
 #include "willus.h"
 
 #ifdef HAVE_MUPDF_LIB
-#include <mupdf.h>
+#include <mupdf/pdf.h>
 
 static int bmpmupdf_pixmap_to_bmp(WILLUSBITMAP *bmp,fz_context *ctx,fz_pixmap *pixmap);
 

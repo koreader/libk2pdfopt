@@ -91,8 +91,8 @@ void bmpregion_row_histogram(BMPREGION *region)
     static char *funcname="bmpregion_row_histogram";
     WILLUSBITMAP *src;
     FILE *out;
-    static int *rowcount;
-    static int *hist;
+    int *rowcount;
+    int *hist;
     int i,j,nn;
 
     willus_dmem_alloc_warn(6,(void **)&rowcount,(region->r2-region->r1+1)*sizeof(int),funcname,10);
@@ -1445,6 +1445,90 @@ printf("ftw 03\n");
     mingap = dr*k2settings->word_spacing*0.8;
     if (mingap < 2)
         mingap = 2;
+
+
+    /*
+    ** Chrox KOReader patch applied in v2.13
+    **
+    ** k2settings->auto_word_spacing is used by KOReader.
+    **
+    ** Calculate gap size for fixed and non-fixed pitch words.
+    ** We assume that fixed pitch characters like CJK have pitch size close to
+    ** line height, while non-fixed pitch characters have pitch size less than
+    ** 0.7 line height.
+    */
+    if (k2settings->auto_word_spacing)
+        {
+        int gapthr = 0;
+        int gaplen = 0;
+        int pitchlen = 0;
+        int gapcount = 0;
+        int pitchcount = 0;
+        int gp[256];
+        int pp[256];
+
+        /* printf("colcount = ["); */
+        for (i=newregion->c1;i<=newregion->c2;i++)
+            {
+            int thiscount;
+
+            thiscount = newregion->colcount[i];
+            /* printf("%d,", thiscount); */
+            if (thiscount <= gapthr)
+                {
+                if (pitchcount > 0)
+                    gaplen++;
+                }
+            else
+                pitchlen++;
+            if (thiscount > gapthr && gaplen > 0)
+                {
+                if (gapcount >= 256)
+                    break;
+                gp[gapcount++] = gaplen;
+                gaplen = 0;
+                }
+            if (thiscount <= gapthr && pitchlen > 0)
+                {
+                if (pitchcount >= 256)
+                    break;
+                pp[pitchcount++] = pitchlen;
+                pitchlen = 0;
+                }
+            }
+        /*
+        printf("]\n");
+
+        printf("gaplens = [");
+        for (i=0; i<gapcount; i++)
+            printf("%d,", gp[i]);
+        printf("]\n");
+        printf("pitchlens = [");
+        for (i=0; i<pitchcount; i++)
+            printf("%d,", pp[i]);
+        printf("]\n");
+        */
+
+        gapcount--;  /* discard the last gap */
+
+        if (pitchcount > 10 && gapcount > 10)
+            {
+            int gap_medium, pitch_medium, rheight;
+            double gap;
+
+            sorti(gp,gapcount);
+            sorti(pp,pitchcount);
+            gap_medium = gp[gapcount/2];
+            pitch_medium = pp[pitchcount/2];
+            rheight = newregion->r2 - newregion->r1;
+            gap = 0.7 * rheight / pitch_medium * gap_medium;
+            /* printf("caculated gap:%.2f, delta:%.2f\n", gap, gap-mingap); */
+            if (gap < 2)
+                gap = 2;
+            mingap = gap;
+            }
+        }
+
 
 #if (WILLUSDEBUGX & 0x1000)
 printf("ftw 04\n");

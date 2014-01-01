@@ -22,8 +22,6 @@
 
 static void k2pdfopt_settings_set_device_margins(K2PDFOPT_SETTINGS *k2settings);
 static void k2pdfopt_settings_set_crop_margins(K2PDFOPT_SETTINGS *k2settings);
-static int devsize_pixels(double user_size,int user_units,double source_size_in,
-                          double trimmed_size_in,double dst_dpi);
 
 
 void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
@@ -107,6 +105,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->column_offset_max=0.2;
     k2settings->column_row_gap_height_in=1./72.;
     k2settings->text_wrap=1;
+    k2settings->auto_word_spacing=0;
     k2settings->word_spacing=0.375;
     k2settings->display_width_inches = 3.6; /* Device width = dst_width / dst_dpi */
     k2settings->pagelist[0]='\0';
@@ -160,6 +159,9 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->tocsavefile[0]='\0';
     k2settings->bpl[0]='\0';
     k2settings->cropboxes.n=0;
+
+    /* v2.13 */
+    k2settings->devsize_set=0;
     }
 
 
@@ -376,9 +378,6 @@ void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
                                        BMPREGION *region,MASTERINFO *masterinfo,int trimmed)
 
     {
-    static int count=0;
-//    static double wu=0.; /* Store untrimmed width, height */
-//    static double hu=0.;
     double twidth_in,theight_in,swidth_in,sheight_in;
     int new_width,new_height,zeroarea;
     WPDFPAGEINFO *pageinfo;
@@ -390,14 +389,14 @@ printf("@k2pdfopt_settings_set_margins_and_devsize(region=%p,trimmed=%d)\n",regi
     pageinfo=masterinfo!=NULL ? &masterinfo->pageinfo : NULL;
     if (region==NULL)
         {
-        count=0;
+        k2settings->devsize_set=0;
         k2pdfopt_settings_set_device_margins(k2settings);
         twidth_in=swidth_in = 8.5;
         theight_in=sheight_in = 11.0;
         }
     else
         {
-        count++;
+        k2settings->devsize_set++;
         twidth_in = (double)(region->c2-region->c1+1) / region->dpi;
         if (twidth_in < 1.0)
             twidth_in = 1.0;
@@ -430,20 +429,20 @@ printf("@k2pdfopt_settings_set_margins_and_devsize(region=%p,trimmed=%d)\n",regi
 printf("wu=%g, hu=%g\n",wu,hu);
 */
     new_width=devsize_pixels(k2settings->dst_userwidth,k2settings->dst_userwidth_units,
-                             swidth_in,twidth_in,k2settings->dst_dpi);
+                             swidth_in,twidth_in,k2settings->dst_dpi,0);
     new_height=devsize_pixels(k2settings->dst_userheight,k2settings->dst_userheight_units,
-                              sheight_in,theight_in,k2settings->dst_dpi);
+                              sheight_in,theight_in,k2settings->dst_dpi,0);
     if (k2settings->dst_landscape)
         int_swap(new_width,new_height)
-    if (count==1 || (count>1 && (new_width!=k2settings->dst_width || new_height!=k2settings->dst_height)))
+    if (k2settings->devsize_set==1 || (k2settings->devsize_set>1 && (new_width!=k2settings->dst_width || new_height!=k2settings->dst_height)))
         {
         int width_change;
 
-        width_change = (count==1 || new_width != k2settings->dst_width);
+        width_change = (k2settings->devsize_set==1 || new_width != k2settings->dst_width);
         /* Flush master bitmap before changing it */
         if (width_change)
             {
-            if (count>1)
+            if (k2settings->devsize_set>1)
                 masterinfo_flush(masterinfo,k2settings);
             }
         k2settings->dst_width=new_width;
@@ -506,16 +505,18 @@ static void k2pdfopt_settings_set_crop_margins(K2PDFOPT_SETTINGS *k2settings)
         k2settings->mar_bot=defval;
     }
 
-
-static int devsize_pixels(double user_size,int user_units,double source_size_in,
-                          double trimmed_size_in,double dst_dpi)
+/*
+** flags==0 for call from k2settings.c
+** flags==1 for call from k2proc.c
+*/
+int devsize_pixels(double user_size,int user_units,double source_size_in,
+                   double trimmed_size_in,double dst_dpi,int flags)
 
     {
-    
-    if (user_size==0.)
+    if (flags==0 && user_size==0.)
         return((int)(source_size_in*dst_dpi+.5));
-    if (user_size<0. || user_units==UNITS_SOURCE)
-        return((int)(source_size_in*fabs(user_size)*dst_dpi+.5));
+    if ((flags==0 && user_size<0.) || user_units==UNITS_SOURCE)
+        return((int)(source_size_in*(flags==0 ? fabs(user_size) : user_size)*dst_dpi+.5));
     if (user_units==UNITS_TRIMMED)
         return((int)(trimmed_size_in*user_size*dst_dpi+.5));
     if (user_units==UNITS_CM)

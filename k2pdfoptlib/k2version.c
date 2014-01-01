@@ -1,4 +1,4 @@
-char *k2pdfopt_version = "v2.12";
+char *k2pdfopt_version = "v2.14";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
@@ -18,6 +18,57 @@ char *k2pdfopt_version = "v2.12";
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **
 ** VERSION HISTORY
+** v2.14     31 DEC 2013
+**           - Compiled using dtcompress.c module in willus library which avoids
+**             requiring my custom modification to zlib.  Thank you to Dirk Thierbach
+**             for this.
+**           - willus lib modules use more standard include callouts for MuPDF and
+**             DjVu.
+**           - Added CMakeLists.txt files to source distribution (also from Dirk).
+**           - Correctly re-compiled Win32 build (wasn't done correctly in v2.13).
+**
+** v2.13     30 DEC 2013
+**           ENHANCEMENTS
+**           - Added kobo mini to device profile:
+**             http://www.mobileread.com/forums/showthread.php?p=2704451#post2704451
+**           - Applied patches from KOReader team:
+**             http://www.mobileread.com/forums/showthread.php?p=2701292#post2701292
+**               >> rectmap.patch.txt    (only on if K2PDFOPT_KINDLEPDFVIEWER defined)
+**               >> indent_calibration.patch.txt (with modifications so that the
+**                     example case that resulted in the patch still works, but so
+**                     that most of my regression tests don't break.)
+**                     See this link: https://github.com/koreader/koreader/issues/305
+**               >> word_gap_calculation.patch.txt, auto-gap not on by default per
+**                     this post:
+**                     http://www.mobileread.com/forums/showthread.php?p=2708795#post2708795
+**               >> static.patch.txt
+**               >> debug.patch.txt
+**           - The -ws option can take a negative value to turn on automatic word
+**             spacing from the KOReader team.
+**           - <pagelist> can have even 'e' and odd 'o' specifiers, e.g.
+**               -p e (process all even pages numbers)
+**               -p 1-100e,1-100o (process all even pages from 1-100, then all odd ones.)
+**           - Cropboxes and gridded areas can now be processed fully into separate
+**             columns if desired.
+**           - The -cbox option now takes an optional page list to specify a specific
+**             range of pages to apply the crop box to.  e.g.
+**               -cbox1-99o <cropbox> applies the crop box to pages 1,3,5,...,99.
+**           - The -cbox option takes units as well, so you can specify the crop box
+**             size in pixels, inches, cm, or a fraction of the source page size.  The
+**             units work the same as for the -w and -h options.
+**           - GUI is smarter about creating command-line versions of margins
+**             when they are all the same.
+**           - New "-bp m" option will force page break at end of each major (red-box)
+**             region.  This can improve text selection problems in native mode by
+**             avoiding the text selection overlap that can occur when multiple
+**             cropped source regions are placed on to a single output page.
+**             (12/13/13 e-mail).
+**
+**           BUG FIXES
+**           - Error checking done on K2PDFOPT_WINPOS variable.
+**             http://www.mobileread.com/forums/showthread.php?p=2700958#post2700958
+**           - Makes sure "(all)" doesn't get put in for the -p option (GUI).
+**
 ** v2.12     30 NOV 2013
 **           BUG FIXES
 **           - No longer writes k2pdfopt_out.png when previewing in the GUI.

@@ -23,10 +23,12 @@
 
 #include "k2pdfopt.h"
 
+static void bmpregion_source_box_process(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
+                                         MASTERINFO *masterinfo,int level,int pages_done);
 static void pageregions_grid(PAGEREGIONS *pageregions,BMPREGION *region,
                              K2PDFOPT_SETTINGS *k2settings,int level);
 static void pageregions_from_cropboxes(PAGEREGIONS *pageregions,BMPREGION *region,
-                                       K2PDFOPT_SETTINGS *k2settings,int srcpageno);
+                                       K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo);
 static void pageregions_find_next_level(PAGEREGIONS *pageregions_sorted,BMPREGION *srcregion,
                                         K2PDFOPT_SETTINGS *k2settings,int level);
 static double median_val(double *x,int n);
@@ -49,6 +51,7 @@ static void bmpregion_analyze_justification_and_line_spacing(BMPREGION *region,
 static void multiline_params_calculate(MULTILINE_PARAMS *mlp,BMPREGION *region,
                                        K2PDFOPT_SETTINGS *k2settings,int allow_text_wrapping,
                                        int region_is_centered);
+static double calc_median_indent(double *indent,int n,double median_h5050);
 static void multiline_params_init(MULTILINE_PARAMS *mlp);
 static void multiline_params_alloc(MULTILINE_PARAMS *mlp);
 static void multiline_params_free(MULTILINE_PARAMS *mlp);
@@ -74,22 +77,21 @@ void k2proc_init_one_document(void)
 
 
 /*
-** Process full source page bitmap into rectangular regions and add
-** to the destination bitmap.
+** First break the source page into cropboxes and/or gridded rectangles based
+** on the -cbox or -grid arguments.  Pass each box into bmpregion_source_box_process().
 **
-** This function is no longer recursive as of v1.65.
+** If there are not crop boxes or gridded areas, then the entire source page is
+** passed to bmperegion_source_box_process().
+**
+** Functionality changed in v2.13.
 **
 */
 void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                                MASTERINFO *masterinfo,int level,int pages_done)
 
     {
-    /*
-    static char *funcname="bmpregion_source_page_add";
-    BMPREGION *srcregion,_srcregion;
-    */
     PAGEREGIONS *pageregions,_pageregions;
-    int ipr,gridded,trim_regions;
+    int i,gridded;
 
 #if (!(WILLUSDEBUGX & 0x200))
     if (k2settings->debug)
@@ -97,39 +99,65 @@ void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
         k2printf("@bmpregion_source_page_add (%d,%d) - (%d,%d) dpi=%d, lev=%d, pagesdone=%d\n",
                region->c1,region->r1,region->c2,region->r2,region->dpi,level,pages_done);
 
-    /*
-    srcregion=&_srcregion;
-    bmpregion_init(srcregion);
-    bmpregion_copy(srcregion,region,0);
-    bmpregion_trim_margins(srcregion,k2settings,colcount,rowcount,k2settings->src_trim ? 0xf : 0);
-    (*srcregion)=(*region);
-    */
+    gridded = (k2settings->src_grid_cols > 0 && k2settings->src_grid_rows > 0);
+    if (k2settings->cropboxes.n==0 && !gridded)
+        {
+        bmpregion_source_box_process(region,k2settings,masterinfo,level,pages_done);
+        return;
+        }
 
     /* Find page regions */     
     pageregions=&_pageregions;
     pageregions_init(pageregions);
 
-    /* Did user specify specific crop regions? */
-    gridded=0;
+    /* Get regions from cropboxes or grid areas */
     if (k2settings->cropboxes.n>0)
-        pageregions_from_cropboxes(pageregions,region,k2settings,masterinfo->pageinfo.srcpage);
+        pageregions_from_cropboxes(pageregions,region,k2settings,masterinfo);
     else
-        {
-        gridded = (k2settings->src_grid_cols > 0 && k2settings->src_grid_rows > 0);
-        if (gridded)
-            pageregions_grid(pageregions,region,k2settings,0);
-        else
-            {
-            int maxlevels;
-            if (k2settings->max_columns<=1)
-                maxlevels=1;
-            else if (k2settings->max_columns<=2)
-                maxlevels=2;
-            else
-                maxlevels=3;
-            pageregions_find(pageregions,region,k2settings,maxlevels);
-            }
-        }
+        pageregions_grid(pageregions,region,k2settings,0);
+
+    /* Pass each region along to next function */
+    for (i=0;i<pageregions->n;i++)
+        bmpregion_source_box_process(&pageregions->pageregion[i].bmpregion,
+                                     k2settings,masterinfo,level,pages_done); 
+    pageregions_free(pageregions);
+    }
+
+
+/*
+** Process a rectangular source page bitmap determined from either a cropbox or
+** a grid area (or the entire source page if no cropboxes or gridded areas).
+**
+** New function in v2.13.
+**
+*/
+static void bmpregion_source_box_process(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
+                                         MASTERINFO *masterinfo,int level,int pages_done)
+
+    {
+    PAGEREGIONS *pageregions,_pageregions;
+    int ipr,gridded,maxlevels,trim_regions;
+
+#if (!(WILLUSDEBUGX & 0x200))
+    if (k2settings->debug)
+#endif
+        k2printf("@bmpregion_source_box_process (%d,%d) - (%d,%d) dpi=%d, lev=%d, pagesdone=%d\n",
+               region->c1,region->r1,region->c2,region->r2,region->dpi,level,pages_done);
+
+    /* Find page regions */     
+    pageregions=&_pageregions;
+    pageregions_init(pageregions);
+
+    gridded = (k2settings->src_grid_cols > 0 && k2settings->src_grid_rows > 0);
+
+    /* Search for columns */
+    if (k2settings->max_columns<=1)
+        maxlevels=1;
+    else if (k2settings->max_columns<=2)
+        maxlevels=2;
+    else
+        maxlevels=3;
+    pageregions_find_columns(pageregions,region,k2settings,maxlevels);
     trim_regions = ((k2settings->vertical_break_threshold<-1.5
                        || k2settings->dst_fit_to_page==-2
                        || gridded
@@ -259,7 +287,7 @@ static void pageregions_grid(PAGEREGIONS *pageregions,BMPREGION *region,
 ** Determine page regions from user-specified crop boxes.
 */
 static void pageregions_from_cropboxes(PAGEREGIONS *pageregions,BMPREGION *region,
-                                       K2PDFOPT_SETTINGS *k2settings,int srcpageno)
+                                       K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo)
 
     {
     int i;
@@ -271,30 +299,63 @@ static void pageregions_from_cropboxes(PAGEREGIONS *pageregions,BMPREGION *regio
     for (i=0;i<k2settings->cropboxes.n;i++)
         {
         K2CROPBOX *cropbox;
+        double swidth_in,sheight_in;
 
         cropbox=&k2settings->cropboxes.cropbox[i];
-        /* If no even pages and page is even, skip */
-        if (!(cropbox->flags&1) && !(srcpageno&1))
+/*
+{
+int status;
+status=pagelist_includes_page(cropbox->pagelist,masterinfo->pageinfo.srcpage,masterinfo->srcpages);
+printf("pagelist_includes_page('%s',%d,%d)=%d\n",cropbox->pagelist,masterinfo->pageinfo.srcpage,masterinfo->srcpages,status);
+}
+*/
+        /* Don't apply cropbox if page not in pagelist */
+        if (cropbox->pagelist[0]!='\0' 
+              && !pagelist_includes_page(cropbox->pagelist,masterinfo->pageinfo.srcpage,
+                                         masterinfo->srcpages))
             continue;
-        /* If no odd pages and page is odd, skip */
-        if (!(cropbox->flags&2) && (srcpageno&1))
-            continue;
-        srcregion->c1 = cropbox->left*k2settings->src_dpi;
+
+/*
+printf("Cropbox:\n");
+{
+int jj;
+for (jj=0;jj<4;jj++)
+printf("    %d. %g %d\n",jj,cropbox->box[jj],cropbox->units[jj]);
+}
+*/
+        /* Get source page width/height */
+        swidth_in = (double)region->bmp8->width / region->dpi;
+        sheight_in = (double)region->bmp8->height / region->dpi;
+
+        /* Establish cropbox */
+        srcregion->c1 = devsize_pixels(cropbox->box[0],cropbox->units[0],swidth_in,
+                                       swidth_in,k2settings->src_dpi,1);
         if (srcregion->c1<0)
             srcregion->c1=0;
         if (srcregion->c1 > region->bmp8->width-1)
             srcregion->c1=region->bmp8->width-1;
-        srcregion->c2 = (cropbox->left+cropbox->width)*k2settings->src_dpi;
+        if (cropbox->box[2]<=0.)
+            srcregion->c2 = region->bmp8->width-1;
+        else
+            srcregion->c2 = srcregion->c1 + devsize_pixels(cropbox->box[2],cropbox->units[2],
+                                                           swidth_in,swidth_in,
+                                                           k2settings->src_dpi,1);
         if (srcregion->c2<srcregion->c1)
             srcregion->c2=srcregion->c1;
         if (srcregion->c2> region->bmp8->width-1)
             srcregion->c2=region->bmp8->width-1;
-        srcregion->r1 = cropbox->top*k2settings->src_dpi;
+        srcregion->r1 = devsize_pixels(cropbox->box[1],cropbox->units[1],sheight_in,
+                                       sheight_in,k2settings->src_dpi,1);
         if (srcregion->r1<0)
             srcregion->r1=0;
         if (srcregion->r1 > region->bmp8->height-1)
             srcregion->r1=region->bmp8->height-1;
-        srcregion->r2 = (cropbox->top+cropbox->height)*k2settings->src_dpi;
+        if (cropbox->box[3]<=0.)
+            srcregion->r2 = region->bmp8->height-1;
+        else
+            srcregion->r2 = srcregion->r1 + devsize_pixels(cropbox->box[3],cropbox->units[3],
+                                                           sheight_in,sheight_in,
+                                                           k2settings->src_dpi,1);
         if (srcregion->r2<srcregion->r1)
             srcregion->r2=srcregion->r1;
         if (srcregion->r2 > region->bmp8->height-1)
@@ -313,8 +374,8 @@ static void pageregions_from_cropboxes(PAGEREGIONS *pageregions,BMPREGION *regio
 **             ...
 **
 */
-void pageregions_find(PAGEREGIONS *pageregions_sorted,BMPREGION *srcregion,
-                      K2PDFOPT_SETTINGS *k2settings,int  maxlevels)
+void pageregions_find_columns(PAGEREGIONS *pageregions_sorted,BMPREGION *srcregion,
+                              K2PDFOPT_SETTINGS *k2settings,int  maxlevels)
 
     {
     int ilevel;
@@ -1632,6 +1693,8 @@ aprintf(ANSI_RED "mi->mandatory_region_gap changed to 1 by vertically_break." AN
             i1=i2+1;
             }
         }
+    if (k2settings->dst_break_pages==4)
+        masterinfo_flush(masterinfo,k2settings);
     bmpregion_free(bregion);
     if (revert)
         k2pdfopt_settings_restore_output_dpi(k2settings);
@@ -1824,6 +1887,14 @@ static void multiline_params_calculate(MULTILINE_PARAMS *mlp,BMPREGION *region,
     {
     int i,nls,nch,textheight,ragged_right;
     double *id,*c1,*c2,*ch,*lch,*ls,*h5050;
+    /*
+    ** Chrox KOReader fix implemented from patch:
+    ** https://github.com/koreader/koreader/issues/305
+    ** v2.13
+    */
+    double *indent;
+    double median_indent;
+
     static char *funcname="multiline_params_calculate";
     TEXTROWS *textrows;
 
@@ -1870,13 +1941,14 @@ k2printf("    i1=%d, i2=%d, mlp->nlines=%d\n",mlp->i1,mlp->i2,mlp->nlines);
     /*
     ** Allocate arrays for determining median values
     */
-    willus_dmem_alloc_warn(13,(void **)&c1,sizeof(double)*7*mlp->nlines,funcname,10);
+    willus_dmem_alloc_warn(13,(void **)&c1,sizeof(double)*8*mlp->nlines,funcname,10);
     c2=&c1[mlp->nlines];
     ch=&c2[mlp->nlines];
     lch=&ch[mlp->nlines];
     ls=&lch[mlp->nlines];
     id=&ls[mlp->nlines];
     h5050=&id[mlp->nlines];
+    indent=&h5050[mlp->nlines];
     for (i=0;i<mlp->nlines;i++)
         id[i]=i;
 
@@ -1890,6 +1962,8 @@ k2printf("    i1=%d, i2=%d, mlp->nlines=%d\n",mlp->i1,mlp->i2,mlp->nlines);
         textrow=&textrows->textrow[i];
         c1[i-mlp->i1]=(double)textrow->c1;
         c2[i-mlp->i1]=(double)textrow->c2;
+        indent[i-mlp->i1]=k2settings->src_left_to_right ? c1[i-mlp->i1]-region->c1
+                                                        : region->c2-c2[i-mlp->i1];
         if (i<mlp->i2 && mlp->maxgap < textrow->gap)
             {
             mlp->maxgap = textrow->gap;
@@ -1931,6 +2005,18 @@ k2printf("   Row %2d: (%4d,%4d) - (%4d,%4d) rowbase=%4d, ch=%d, lch=%d, h5050=%d
         mlp->median_h5050 = median_val(h5050,nch);
         }
     textheight=bmpregion_textheight(region,k2settings,mlp->i1,mlp->i2);
+
+    /*
+    ** Chrox KOReader patch, v2.13
+    ** https://github.com/koreader/koreader/issues/305
+    ** Calibrate indentation
+    ** Median indent is used to determine proper wrapping so that the
+    ** majority of lines get wrapped properly.
+    **
+    ** Modified for v2.13 by willus.com so that 60% of lines must be
+    ** at median indent value to be used, otherwise returns 0.
+    */
+    median_indent=calc_median_indent(indent,mlp->nlines,mlp->median_h5050);
 
     /*
     ** Determine regular line spacing for this region
@@ -2013,12 +2099,20 @@ k2printf("ragged_right=%d\n",ragged_right);
         {
         double indent1,del;
         double i1f,ilfi,i2f,ilf,ifmin,dif;
+        double edge_c1,edge_c2;
         int centered;
 
         TEXTROW *textrow;
         textrow=&textrows->textrow[i];
-        i1f = (double)(c1[i-mlp->i1]-region->c1)/(region->c2-region->c1+1);
-        i2f = (double)(region->c2-c2[i-mlp->i1])/(region->c2-region->c1+1);
+        /*
+        ** Chrox KOReader fix, v2.13
+        ** https://github.com/koreader/koreader/issues/305
+        */
+        edge_c1 = k2settings->src_left_to_right ? region->c1+median_indent : region->c1;
+        edge_c2 = k2settings->src_left_to_right ? region->c2 : region->c2-median_indent;
+        
+        i1f = (double)(c1[i-mlp->i1]-edge_c1)/(region->c2-region->c1+1);
+        i2f = (double)(edge_c2-c2[i-mlp->i1])/(region->c2-region->c1+1);
         ilf = k2settings->src_left_to_right ? i1f : i2f;
         ilfi = ilf*(region->c2-region->c1+1)/region->dpi; /* Indent in inches */
         ifmin = i1f<i2f ? i1f : i2f;
@@ -2026,9 +2120,9 @@ k2printf("ragged_right=%d\n",ragged_right);
         if (ifmin < .01)
             ifmin=0.01;
         if (k2settings->src_left_to_right)
-            indent1 = (double)(c1[i-mlp->i1]-region->c1) / textheight;
+            indent1 = (double)(c1[i-mlp->i1]-edge_c1) / textheight;
         else
-            indent1 = (double)(region->c2 - c2[i-mlp->i1]) / textheight;
+            indent1 = (double)(edge_c2-c2[i-mlp->i1]) / textheight;
         if (!region_is_centered)
             {
             mlp->indented[i-mlp->i1]=(indent1 > 0.5 && ilfi < 1.2 && ilf < .25);
@@ -2057,9 +2151,9 @@ k2printf("    indent1=%g, i1f=%g, i2f=%g\n",indent1,i1f,i2f);
                 mlp->just[i-mlp->i1] = mlp->indented[i-mlp->i1] || (i2f < i1f+.01) ? 8 : 0;
             }
         if (k2settings->src_left_to_right)
-            del = (double)(region->c2 - textrow->c2);
+            del = (double)(edge_c2 - textrow->c2);
         else
-            del = (double)(textrow->c1 - region->c1);
+            del = (double)(textrow->c1 - edge_c1);
         /* Should we keep wrapping after this line? */
         if (!ragged_right)
             mlp->short_line[i-mlp->i1] = (del/textheight > 0.5);
@@ -2097,6 +2191,30 @@ k2printf("textheight = %d, line_spacing = %d\n",textheight,line_spacing);
 }
 */
     willus_dmem_free(13,(double **)&c1,funcname);
+    }
+
+
+/*
+** If enough lines and most of them are indented, then return the median
+** indented value so that those lines will be wrapped.
+*/
+static double calc_median_indent(double *indent,int n,double median_h5050)
+
+    {
+    int n1,n2;
+    double median_indent;
+
+    if (n<4)
+        return(0.);
+    sortd(indent,n);
+    median_indent=indent[n/2];
+    /* indent value must be ~ consistent for 60% of the lines */
+    n1=n/5;
+    n2=4*n/5-1;
+    if (fabs(median_indent-indent[n1])/median_h5050 < 0.5
+         && fabs(median_indent-indent[n2])/median_h5050 < 0.5)
+        return(median_indent);
+    return(0.);
     }
 
 

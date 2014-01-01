@@ -65,6 +65,9 @@ void masterinfo_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
     masterinfo->bmp.bpp=k2settings->dst_color ? 24 : 8;
     for (i=0;i<256;i++)
         masterinfo->bmp.red[i]=masterinfo->bmp.blue[i]=masterinfo->bmp.green[i]=i;
+#ifdef K2PDFOPT_KINDLEPDFVIEWER
+    wrectmaps_init(&masterinfo->rectmaps);
+#endif
     wrapbmp_init(&masterinfo->wrapbmp,k2settings->dst_color);
 #ifdef HAVE_MUPDF_LIB
     if (k2settings->use_crop_boxes)
@@ -104,6 +107,9 @@ void masterinfo_free(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
 #endif
     wrapbmp_free(&masterinfo->wrapbmp);
     bmp_free(&masterinfo->bmp);
+#ifdef K2PDFOPT_KINDLEPDFVIEWER
+    wrectmaps_free(&masterinfo->rectmaps);
+#endif
     wpdfoutline_free(masterinfo->outline);
     }
 
@@ -519,7 +525,7 @@ exit(10);
                 {
                 /*
                 ** This never finished because I realized I didn't need this feature
-                ** after I had mostly implmented it(!).  It should be code to assign
+                ** after I had mostly implemented it(!).  It should be code to assign
                 ** all the x1,y1,userx,usery values in the WPDFBOXes corresponding
                 ** to the WRECTMAPS structure.
                 */
@@ -532,6 +538,30 @@ exit(10);
         }
 #endif
 
+#ifdef K2PDFOPT_KINDLEPDFVIEWER
+    /*
+    ** Add for KOReader.
+    ** Store wrectmaps to masterinfo structure.
+    */
+    if (wrectmaps!=NULL)
+        {
+        int j;
+
+        for (j=0;j<wrectmaps->n;j++)
+            {
+            WRECTMAP *newrmap;
+
+            newrmap = &wrectmaps->wrectmap[j];
+            if (newrmap->coords[2].x > 0 && newrmap->coords[2].y > 0)
+                {
+                wrectmaps_add_wrectmap(&masterinfo->rectmaps,newrmap);
+                masterinfo->rectmaps.wrectmap[masterinfo->rectmaps.n-1].coords[1].y
+                    += masterinfo->rows + gap_start;
+                }
+            }
+        }
+#endif
+              
     /* Add tmp bitmap to dst */
     srcbytespp = tmp->bpp==24 ? 3 : 1;
     srcbytewidth = tmp->width*srcbytespp;
