@@ -161,7 +161,12 @@ static int k2gui_winposition_get(WILLUSGUIRECT *rect)
     if (wsys_get_envvar_ex("K2PDFOPT_WINPOS",buf,63))
         return(0);
     if (sscanf(buf,"%d %d %d %d",&rect->left,&rect->top,&rect->right,&rect->bottom)==4)
+        {
+        if (rect->left<0 || rect->right-rect->left<100 || rect->top<0
+                         || rect->bottom-rect->top<100)
+            return(0);
         return(1);
+        }
     return(0);
     }
 
@@ -499,10 +504,36 @@ static void k2gui_main_window_init(int normal_size)
     WILLUSGUIRECT dtrect;
     int k2w,k2h,dtw,dth,i;
 
-    if (!k2gui_winposition_get(&k2gui->mainwin.rect))
+    /* Get desktop rectangle */
+    willusgui_window_get_rect(NULL,&dtrect);
+    if (k2gui_winposition_get(&k2gui->mainwin.rect))
         {
-        /* Get desktop rectangle */
-        willusgui_window_get_rect(NULL,&dtrect);
+        int w,h;
+
+        /* Sanity check environment variable settings -- new in v2.13 */
+        w=k2gui->mainwin.rect.right - k2gui->mainwin.rect.left + 1;
+        h=k2gui->mainwin.rect.bottom - k2gui->mainwin.rect.top + 1;
+        if (w < K2WIN_MINWIDTH)
+            w = K2WIN_MINWIDTH;
+        if (w > dtrect.right - dtrect.left + 1)
+            w = dtrect.right - dtrect.left + 1;
+        if (h < K2WIN_MINHEIGHT)
+            h = K2WIN_MINHEIGHT;
+        if (h > dtrect.bottom - dtrect.top + 1)
+            h = dtrect.bottom - dtrect.top + 1;
+        if (k2gui->mainwin.rect.left < 0)
+            k2gui->mainwin.rect.left = 0;
+        if (k2gui->mainwin.rect.top < 0)
+            k2gui->mainwin.rect.top = 0;
+        if (k2gui->mainwin.rect.left+w > dtrect.right)
+            k2gui->mainwin.rect.left = dtrect.right-w;
+        if (k2gui->mainwin.rect.top+w > dtrect.bottom)
+            k2gui->mainwin.rect.top = dtrect.bottom-h;
+        k2gui->mainwin.rect.right = k2gui->mainwin.rect.left + w - 1;
+        k2gui->mainwin.rect.bottom = k2gui->mainwin.rect.top + h - 1;
+        }
+    else
+        {
         dtw=dtrect.right-dtrect.left;
         dth=dtrect.bottom-dtrect.top;
         k2h = dth*0.6;
@@ -800,6 +831,9 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                     int i,j;
                     willus_mem_alloc_warn((void **)&buf,1024,funcname,10);
                     willusgui_control_gettext(control,buf,1023);
+                    /* v2.13 new check */
+                    if (!stricmp(buf,"(all)") || !stricmp(buf,"all"))
+                        buf[0]='\0';
                     if (strcmp(buf,k2settings->pagelist))
                         {
                         for (i=j=0;buf[i]!='\0';i++)

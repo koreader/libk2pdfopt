@@ -307,8 +307,7 @@ static void pdf_utf8_out(FILE *out,char *s);
 static void pdffile_unicode_map(PDFFILE *pdf,WILLUSCHARMAPLIST *cmaplist,int nf);
 static void thumbnail_create(WILLUSBITMAP *thumb,WILLUSBITMAP *bmp);
 static void pdffile_bmp_stream(PDFFILE *pdf,WILLUSBITMAP *bmp,int quality,int halfsize,int thumb);
-static void bmp_flate_decode(WILLUSBITMAP *bmp,void *fptr,int halfsize);
-static void bmpbytewrite(void *fptr,unsigned char *p,int n);
+static void bmp_flate_decode(WILLUSBITMAP *bmp,FILE *f,compress_handle handle,int halfsize);
 static void pdffile_new_object(PDFFILE *pdf,int flags);
 static void pdffile_add_object(PDFFILE *pdf,PDFOBJECT *object);
 #ifdef HAVE_Z_LIB
@@ -852,20 +851,10 @@ static void pdffile_bmp_stream(PDFFILE *pdf,WILLUSBITMAP *src,int quality,int ha
     else
 #endif
         {
-#ifdef HAVE_Z_LIB
-        gzFile gz;
-        static char *gzflags="sab7"; /* s is special flag set up by me in zlib */
-                                     /* It turns off the gzip header/trailer   */
-                                     /* 1 July 2011 */
-        fclose(pdf->f);
-        gz=gzopen(pdf->filename,gzflags);
-        bmp_flate_decode(bmp,(void *)gz,halfsize);
-        gzclose(gz);
-        pdf->f=fopen(pdf->filename,"rb+");
-        fseek(pdf->f,(size_t)0,2);
-#else
-        bmp_flate_decode(bmp,(void *)pdf->f,halfsize);
-#endif
+        compress_handle h;
+        h=compress_start(pdf->f,7); /* compression level = 7 */
+        bmp_flate_decode(bmp,pdf->f,h,halfsize);
+        compress_done(pdf->f,h);
         fprintf(pdf->f,"\n");
         }
     fflush(pdf->f);
@@ -884,8 +873,10 @@ static void pdffile_bmp_stream(PDFFILE *pdf,WILLUSBITMAP *src,int quality,int ha
 **         ==1 for 4-bits per color plane
 **         ==2 for 2-bits per color plane
 **         ==3 for 1-bit  per color plane
+**
+** To do:  Check for errors when writing
 */
-static void bmp_flate_decode(WILLUSBITMAP *bmp,void *fptr,int halfsize)
+static void bmp_flate_decode(WILLUSBITMAP *bmp,FILE *f,compress_handle handle,int halfsize)
 
     {
     int row;
@@ -909,10 +900,7 @@ static void bmp_flate_decode(WILLUSBITMAP *bmp,void *fptr,int halfsize)
                 data[i]=p[0]&0xf0;
             else
                 data[i]=(p[0]&0xf0) | (p[1] >> 4);
-            if (bmp->bpp==8)
-                bmpbytewrite(fptr,data,w2);
-            else
-                bmpbytewrite(fptr,data,w2);
+            compress_write(f,handle,data,w2);
             }
         willus_mem_free((double **)&data,funcname);
         }
@@ -936,10 +924,7 @@ static void bmp_flate_decode(WILLUSBITMAP *bmp,void *fptr,int halfsize)
                 j=4;
             for (k=0;k<j;k++)
                 data[i]|=((p[k]&0xc0)>>(k*2));
-            if (bmp->bpp==8)
-                bmpbytewrite(fptr,data,w2);
-            else
-                bmpbytewrite(fptr,data,w2);
+            compress_write(f,handle,data,w2);
             }
         willus_mem_free((double **)&data,funcname);
         }
@@ -969,34 +954,21 @@ static void bmp_flate_decode(WILLUSBITMAP *bmp,void *fptr,int halfsize)
                 j=8;
             for (k=0;k<j;k++)
                 data[i]|=((p[k]&0x80)>>k);
-            if (bmp->bpp==8)
-                bmpbytewrite(fptr,data,w2);
-            else
-                bmpbytewrite(fptr,data,w2);
+            compress_write(f,handle,data,w2);
             }
         willus_mem_free((double **)&data,funcname);
         }
     else
+        {
+        int nb;
+        nb=bmp->bpp==8 ? bmp->width : bmp->width*3;
         for (row=0;row<bmp->height;row++)
             {
             unsigned char *p;
             p=bmp_rowptr_from_top(bmp,row);
-            if (bmp->bpp==8)
-                bmpbytewrite(fptr,p,bmp->width);
-            else
-                bmpbytewrite(fptr,p,bmp->width*3);
+            compress_write(f,handle,p,nb);
             }
-    }
-
-
-static void bmpbytewrite(void *fptr,unsigned char *p,int n)
-
-    {
-#ifdef HAVE_Z_LIB
-    gzwrite((gzFile)fptr,p,n);
-#else
-    fwrite(p,1,n,(FILE *)fptr);
-#endif
+        }
     }
 
 

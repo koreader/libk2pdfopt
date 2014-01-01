@@ -32,6 +32,15 @@ static void double_check(STRBUF *cmdline,char *optname,double *srcval,double dst
 static void string_check(STRBUF *cmdline,char *optname,char *srcval,char *dstval);
 static char *unit_string(int units);
 static int cropboxes_are_different(K2CROPBOXES *src,K2CROPBOXES *dst);
+static int cropbox_differ(K2CROPBOX *src,K2CROPBOX *dst);
+static void margins_doublecheck(STRBUF *cmdline,char *opt,double *sleft,double dleft,
+                                double *stop,double dtop,
+                                double *sright,double dright,
+                                double *sbottom,double dbottom);
+static void margins_integercheck(STRBUF *cmdline,char *opt,int *sleft,int dleft,
+                                int *stop,int dtop,
+                                int *sright,int dright,
+                                int *sbottom,int dbottom);
 
 /*
 ** Fills cmdline with the appropriate command-line options that will
@@ -268,6 +277,8 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
             strbuf_sprintf(cmdline,"-bp");
         else if (dst->dst_break_pages==3)
             strbuf_sprintf(cmdline,"-bp+");
+        else if (dst->dst_break_pages==4)
+            strbuf_sprintf(cmdline,"-bp m");
         else
             strbuf_sprintf(cmdline,"-bp %g",(-1.-dst->dst_break_pages)/1000.);
         src->dst_break_pages = dst->dst_break_pages;
@@ -363,13 +374,11 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
         for (i=0;i<dst->cropboxes.n;i++)
             {
             int c;
-            c=dst->cropboxes.cropbox[i].flags;
-            strbuf_sprintf(cmdline,"-cbox%s %g,%g,%g,%g",
-                           c==1?"e":(c==2?"o":""),
-                           dst->cropboxes.cropbox[i].left,
-                           dst->cropboxes.cropbox[i].top,
-                           dst->cropboxes.cropbox[i].width,
-                           dst->cropboxes.cropbox[i].height);
+            strbuf_sprintf(cmdline,"-cbox%s",dst->cropboxes.cropbox[i].pagelist);
+            for (c=0;c<4;c++)
+                strbuf_sprintf_no_space(cmdline,"%s%g%s",c==0?" ":",",
+                                         dst->cropboxes.cropbox[i].box[c],
+                                         unit_string(dst->cropboxes.cropbox[i].units[c]));
             }
         }
     if (src->dst_figure_justify!=dst->dst_figure_justify
@@ -405,7 +414,14 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
         src->dst_userwidth=dst->dst_userwidth;
         src->dst_userwidth_units=dst->dst_userwidth_units;
         }
-    double_check(cmdline,"-ws",&src->word_spacing,dst->word_spacing);
+    {
+    double sws,dws;
+    sws = src->auto_word_spacing ? -fabs(src->word_spacing) : fabs(src->word_spacing);
+    dws = dst->auto_word_spacing ? -fabs(dst->word_spacing) : fabs(dst->word_spacing);
+    double_check(cmdline,"-ws",&sws,dws);
+    src->auto_word_spacing = dst->auto_word_spacing;
+    src->word_spacing = dst->word_spacing;
+    }
     integer_check(cmdline,"-wt",&src->src_whitethresh,dst->src_whitethresh);
     if (src->dst_marbot<0.)
         src->dst_marbot=src->dst_mar;
@@ -423,18 +439,20 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
         dst->dst_marleft=dst->dst_mar;
     if (dst->dst_marright<0.)
         dst->dst_marright=dst->dst_mar;
-    double_check(cmdline,"-omb",&src->dst_marbot,dst->dst_marbot);
-    double_check(cmdline,"-omt",&src->dst_martop,dst->dst_martop);
-    double_check(cmdline,"-oml",&src->dst_marleft,dst->dst_marleft);
-    double_check(cmdline,"-omr",&src->dst_marright,dst->dst_marright);
-    double_check(cmdline,"-mb",&src->mar_bot,dst->mar_bot);
-    double_check(cmdline,"-mt",&src->mar_top,dst->mar_top);
-    double_check(cmdline,"-ml",&src->mar_left,dst->mar_left);
-    double_check(cmdline,"-mr",&src->mar_right,dst->mar_right);
-    integer_check(cmdline,"-pb",&src->pad_bottom,dst->pad_bottom);
-    integer_check(cmdline,"-pt",&src->pad_top,dst->pad_top);
-    integer_check(cmdline,"-pl",&src->pad_left,dst->pad_left);
-    integer_check(cmdline,"-pr",&src->pad_right,dst->pad_right);
+
+    /* Shorthand the margins option if possible (v2.13) */
+    margins_doublecheck(cmdline,"-om",&src->dst_marleft,dst->dst_marleft,
+                                      &src->dst_martop,dst->dst_martop,
+                                      &src->dst_marright,dst->dst_marright,
+                                      &src->dst_marbot,dst->dst_marbot);
+    margins_doublecheck(cmdline,"-m",&src->mar_left,dst->mar_left,
+                                     &src->mar_top,dst->mar_top,
+                                     &src->mar_right,dst->mar_right,
+                                     &src->mar_bot,dst->mar_bot);
+    margins_integercheck(cmdline,"-pad",&src->pad_left,dst->pad_left,
+                                      &src->pad_top,dst->pad_top,
+                                      &src->pad_right,dst->pad_right,
+                                      &src->pad_bottom,dst->pad_bottom);
     integer_check(cmdline,"-debug",&src->debug,dst->debug);
     /*
     ** UNDOCUMENTED COMMAND-LINE ARGS
@@ -547,13 +565,88 @@ static int cropboxes_are_different(K2CROPBOXES *src,K2CROPBOXES *dst)
     if (src->n != dst->n)
         return(1);
     for (i=0;i<src->n;i++)
-        if (fabs(src->cropbox[i].left-dst->cropbox[i].left)>1e-6
-            || fabs(src->cropbox[i].top-dst->cropbox[i].top)>1e-6
-            || fabs(src->cropbox[i].width-dst->cropbox[i].width)>1e-6
-            || fabs(src->cropbox[i].height-dst->cropbox[i].height)>1e-6
-            || src->cropbox[i].flags!=dst->cropbox[i].flags)
+        if (cropbox_differ(&src->cropbox[i],&dst->cropbox[i]))
             return(1);
     return(0);
     }
-        
+
+
+static int cropbox_differ(K2CROPBOX *src,K2CROPBOX *dst)
+
+    {
+    int i;
+
+    if (stricmp(src->pagelist,dst->pagelist))
+        return(1);
+    for (i=0;i<4;i++)
+        {
+        if (fabs(src->box[i]-dst->box[i])>1e-6)
+            return(1);
+        if (src->units[i]!=dst->units[i])
+            return(1);
+        }
+    return(0);
+    }
+
+
+/*
+** Added in v2.13
+*/        
+static void margins_doublecheck(STRBUF *cmdline,char *opt,double *sleft,double dleft,
+                                double *stop,double dtop,
+                                double *sright,double dright,
+                                double *sbottom,double dbottom)
+
+    {
+    if (fabs(dbottom-dtop)<1e-6 && fabs(dbottom-dleft)<1e-6 && fabs(dbottom-dright)<1e-6
+         && (fabs(dbottom-(*sbottom))>1e-6 || fabs(dtop-(*stop))>1e-6
+              || fabs(dleft-(*sleft))>1e-6 || fabs(dright-(*sright))>1e-6))
+        {
+        strbuf_sprintf(cmdline,"%s %g",opt,dbottom);
+        (*sleft)=(*sright)=(*stop)=(*sbottom)=dbottom;
+        }
+    else
+        {
+        char opt2[16];
+        sprintf(opt2,"%sb",opt);
+        double_check(cmdline,opt2,sbottom,dbottom);
+        sprintf(opt2,"%st",opt);
+        double_check(cmdline,opt2,stop,dtop);
+        sprintf(opt2,"%sl",opt);
+        double_check(cmdline,opt2,sleft,dleft);
+        sprintf(opt2,"%sr",opt);
+        double_check(cmdline,opt2,sright,dright);
+        }
+    }
+
+
+/*
+** Added in v2.13
+*/        
+static void margins_integercheck(STRBUF *cmdline,char *opt,int *sleft,int dleft,
+                                int *stop,int dtop,
+                                int *sright,int dright,
+                                int *sbottom,int dbottom)
+
+    {
+    if (dbottom==dtop && dbottom==dleft && dbottom==dright
+         && (dbottom!=(*sbottom) || dtop!=(*stop) || dleft!=(*sleft)
+                || dright!=(*sright)))
+        {
+        strbuf_sprintf(cmdline,"%s %d",opt,dbottom);
+        (*sleft)=(*sright)=(*stop)=(*sbottom)=dbottom;
+        }
+    else
+        {
+        char opt2[16];
+        sprintf(opt2,"-%cb",opt[1]);
+        integer_check(cmdline,opt2,sbottom,dbottom);
+        sprintf(opt2,"-%ct",opt[1]);
+        integer_check(cmdline,opt2,stop,dtop);
+        sprintf(opt2,"-%cl",opt[1]);
+        integer_check(cmdline,opt2,sleft,dleft);
+        sprintf(opt2,"-%cr",opt[1]);
+        integer_check(cmdline,opt2,sright,dright);
+        }
+    }
 #endif /* HAVE_K2GUI */

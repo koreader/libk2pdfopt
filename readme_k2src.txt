@@ -1,7 +1,7 @@
 K2pdfopt build help.
 http://willus.com
 Original: 7 September 2012
-Last updated: 30 November 2013 (v2.12)
+Last updated: 31 December 2013 (v2.14)
 
 This "read me" file describes the source code distribution for k2pdfopt.
 
@@ -19,7 +19,7 @@ K2pdfopt Source Files
    library dependencies (HAVE_XXX_LIB) and whether or not the MS Windows
    GUI is compiled in (HAVE_K2GUI).
 
-3. willus.com general-purpose C library (33 C files + 1 header file) in
+3. willus.com general-purpose C library (34 C files + 1 header file) in
    willuslib subfolder.
    Compile all C files in this subfolder and build them into libwillus.a.
    Near the top of willus.h are #defines which control third-party
@@ -32,11 +32,12 @@ Third Party Libraries
 There are also a number of required 3rd-party open-source C/C++ libraries
 for k2pdfopt.  These libraries are not necessarily required when using
 the k2pdfopt library in other applications (e.g. KindlePDFViewer--see
-NOTE 5 below).
+NOTE 4 below).
 
     REQUIRED
     --------
-    1.  Z-lib 1.2.8 (zlib.net) -- SEE NOTE 1.
+    1.  Z-lib 1.2.8 (zlib.net)
+        (A custom mod of zlib is no longer required as of k2pdfopt v2.14.)
     2.  libpng 1.6.3 (www.libpng.org)
     3.  Turbo JPEG lib 1.3.0 (sourceforge.net/projects/libjpeg-turbo/)
 
@@ -45,7 +46,7 @@ NOTE 5 below).
     4.  JBIG2Dec 0.11 (jbig2dec.sourceforge.net)
     5.  OpenJPEG 2.0.0 (www.openjpeg.org)
     6.  FreeType 2.5.0.1 (freetype.sourceforge.net/index2.html)
-    7.  Mupdf 1.3 (mupdf.com) -- SEE NOTE 2.
+    7.  Mupdf 1.3 (mupdf.com) -- SEE NOTE 1.
 
     TO INCLUDE DjVuLibre LIBRARY (search for HAVE_DJVU in k2pdfopt.c)
     -----------------------------------------------------------------
@@ -55,7 +56,7 @@ NOTE 5 below).
     ----------------------------------------------------------------
     9.  GOCR 0.49 (sourceforge.net/jocr/)
     10. Leptonica 1.69 (leptonica.com)
-    11. Tesseract 3.02.02 (C++) (code.google.com/tesseract-ocr/) -- SEE NOTE 3.
+    11. Tesseract 3.02.02 (C++) (code.google.com/tesseract-ocr/) -- SEE NOTE 2.
 
     If you don't include MuPDF, DjVuLibre, or OCR, then k2pdfopt will
     look for an installation of Ghostscript.
@@ -63,28 +64,23 @@ NOTE 5 below).
 
 Notes
 -----
-1. For zlib, I did a custom mod that is used by my pdfwrite.c code in my
-   library to write a deflated stream.  You'll need to compile the Z-lib
-   library with the mods that I put into the zlib_mod folder (gzwrite.c and
-   gzlib.c).  Search on "WILLUS MOD" in those files to see where I modified them.
-
-2. Mods to the released MuPDF library are in the mupdf_mod folder.
+1. Mods to the released MuPDF library are in the mupdf_mod folder.
    Search for "willus" or "sumatra" or "bugs" in the files to find the mods.
 
-3. Tesseract requires my small C API file plus three custom-modified source files.
+2. Tesseract requires my small C API file plus three custom-modified source files.
    These are in the tesseract_mod folder.  Search for "willus" in the files to
    find the mods.  To use Tesseract, you'll need to download one of the data
    packages for it from the Tesseract web site and to point the TESSDATA_PREFIX
    environment variable to the root tesseract folder
    (e.g. TESSDATA_PREFIX=c:\tesseract-ocr\).
 
-4. For a lot of the 3rd-party libraries, I combined their headers into one
+3. For a lot of the 3rd-party libraries, I combined their headers into one
    header that gets included by some of the willus library source files.
    I can't always remember which ones I did this for, so if you can't find
    any of the included files (if they didn't come standard w/the 3rd party
    library), look in my include_mod subfolder.
 
-5. Building for KindlePDFViewer:
+4. Building for KindlePDFViewer:
    a. In willus.h, search for "THIRD PARTY" and comment out all #define's
       for third party libs, e.g. HAVE_Z_LIB, etc.
    b. In k2pdfopt.h, uncomment this:  #define K2PDFOPT_KINDLEPDFVIEWER
@@ -94,6 +90,11 @@ Notes
       is stand-alone.  If it is compiled without dependencies on third-party
       libraries, it will be quite small (~300 KiB in windows).
 
+5. I have included CMakeLists.txt files for the k2pdfopt and willus libraries
+   from Dirk Thierbach to help with Linux builds.  He also contributed the
+   config.h.in file and the dtcompress.c file (in willus lib).  It is possible
+   to build the project without using these files (I do not use them).
+   
 
 Build Steps for k2pdfopt on Windows (gcc 4.8.2)
 -----------------------------------------------
