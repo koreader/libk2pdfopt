@@ -67,6 +67,7 @@ typedef struct KOPTContext {
 	BOXA *nboxa;    // word boxes in native page
 	NUMA *nnai;     // word boxes indices in native page
 	WRECTMAPS rectmaps; // rect maps between reflowed and native pages
+	PAGEREGIONS pageregions; // sorted region list by display order
 	BBox bbox;
 	char *language;
 	WILLUSBITMAP dst;
