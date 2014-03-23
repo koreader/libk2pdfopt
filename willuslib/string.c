@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -546,7 +546,9 @@ double string_atof(char *s)
     char *p;
     int i;
     double x;
-    p=malloc(strlen(s)+1);
+    static char *funcname="string_atof";
+
+    willus_mem_alloc_warn((void **)&p,strlen(s)+1,funcname,10);
     if (p==NULL)
         return(atof(s));
     strcpy(p,s);
@@ -554,7 +556,7 @@ double string_atof(char *s)
         if (tolower(p[i])=='d')
             p[i]=p[i]+1;
     x=atof(p);
-    free(p);
+    willus_mem_free((double **)&p,funcname);
     return(x);
 #endif
     }

@@ -1930,7 +1930,7 @@ printf("dst_userwidth_units = %d\n",k2settings->dst_userwidth_units);
     ** Mode select menu
     */
     {
-    static char *modes[]={"default","copy","trim","fitwidth","fitpage","2-column",""};
+    static char *modes[]={"default","copy","trim","fitwidth","fitpage","2-column","crop",""};
     int nmodes;
 
     for (nmodes=0;modes[nmodes][0]!='\0';nmodes++);
@@ -1978,11 +1978,17 @@ printf("settings->s='%s'\n",settings->s);
         {
         int j;
 
-        for (j=0;j<nmodes;j++)
-            if (tolower(settings->s[i+6])==tolower(modes[j][0]))
-                break;
-        if (j>=nmodes)
-            j=0;
+        /* Kludge to correctly select "fitpage", v2.15 */
+        if (!strnicmp(&settings->s[i+6],"fp",2) || !strnicmp(&settings->s[i+6],"fitp",4))
+            j=4;
+        else
+            {
+            for (j=0;j<nmodes;j++)
+                if (tolower(settings->s[i+6])==tolower(modes[j][0]))
+                    break;
+            if (j>=nmodes)
+                j=0;
+            }
         willusgui_control_listbox_select_item(control,modes[j]);
         }
     else

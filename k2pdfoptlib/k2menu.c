@@ -572,14 +572,19 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
             }
         else if (!stricmp(buf,"mo"))
             {
-            static char *modename[]={"default","copy","trim","crop","fitwidth","fitpage","2-column","grid",""};
+            static char *modename[]={"default","copy","trim","c*rop","fitwidth","fit*page","2-column","grid",""};
             static char *shortname[]={"def","copy","tm","crop","fw","fp","2col","grid"};
             double v[3];
+            int nm;
 
             status=userinput_string("Operating mode",modename,"default");
+            /* v2.15--correctly count the number of options rather than using a fixed value. */
+            for (nm=0;modename[nm][0]!='\0';nm++);
             if (status<0)
                 return(status);
-            if (status<4)
+            if (status>=nm)
+                continue;
+            if (strcmp(modename[status],"grid"))
                 {
                 strbuf_sprintf(usermenu,"-mode %s",shortname[status]);
                 continue;

@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -64,7 +64,8 @@ static void matrix_rotate(double m[][3],double deg);
 static void matrix_xymul(double m[][3],double *x,double *y);
 
 /* Character positions */
-static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_text_page *page);
+static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_text_page *page,
+                                    int boundingbox);
 static void wtextchar_rotate_clockwise(WTEXTCHAR *wch,int rot,double page_width_pts,
                                        double page_height_pts);
 static void point_sort(double *x1,double *x2);
@@ -73,10 +74,8 @@ static void wtextchars_get_chars_inside(WTEXTCHARS *src,WTEXTCHARS *dst,double x
                                         double x2,double y2);
 /*
 static int  wtextchars_index_by_yp(WTEXTCHARS *wtc,double yp,int type);
-static void wtextchars_sort_vertically_by_position(WTEXTCHARS *wtc,int type);
-static int  wtextchar_compare_vert(WTEXTCHAR *c1,WTEXTCHAR *c2,int type);
 */
-static void wtextchars_sort_horizontally_by_position(WTEXTCHARS *wtc);
+static int wtextchar_compare_vert(WTEXTCHAR *c1,WTEXTCHAR *c2,int index);
 static int  wtextchar_compare_horiz(WTEXTCHAR *c1,WTEXTCHAR *c2);
 /*
 ** Outline functions
@@ -1202,7 +1201,7 @@ static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pag
         {
         h=compress_start(f,7);
         compress_write(f,h,p,n);
-        compress_done(f,h);
+        compress_done(f,&h);
         fclose(f);
         }
     nw=wfile_size(tempfile);
@@ -1569,10 +1568,22 @@ static void matrix_xymul(double m[][3],double *x,double *y)
     }
 
 
+int wtextchars_fill_from_page(WTEXTCHARS *wtc,char *filename,int pageno,char *password)
+
+    {
+    return(wtextchars_fill_from_page_ex(wtc,filename,pageno,password,0));
+    }
+
+
 /*
 ** CHARACTER POSITION MAPS
+**
+** if boundingbox==1, only one character is returned, and its upper-left and lower-right
+** corner are the bounding box of all text on the page.
+**
 */
-int wtextchars_fill_from_page(WTEXTCHARS *wtc,char *filename,int pageno,char *password)
+int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char *password,
+                                 int boundingbox)
 
     {
     fz_document *doc=NULL;
@@ -1643,7 +1654,7 @@ int wtextchars_fill_from_page(WTEXTCHARS *wtc,char *filename,int pageno,char *pa
             fz_run_page(doc,page,dev,&fz_identity,NULL);
         fz_free_device(dev);
         dev=NULL;
-        wtextchars_add_fz_chars(wtc,ctx,text);
+        wtextchars_add_fz_chars(wtc,ctx,text,boundingbox);
         }
     fz_always(ctx)
         {
@@ -1665,7 +1676,8 @@ int wtextchars_fill_from_page(WTEXTCHARS *wtc,char *filename,int pageno,char *pa
     }
 
 
-static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_text_page *page)
+static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_text_page *page,
+                                    int boundingbox)
 
     {
     int iblock;
@@ -1710,7 +1722,21 @@ static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_text_page
                     textchar.xp=ch->p.x;
                     textchar.yp=ch->p.y;
                     textchar.ucs=ch->c;
-                    wtextchars_add_wtextchar(wtc,&textchar);
+                    if (boundingbox==0 || wtc->n<=0)
+                        wtextchars_add_wtextchar(wtc,&textchar);
+                    else
+                        {
+                        WTEXTCHAR *tc0;
+                        tc0 = &wtc->wtextchar[0];
+                        if (textchar.x1 < tc0->x1)
+                            tc0->x1 = textchar.x1;
+                        if (textchar.x2 > tc0->x2)
+                            tc0->x2 = textchar.x2;
+                        if (textchar.y1 < tc0->y1)
+                            tc0->y1 = textchar.y1;
+                        if (textchar.y2 > tc0->y2)
+                            tc0->y2 = textchar.y2;
+                        }
                     }
                 }
             }
@@ -1974,9 +2000,10 @@ static int wtextchars_index_by_yp(WTEXTCHARS *wtc,double yp,int type)
         }
    return(i2);
    }
+#endif
 
 
-static void wtextchars_sort_vertically_by_position(WTEXTCHARS *wtc,int type)
+void wtextchars_sort_vertically_by_position(WTEXTCHARS *wtc,int type)
 
     {
     int top,n1,n;
@@ -2037,30 +2064,30 @@ static int wtextchar_compare_vert(WTEXTCHAR *c1,WTEXTCHAR *c2,int index)
 
     {
     if (index==1)
-        {
-        if (c1->y1!=c2->y1)
-            return(c1->y1-c2->y1);
-        }
+        return(c1->y1-c2->y1);
+    else if (index==2)
+        return(c1->y2-c2->y2);
     else
-        {
-        if (c1->y2!=c2->y2)
-            return(c1->y2-c2->y2);
-        }
-    return(c1->xp-c2->xp);
+        return(c1->yp-c2->yp);
     }
-#endif
 
 
-static void wtextchars_sort_horizontally_by_position(WTEXTCHARS *wtc)
+void wtextchars_sort_horizontally_by_position(WTEXTCHARS *wtc)
 
     {
-    int top,n1,n;
-    WTEXTCHAR x0,*x;
-
     if (wtc->sorted==2)
         return;
-    x=wtc->wtextchar;
-    n=wtc->n;
+    wtextchar_array_sort_horizontally_by_position(wtc->wtextchar,wtc->n);
+    wtc->sorted=2;
+    }
+
+
+void wtextchar_array_sort_horizontally_by_position(WTEXTCHAR *x,int n)
+
+    {
+    int top,n1;
+    WTEXTCHAR x0;
+
     if (n<2)
         return;
     top=n/2;
@@ -2104,13 +2131,14 @@ static void wtextchars_sort_horizontally_by_position(WTEXTCHARS *wtc)
         x[parent]=x0;
         }
         }
-    wtc->sorted=2;
     }
 
 
 static int wtextchar_compare_horiz(WTEXTCHAR *c1,WTEXTCHAR *c2)
 
     {
+    if (c1->xp==c2->xp)
+        return((c1->x1+c1->x2) - (c2->x1+c2->x2));
     return(c1->xp-c2->xp);
     }
 
@@ -2211,18 +2239,22 @@ static void pdf_create_outline_1(pdf_document *doc,pdf_obj *parent,pdf_obj *pare
         pdf_obj *title,*nextdict,*nextdictref,*aref;
         int nextdictrefnum;
         char *de;
+        static char *funcname="pdf_create_outline_1";
 
         /* Convert UTF-8 to PDF-encoding */
+        willus_mem_alloc_warn((void **)&de,strlen(outline->title)+2,funcname,10);
+        /*
         de=malloc(strlen(outline->title)+2);
         if (de==NULL)
             de=outline->title;
         else
-            wpdf_docenc_from_utf8(de,outline->title,strlen(outline->title)+1);
+        */
+        wpdf_docenc_from_utf8(de,outline->title,strlen(outline->title)+1);
         title=pdf_new_string(doc,de,strlen(de));
         pdf_dict_puts(dict,"Title",title);
         pdf_drop_obj(title);
-        if (de!=outline->title)
-            free(de);
+        /* if (de!=outline->title) */
+        willus_mem_free((double **)&de,funcname);
         aref=anchor_reference(doc,outline->dstpage);
         pdf_dict_puts(dict,"A",aref);
         pdf_drop_obj(aref);

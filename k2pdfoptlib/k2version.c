@@ -1,4 +1,4 @@
-char *k2pdfopt_version = "v2.14";
+char *k2pdfopt_version = "v2.15";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
@@ -18,6 +18,27 @@ char *k2pdfopt_version = "v2.14";
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **
 ** VERSION HISTORY
+** v2.15     22 MAR 2014
+**           ENHANCEMENTS
+**           - The -cbox option usage has been rewritten and hopefully clarified.
+**             It is a very powerful and useful new option as of v2.10.
+**
+**           BUG FIXES
+**           - Specific variable to track Tesseract initialization (it was sometimes
+**             getting missed if it was turned on after a conversion in the GUI).
+**           - Mode selection works in GUI (wasn't correctly selecting "fitpage")
+**             and in text menu again (1-7-14 e-mail).
+**           - Fixed memory leak in bmp_detect_vertical_lines() in k2bmp.c.
+**             http://www.mobileread.com/forums/showthread.php?p=2737816#post2737816
+**           - Fixed several memory leaks--made sure bmpregion_free() is called
+**             for each declared BMPREGION, and also patched wmupdf.c to fix two
+**             memory leaks.  The most significant memory leak was in the dtcompress.c
+**             library function, though, which has also been fixed.
+**             http://www.mobileread.com/forums/showthread.php?p=2752370#post2752370
+**           - Fixed incorrectly formed #ifdef HAVE_OCR_LIB in k2publish.c.  Thanks
+**             to user facut on mobileread.com, who e-mailed me about this on
+**             21 March 2014.
+**
 ** v2.14     31 DEC 2013
 **           - Compiled using dtcompress.c module in willus library which avoids
 **             requiring my custom modification to zlib.  Thank you to Dirk Thierbach

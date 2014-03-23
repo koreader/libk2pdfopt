@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -233,8 +233,9 @@ void willusgui_window_draw_path_filled(WILLUSGUIWINDOW *win,int *x,int *y,int n,
     HBRUSH brush;
     POINT *p;
     int i;
+    static char *funcname="willusgui_window_draw_path_filled";
 
-    p=malloc(sizeof(POINT)*(n-1));
+    willus_mem_alloc_warn((void **)&p,sizeof(POINT)*(n-1),funcname,10);
     for (i=0;i<n-1;i++)
         {
         p[i].x=x[i+1];
@@ -252,7 +253,7 @@ void willusgui_window_draw_path_filled(WILLUSGUIWINDOW *win,int *x,int *y,int n,
     FillPath(hdc);
     ReleaseDC((HWND)win->handle,hdc);
     DeleteObject(brush);
-    free(p);
+    willus_mem_free((double **)&p,funcname);
 #endif
     }
 
@@ -1158,9 +1159,10 @@ char **willusgui_get_dropped_files(void *dropptr)
 #ifdef MSWINGUI
     char **ptr;
     int i,n;
+    static char *funcname="willusgui_get_dropped_files";
 
     n=DragQueryFile((HDROP)dropptr,0xffffffff,NULL,0);
-    ptr=malloc(sizeof(char *)*(n+1));
+    willus_mem_alloc_warn((void **)&ptr,sizeof(char *)*(n+1),funcname,10);
     if (ptr==NULL)
         return(ptr);
     for (i=0;i<=n;i++)
@@ -1171,7 +1173,7 @@ char **willusgui_get_dropped_files(void *dropptr)
         DragQueryFile((HDROP)dropptr,i,buf,511);
         while (win_resolve_shortcut(buf,buf2,511))
             strcpy(buf,buf2);
-        ptr[i]=malloc(strlen(buf)+1);
+        willus_mem_alloc_warn((void **)&ptr[i],strlen(buf)+1,funcname,10);
         if (ptr[i]==NULL)
             return(ptr);
         strcpy(ptr[i],buf);
@@ -1187,13 +1189,14 @@ void willusgui_release_dropped_files(char **ptr)
 
     {
     int i;
+    static char *funcname="willusgui_release_dropped_files";
 
     if (ptr!=NULL)
         {
         for (i=0;ptr[i]!=NULL;i++);
         for (i--;i>=0;i--)
-            free(ptr[i]);
-        free(ptr);
+            willus_mem_free((double **)&ptr[i],funcname);
+        willus_mem_free((double **)&ptr,funcname);
         }
     }
 

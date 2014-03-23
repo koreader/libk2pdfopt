@@ -21,8 +21,9 @@
 #include "k2pdfopt.h"
 
 #ifdef HAVE_OCR_LIB
-static int k2ocr_inited=0;
+static int k2ocr_gocr_inited=0;
 #if (defined(HAVE_TESSERACT_LIB))
+static int k2ocr_tess_inited=0;
 static int k2ocr_tess_status=0;
 #endif
 static void k2ocr_ocrwords_fill_in(OCRWORDS *words,BMPREGION *region,K2PDFOPT_SETTINGS *k2settings);
@@ -33,10 +34,16 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
 
     {
 #ifdef HAVE_OCR_LIB
-    if (!k2settings->dst_ocr || k2ocr_inited)
+    if (!k2settings->dst_ocr)
         return;
-    k2ocr_inited=1;
-    ocrwords_init(&k2settings->dst_ocrwords);
+    /* v2.15--don't need to do this--it's in k2pdfopt_settings_init. */
+    /*
+    if (!k2ocr_inited)
+        {
+        ocrwords_init(&k2settings->dst_ocrwords);
+        k2ocr_inited=1;
+        }
+    */
 #if (!defined(HAVE_TESSERACT_LIB) && defined(HAVE_GOCR_LIB))
     if (k2settings->dst_ocr=='t')
         {
@@ -58,14 +65,19 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
     if (k2settings->dst_ocr=='t')
         {
 #endif
-        k2printf(TTEXT_BOLD);
-        k2ocr_tess_status=ocrtess_init(NULL,
+        /* v2.15 fix--specific variable for Tesseract init status */
+        if (!k2ocr_tess_inited)
+            {
+            k2printf(TTEXT_BOLD);
+            k2ocr_tess_status=ocrtess_init(NULL,
                           k2settings->dst_ocr_lang[0]=='\0'?NULL:k2settings->dst_ocr_lang,stdout);
-        k2printf(TTEXT_NORMAL);
-        if (k2ocr_tess_status)
-            k2printf(TTEXT_WARN "Could not find Tesseract data" TTEXT_NORMAL " (env var TESSDATA_PREFIX = %s).\nUsing GOCR v0.49.\n\n",getenv("TESSDATA_PREFIX")==NULL?"(not assigned)":getenv("TESSDATA_PREFIX"));
-        else
-            k2printf("\n");
+            k2printf(TTEXT_NORMAL);
+            if (k2ocr_tess_status)
+                k2printf(TTEXT_WARN "Could not find Tesseract data" TTEXT_NORMAL " (env var TESSDATA_PREFIX = %s).\nUsing GOCR v0.49.\n\n",getenv("TESSDATA_PREFIX")==NULL?"(not assigned)":getenv("TESSDATA_PREFIX"));
+            else
+                k2printf("\n");
+            k2ocr_tess_inited=1;
+            }
 #ifdef HAVE_GOCR_LIB
         }
     else
@@ -74,7 +86,13 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
 #ifdef HAVE_GOCR_LIB
         {
         if (k2settings->dst_ocr=='g')
-            k2printf(TTEXT_BOLD "GOCR v0.49 OCR Engine" TTEXT_NORMAL "\n\n");
+            {
+            if (!k2ocr_gocr_inited)
+                {
+                k2printf(TTEXT_BOLD "GOCR v0.49 OCR Engine" TTEXT_NORMAL "\n\n");
+                k2ocr_gocr_inited=1;
+                }
+            }
         }
 #endif
 #ifdef HAVE_MUPDF_LIB
@@ -87,19 +105,19 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
 #endif /* HAVE_OCR_LIB */
     }
 
-
+/*
+** v2.15--call close/free functions even if k2settings->dst_ocr not set--may have
+**        been called from previous GUI conversion.
+*/
 void k2ocr_end(K2PDFOPT_SETTINGS *k2settings)
 
     {
 #ifdef HAVE_OCR_LIB
-    if (k2settings->dst_ocr && k2ocr_inited)
-        {
 #ifdef HAVE_TESSERACT_LIB
-        if (k2settings->dst_ocr=='t')
-            ocrtess_end();
+    if (k2ocr_tess_inited)
+        ocrtess_end();
 #endif
-        ocrwords_free(&k2settings->dst_ocrwords);
-        }
+    ocrwords_free(&k2settings->dst_ocrwords);
 #endif /* HAVE_OCR_LIB */
     }
 

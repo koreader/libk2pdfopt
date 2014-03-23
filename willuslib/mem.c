@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -30,6 +30,22 @@
 
 #define USEGLOBAL
 
+#ifndef NOMEMDEBUG
+/* #define DEBUG */
+#ifdef DEBUG
+static void willus_mem_update(char *label,char *name,int memsize,void *ptr);
+#define MAXPTRS 256000
+static void *ptrs[MAXPTRS];
+static long  sizealloced[MAXPTRS];
+static char  fname[MAXPTRS][32];
+static int   n;
+static char *okay[] = { "" };
+static FILE *f;
+static long  allocated_ptrs;
+static long  totmem;
+static int   willus_mem_inited=0;
+#endif
+#endif // NOMEMDEBUG
 
 static void mem_warn(char *name,int size,int exitcode);
 
@@ -37,12 +53,35 @@ static void mem_warn(char *name,int size,int exitcode);
 void willus_mem_init(void)
 
     {
+#ifndef NOMEMDEBUG
+#ifdef DEBUG
+    int i;
+    for (i=0;i<MAXPTRS;i++)
+        {
+        ptrs[i] = NULL;
+        sizealloced[i] = 0;
+        fname[i][0] = '\0';
+        }
+    f=fopen("allocs.dat","w");
+    allocated_ptrs=0;
+    totmem=0;
+    n=0;
+    willus_mem_inited=1;
+#endif
+#endif // NOMEMDEBUG
     }
 
 
 void willus_mem_close(void)
 
     {
+#ifndef NOMEMDEBUG
+#ifdef DEBUG
+    if (!willus_mem_inited)
+        willus_mem_init();
+    fclose(f);
+#endif
+#endif // NOMEMDEBUG
     }
 
 
@@ -106,6 +145,40 @@ int willus_mem_alloc(double **ptr,long size,char *name)
     memsize=(size_t)size;
     (*ptr) =  (memsize==size) ? (double *)malloc(memsize) : NULL;
 #endif
+#ifndef NOMEMDEBUG
+#ifdef DEBUG
+    if (!willus_mem_inited)
+        willus_mem_init();
+    if ((*ptr)!=NULL)
+        {
+        int i;
+
+        allocated_ptrs++;
+        if (n<allocated_ptrs)
+            {
+            ptrs[n]=(*ptr);
+            sizealloced[n]=memsize;
+            strncpy(fname[n],name,31);
+            fname[n][31]='\0';
+            n++;
+            }
+        else
+            {
+            for (i=0;i<n && ptrs[i]!=0;i++);
+            ptrs[i]=(*ptr);
+            sizealloced[i]=memsize;
+            strncpy(fname[i],name,31);
+            fname[i][31]='\0';
+            if (i>=n)
+                n++;
+            }
+        totmem += memsize;
+        willus_mem_update("MA    ",name,memsize,(*ptr));
+        }
+    else
+        fprintf(f,"*** MEM ALLOC FAILS! *** %7ld %s\n",memsize,name);
+#endif
+#endif // NOMEMDEBUG
 /*
 {
 f=fopen("mem.dat","a");
@@ -134,6 +207,67 @@ static void mem_warn(char *name,int size,int exitcode)
     }
 
 
+#ifndef NOMEMDEBUG
+#ifdef DEBUG
+static void willus_mem_update(char *label,char *name,int memsize,void *ptr)
+
+    {
+    int i;
+    static int count=0;
+
+    if (!willus_mem_inited)
+        willus_mem_init();
+    for (i=0;okay[i][0]!='\0';i++)
+        if (!strncmp(name,okay[i],strlen(okay[i])))
+            break;
+//    if (okay[i][0]=='\0' || in_string(label,"!")>=0)
+    if (1)
+        {
+/*
+        fprintf(f,"%s %5ld %7ld %9ld %10p %s\n",label,allocated_ptrs,
+                                                (long)memsize,(long)totmem,ptr,name);
+*/
+        count++;
+        if ((count % 500)==0)
+            {
+            int ap;
+            for (ap=i=0;i<n;i++)
+                if (ptrs[i]!=0)
+                    ap++;
+            fprintf(f,"xx %5d %d\n",ap,(int)totmem);
+            // fprintf(f,"=== %d POINTERS LEFT ===\n",ap);
+/*
+            if ((count % 10000)==0)
+            {
+            for (i=0;i<n;i++)
+                if (ptrs[i]!=0)
+                    fprintf(f,"%-32s %10p %7d\n",fname[i],ptrs[i],(int)sizealloced[i]);
+            fprintf(f,"\n");
+            }
+*/
+            fflush(f);
+            }
+        }
+    }
+
+void willus_mem_debug_update(char *);
+void willus_mem_debug_update(char *s)
+
+    {
+    int i,ap;
+    for (ap=i=0;i<n;i++)
+        if (ptrs[i]!=0)
+            ap++;
+    fprintf(f,"%s\nyy %5d %d\n",s,ap,(int)totmem);
+    for (i=0;i<n;i++)
+        if (ptrs[i]!=0)
+            fprintf(f,"%-32s %10p %7d\n",fname[i],ptrs[i],(int)sizealloced[i]);
+    fprintf(f,"\n");
+    fflush(f);
+    }
+    
+#endif
+#endif // NOMEMDEBUG
 
 
 int willus_mem_realloc(double **ptr,long newsize,char *name)
@@ -179,6 +313,38 @@ int willus_mem_realloc(double **ptr,long newsize,char *name)
         }
     if (newptr==NULL)
         return(0);
+#ifndef NOMEMDEBUG
+#ifdef DEBUG
+    if (!willus_mem_inited)
+        willus_mem_init();
+    {
+    int i;
+    char label[64];
+    for (i=0;i<n && ptrs[i]!=(*ptr);i++);
+    if (i>=n)
+        {
+        sprintf(label,"!!Bad SRA!! oldptr=%p ",(*ptr));
+        totmem += memsize;
+        ptrs[n] = newptr;
+        sizealloced[n] = memsize;
+        strncpy(fname[n],name,31);
+        fname[n][31]='\0';
+        n++;
+        allocated_ptrs++;
+        willus_mem_update(label,name,memsize,newptr);
+        }
+    else
+        {
+        totmem += memsize-sizealloced[i];
+        sizealloced[i] = memsize;
+        ptrs[i] = newptr;
+        strncpy(fname[i],name,31);
+        fname[i][31]='\0';
+        willus_mem_update(" SRA  ",name,memsize,newptr);
+        }
+    }
+#endif
+#endif // NOMEMDEBUG
 
     (*ptr) = newptr;
     return(1);
@@ -195,6 +361,11 @@ int willus_mem_realloc_robust(double **ptr,long newsize,long oldsize,char *name)
     size_t  memsize;
     void *newptr;
 #endif
+#ifndef NOMEMDEBUG
+#ifdef DEBUG
+    int ra=0;
+#endif
+#endif // NOMEMDEBUG
 
 #if (defined(WIN32) && !defined(__DMC__))
     memsize=(unsigned long)newsize;
@@ -216,11 +387,57 @@ int willus_mem_realloc_robust(double **ptr,long newsize,long oldsize,char *name)
 #endif
     if (newptr==NULL && willus_mem_alloc((double **)&newptr,newsize,name))
         {
+#ifndef NOMEMDEBUG
+#ifdef DEBUG
+        ra=1;
+        printf("Copying %ld bytes from old pointer to new pointer.\n",oldsize);
+#endif
+#endif // NOMEMDEBUG
         memcpy(newptr,(*ptr),oldsize);
+#ifndef NOMEMDEBUG
+#ifdef DEBUG
+        printf("Done.\n");
+#endif
+#endif // NOMEMDEBUG
         willus_mem_free(ptr,name);
         }
     if (newptr==NULL)
         return(0);
+#ifndef NOMEMDEBUG
+#ifdef DEBUG
+    if (!willus_mem_inited)
+        willus_mem_init();
+    if (ra==0)
+    {
+    int i;
+    char label[80];
+
+    for (i=0;i<n && ptrs[i]!=(*ptr);i++);
+    if (i>=n)
+        {
+        sprintf(label,"!!Bad RRA!! oldptr=%p,oldsize=%d ",(*ptr),(int)oldsize);
+        totmem += memsize-oldsize;
+        ptrs[n] = newptr;
+        sizealloced[n] = memsize;
+        strncpy(fname[n],name,31);
+        fname[n][31]='\0';
+        n++;
+        allocated_ptrs++;
+        willus_mem_update(label,name,memsize,newptr);
+        }
+        // printf("*** !! realloc can't find pointer in list !! ***\n");
+    else
+        {
+        totmem += memsize-sizealloced[i];
+        sizealloced[i] = memsize;
+        ptrs[i] = newptr;
+        strncpy(fname[i],name,31);
+        fname[i][31]='\0';
+        willus_mem_update(" RRA  ",name,memsize,newptr);
+        }
+    }
+#endif
+#endif // NOMEMDEBUG
 
     (*ptr) = newptr;
     return(1);
@@ -230,8 +447,35 @@ int willus_mem_realloc_robust(double **ptr,long newsize,long oldsize,char *name)
 void willus_mem_free(double **ptr,char *name)
 
     {
+#ifndef NOMEMDEBUG
+#ifdef DEBUG
+    if (!willus_mem_inited)
+        willus_mem_init();
+#endif
+#endif // NOMEMDEBUG
     if ((*ptr)!=NULL)
         {
+#ifndef NOMEMDEBUG
+#ifdef DEBUG
+        int i;
+
+        allocated_ptrs--;
+        for (i=0;i<n && ptrs[i]!=(*ptr);i++);
+        if (i>=n)
+            willus_mem_update("  !!MF",name,0,(*ptr));
+        else
+            {
+            ptrs[i]=0;
+            totmem -= sizealloced[i];
+            sizealloced[i]=0;
+            for (i=MAXPTRS-1;i>=0;i--)
+                if (ptrs[i]!=0)
+                    break;
+            n=i+1;
+            willus_mem_update("    MF",name,0,(*ptr));
+            }
+#endif
+#endif // NOMEMDEBUG
 #if (defined(WIN32) && !defined(__DMC__))
 #ifdef USEGLOBAL
         GlobalFree((void *)(*ptr));
