@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -775,12 +775,17 @@ static HBITMAP bmp_to_from_winbmp(WILLUSBITMAP *bmp,HBITMAP hBitmap_src)
         }
     /* Extract the palette (seems to work) */
     if (bmp->bpp==8)
+        {
+        RGBQUAD *colors;
+
+        colors=&bmi->bmiColors[0]; /* Avoid compiler warning */
         for (i=0;i<256;i++)
             {
-            bmp->red[i]   = bmi->bmiColors[i].rgbRed;
-            bmp->green[i] = bmi->bmiColors[i].rgbGreen;
-            bmp->blue[i]  = bmi->bmiColors[i].rgbBlue;
+            bmp->red[i]   = colors[i].rgbRed;
+            bmp->green[i] = colors[i].rgbGreen;
+            bmp->blue[i]  = colors[i].rgbBlue;
             }
+        }
 
     /* Clean up */
     DeleteDC(memDC);

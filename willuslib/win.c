@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -2194,5 +2194,7 @@ static BOOL CALLBACK find_win_by_procid(HWND hwnd,LPARAM lp)
         }
     return(TRUE);
     }
+
+
 
 #endif /* WIN32 */

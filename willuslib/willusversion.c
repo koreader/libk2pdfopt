@@ -1,10 +1,10 @@
-static char *version = "Ver 4.91 (Dec 31, 2013)";
+static char *version = "Ver 4.96 (Mar  4, 2014)";
 /*
 ** willusversion.c    Report version of WILLUSLIB library
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as

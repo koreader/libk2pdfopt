@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -78,8 +78,9 @@ compress_handle compress_start(FILE *f,int level)
     {
     compress_handle_p h;
     int ret;
+    static char *funcname="compress_start";
 
-    h = (compress_handle)malloc(sizeof(compress_handle_t));
+    willus_mem_alloc_warn((void **)&h,sizeof(compress_handle_t),funcname,10);
     h->strm.zalloc = Z_NULL;
     h->strm.zfree = Z_NULL;
     h->strm.opaque = Z_NULL;
@@ -143,15 +144,19 @@ static size_t compress_out(FILE *f,compress_handle_p h,int flush)
 ** Call with NULL filehandle in case of error etc., to clean up zlib state 
 ** and allocations.
 */
-void compress_done(FILE *f,compress_handle hh) 
+void compress_done(FILE *f,compress_handle *hh) 
 
     {
-    compress_handle_p h = (compress_handle_p)hh;
+    static char *funcname="compress_done";
+
+    compress_handle_p h = (compress_handle_p)(*hh);
     if (h)
         {
         if (f)
             compress_out(f,h,Z_FINISH);
         deflateEnd(&h->strm);
+        /* Fix memory leak, 2-2-14 */
+        willus_mem_free((double **)hh,funcname);
         }
     }
 
@@ -203,7 +208,7 @@ compress_handle compress_start(FILE *f,int level)
     return NULL;
     }
 
-void compress_done(FILE *f,compress_handle h) 
+void compress_done(FILE *f,compress_handle *h) 
 
     {
     }

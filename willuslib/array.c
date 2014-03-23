@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -233,6 +233,25 @@ void array_sort(double *a,int n)
 
     {
     sortd(a,(long)n);
+    }
+
+
+void array_flipi(int *x,int n)
+
+    {
+    int n2;
+    int i;
+
+    if (n<2)
+        return;
+    n2=n/2;
+    for (i=0;i<n2;i++)
+        {
+        int t;
+        t=x[i];
+        x[i]=x[n-1-i];
+        x[n-1-i]=t;
+        }
     }
 
 

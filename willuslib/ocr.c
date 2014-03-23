@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -27,8 +27,6 @@
 #include <ctype.h>
 #include "willus.h"
 
-static void ocrword_init(OCRWORD *word);
-static void ocrword_free(OCRWORD *word);
 static int  vowel(int c0);
 static int  not_usually_after_T(int c0);
 static int  not_usually_after_n(int c0);
@@ -36,14 +34,14 @@ static int  not_usually_after_l(int c0);
 static int  not_usually_after_r(int c0);
 
 
-static void ocrword_init(OCRWORD *word)
+void ocrword_init(OCRWORD *word)
 
     {
     word->text=NULL;
     }
 
 
-static void ocrword_free(OCRWORD *word)
+void ocrword_free(OCRWORD *word)
 
     {
     static char *funcname="ocrword_free";

@@ -70,7 +70,6 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
     char num[16];
 #endif
     BMPREGION *region,_region;
-    BMPREGION *clip,_clip;
 
     if (!k2settings->show_marked_source)
         return;
@@ -85,11 +84,17 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
         return;
         }
 
+    /* v2.15 -- use new convention for bmpregion */
     region=&_region;
-    (*region)=(*region0);
+    bmpregion_init(region);
+    bmpregion_copy(region,region0,0);
 
     /* Clip the region w/ignored margins */
+    {
+    BMPREGION *clip,_clip;
+
     clip=&_clip;
+    bmpregion_init(clip);
     clip->bmp=region0->bmp;
     clip->dpi=region0->dpi;
     bmpregion_trim_to_crop_margins(clip,k2settings);
@@ -101,8 +106,13 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
         region->r1 = clip->r1;
     if (region->r2 > clip->r2)
         region->r2 = clip->r2;
+    bmpregion_free(clip);
+    }
     if (region->r2 <= region->r1 || region->c2 <= region->c1)
+        {
+        bmpregion_free(region);
         return;
+        }
 
     /* k2printf("@mark_source_page(display_order=%d)\n",display_order); */
 #ifndef K2PDFOPT_KINDLEPDFVIEWER
@@ -233,7 +243,10 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
 */
 #ifndef K2PDFOPT_KINDLEPDFVIEWER
     if (!shownum)
+        {
+        bmpregion_free(region);
         return;
+        }
     fontsize=region->c2-region->c1+1;
     if (fontsize > region->r2-region->r1+1)
         fontsize=region->r2-region->r1+1;
@@ -241,7 +254,10 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
     if (fontsize > region->dpi)
         fontsize = region->dpi;
     if (fontsize < 5)
+        {
+        bmpregion_free(region);
         return;
+        }
     fontrender_set_typeface("helvetica-bold");
     fontrender_set_fgcolor(r,g,b);
     fontrender_set_bgcolor(255,255,255);
@@ -252,5 +268,6 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
     fontrender_render(region->marked,(double)(region->c1+region->c2)/2.,
                       (double)(region->marked->height-((region->r1+region->r2)/2.)),num,0,NULL);    
 #endif
+    bmpregion_free(region);
     /* k2printf("    done mark_source_page.\n"); */
     }

@@ -281,6 +281,7 @@ typedef double  real;
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include <stdarg.h>
 
@@ -336,6 +337,7 @@ double array_max(double *a,int n);
 double array_min(double *a,int n);
 void array_load(double *array,int n,char *loadtype);
 void array_sort(double *a,int n);
+void array_flipi(int *x,int n);
 int  array_sliding_window(double *a,int n,int sw);
 double array_findminfitd(double *x,double *y,int n,double dxmax,double maxerr,
                          double *err,int *npf,double *ymin);
@@ -836,7 +838,7 @@ WZFILE *wzuncompressed(FILE *out);
 /* From Dirk Thierbach, 31-Dec-2013, avoids custom mod to Z-lib */
 typedef void *compress_handle;
 compress_handle compress_start(FILE* f, int level);
-void compress_done(FILE* f, compress_handle h);
+void compress_done(FILE* f, compress_handle *h);
 size_t compress_write(FILE* f, compress_handle h, const void *buf, size_t size);
     
 /* win.c */
@@ -1279,6 +1281,8 @@ typedef struct
     int n,na;
     } OCRWORDS;
 
+void ocrword_init(OCRWORD *word);
+void ocrword_free(OCRWORD *word);
 void ocrwords_init(OCRWORDS *words);
 int  ocrwords_to_textfile(OCRWORDS *words,char *filename,int append);
 void ocrwords_add_word(OCRWORDS *words,OCRWORD *word);
@@ -1349,7 +1353,7 @@ void pdffile_add_outline(PDFFILE *pdf,WPDFOUTLINE *outline);
 void pdffile_add_bitmap(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,int quality,int halfsize);
 void pdffile_add_bitmap_with_ocrwords(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,
                                       int quality,int halfsize,OCRWORDS *ocrwords,
-                                      int ocrwordcolor);
+                                      int ocr_render_flags);
 void pdffile_finish(PDFFILE *pdf,char *title,char *author,char *producer,char *cdate);
 int  pdf_numpages(char *filename);
 void ocrwords_box(OCRWORDS *ocrwords,WILLUSBITMAP *bmp);
@@ -1433,8 +1437,8 @@ typedef struct
     {
     int ucs;      /* character */
     double xp,yp; /* Left baseline position of char */
-    double x1,y1; /* bounding box upper left corner */
-    double x2,y2; /* bounding box lower right corner */
+    double x1,y1; /* bounding box upper left corner in points */
+    double x2,y2; /* bounding box lower right corner in points */
     } WTEXTCHAR;
 
 typedef struct
@@ -1460,13 +1464,18 @@ int  wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use
                        WPDFOUTLINE *wpdfoutline,FILE *out);
 /* Character position map */
 int  wtextchars_fill_from_page(WTEXTCHARS *wtc,char *filename,int pageno,char *password);
+int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char *password,
+                                 int boundingbox);
 void wtextchars_init(WTEXTCHARS *wtc);
 void wtextchars_free(WTEXTCHARS *wtc);
 void wtextchars_clear(WTEXTCHARS *wtc);
 void wtextchars_add_wtextchar(WTEXTCHARS *wtc,WTEXTCHAR *textchar);
 void wtextchars_remove_wtextchar(WTEXTCHARS *wtc,int index);
 void wtextchars_rotate_clockwise(WTEXTCHARS *wtc,int rot_deg);
-void wtextchars_text_inside(WTEXTCHARS *src,char **text,double x1,double y1,double x2,double y2);
+void wtextchars_text_inside(WTEXTCHARS *src,char **text,double x1,double y1,double x2,double y2); 
+void wtextchars_sort_vertically_by_position(WTEXTCHARS *wtc,int type);
+void wtextchars_sort_horizontally_by_position(WTEXTCHARS *wtc);
+void wtextchar_array_sort_horizontally_by_position(WTEXTCHAR *x,int n);
 WPDFOUTLINE *wpdfoutline_read_from_pdf_file(char *filename);
 #endif /* HAVE_MUPDF_LIB */
 

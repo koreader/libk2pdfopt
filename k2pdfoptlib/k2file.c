@@ -569,11 +569,9 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
     bormean=1.0;
     for (i=0;1;i+=pagestep)
         {
-        BMPREGION region;
         char bmpfile[256];
         int pageno;
 
-        bmpregion_init(&region);
         pageno=0;
         if (pagecount>0 && i+1>pagecount)
             break;
@@ -662,10 +660,16 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
             }
         k2mark_page_count = i+1;
 
+        {
+        BMPREGION region;
+
         /* Got Good Page Render */
+        bmpregion_init(&region);
         if (masterinfo_new_source_page_init(masterinfo,k2settings,src,srcgrey,marked,
                                  &region,rot_deg,&bormean,rotstr,pageno,stdout)==0)
             {
+            /* v2.15 -- memory leak fix */
+            bmpregion_free(&region);
             pages_done++;
             continue;
             }
@@ -685,6 +689,9 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
 
         /* Parse the source bitmap for viewable regions */
         bmpregion_source_page_add(&region,k2settings,masterinfo,1,pages_done++);
+        /* v2.15 memory leak fix */
+        bmpregion_free(&region);
+        }
 #ifdef HAVE_K2GUI
         if (k2gui_active())
             k2gui_cbox_set_pages_completed(pages_done,NULL);

@@ -52,9 +52,8 @@ void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int
         ocrwords_init(ocrwords);
         }
     else
-#else
-    ocrwords=NULL;
 #endif
+        ocrwords=NULL;
     bmp=&_bmp;
     bmp_init(bmp);
     while (masterinfo_get_next_output_page(masterinfo,k2settings,flushall,bmp,

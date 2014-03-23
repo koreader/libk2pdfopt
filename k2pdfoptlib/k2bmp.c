@@ -234,6 +234,8 @@ void bmp_clear_outside_crop_border(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,
         p=bmp_rowptr_from_top(srcgrey,i);
         memset(p,255,srcgrey->width);
         }
+    /* Free region--v2.15 memory leak fix, 2-1-14 */
+    bmpregion_free(region);
     }
 
 

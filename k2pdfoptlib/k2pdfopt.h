@@ -738,7 +738,8 @@ int devsize_pixels(double user_size,int user_units,double source_size_in,
 
 /* k2mark.c */
 void publish_marked_page(PDFFILE *mpdf,WILLUSBITMAP *src,int src_dpi);
-void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region,int caller_id,int mark_flags);
+void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,
+                      int caller_id,int mark_flags);
 
 /* wrapbmp.c */
 void wrapbmp_init(WRAPBMP *wrapbmp,int color);
