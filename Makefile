@@ -8,7 +8,7 @@ WILLUSLIB_DIR = willuslib
 K2PDFOPTLIB_DIR = k2pdfoptlib
 WILLUSLIB_SRC = $(wildcard $(WILLUSLIB_DIR)/*.c)
 K2PDFOPTLIB_SRC = $(wildcard $(K2PDFOPTLIB_DIR)/*.c)
-KOPT_SRC = setting.c koptreflow.c koptcrop.c koptocr.c koptpart.c
+KOPT_SRC = setting.c koptreflow.c koptcrop.c koptocr.c koptpart.c koptimize.c
 
 TESSCAPI_CFLAGS = -I$(MOD_INC) -I$(LEPTONICA_DIR)/src \
 	-I$(TESSERACT_DIR) -I$(TESSERACT_DIR)/api \
@@ -68,7 +68,7 @@ K2PDFOPT_LIB= libk2pdfopt.so.$(MAJVER)
 		-I$(K2PDFOPTLIB_DIR) -o $@ $<
 	$(TARGET_DYNCC) $(CFLAGS) -c -I$(MOD_INC) -I$(WILLUSLIB_DIR) \
 		-I$(K2PDFOPTLIB_DIR) -o $(@:.o=_dyn.o) $<
-	
+
 ##############################################################################
 # Target file rules.
 ##############################################################################
@@ -86,7 +86,7 @@ else
 		&& make
 endif
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept.so* ./
-	
+
 $(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cp $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/
 ifdef EMULATE_READER
@@ -107,7 +107,7 @@ else
 		&& make
 endif
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract.so* ./
-	
+
 tesseract_capi: $(TESSERACT_MOD)/tesscapi.cpp $(TESSERACT_LIB)
 	$(TARGET_CXX) $(CXXFLAGS) -c $(TESSCAPI_CFLAGS) -o $(TESSERACT_API_O) $<
 	$(TARGET_DYNCXX) $(CXXFLAGS) -c $(TESSCAPI_CFLAGS) -o $(TESSERACT_API_DYNO) $<
@@ -120,7 +120,7 @@ $(K2PDFOPT_LIB): $(K2PDFOPT_O) tesseract_capi
 		$(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS) \
 		$(MUPDF_LIB) $(TESSERACT_LIB) $(LEPTONICA_LIB)
 	ln -sf $(K2PDFOPT_LIB) libk2pdfopt.so
-	
+
 all: $(TESSERACT_LIB) $(LEPTONICA_LIB) $(K2PDFOPT_LIB)
 
 clean:
