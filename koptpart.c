@@ -39,7 +39,7 @@ void k2pdfopt_part_bmp(KOPTContext *kctx) {
 	int i,j;
 	float margin;
 
-	src = &kctx->dst;
+	src = &kctx->src;
 	srcgrey = &_srcgrey;
 	bmp_init(srcgrey);
 
