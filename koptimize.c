@@ -1,5 +1,5 @@
 /*
- ** koptreflow.c  page optimize api for koreader.
+ ** koptimize.c  page optimize api for koreader.
  **
  **
  ** Copyright (C) 2014  http://willus.com
@@ -29,7 +29,7 @@
  */
 
 #include "setting.h"
-#include "koptreflow.h"
+#include "koptimize.h"
 
 void k2pdfopt_optimize_bmp(KOPTContext *kctx) {
     K2PDFOPT_SETTINGS _k2settings, *k2settings;

@@ -27,51 +27,52 @@
 #include "leptonica.h"
 
 typedef struct {
-	float x0, y0;
-	float x1, y1;
+    float x0, y0;
+    float x1, y1;
 } BBox;
 
 typedef struct KOPTContext {
-	int trim;
-	int wrap;
-	int indent;
-	int rotate;
-	int columns;
-	int offset_x;
-	int offset_y;
-	int dev_dpi;
-	int dev_width;
-	int dev_height;
-	int page_width;
-	int page_height;
-	int straighten;
-	int justification;
-	int read_max_width;
-	int read_max_height;
-	int writing_direction;
+    int trim;
+    int wrap;
+    int white;
+    int indent;
+    int rotate;
+    int columns;
+    int offset_x;
+    int offset_y;
+    int dev_dpi;
+    int dev_width;
+    int dev_height;
+    int page_width;
+    int page_height;
+    int straighten;
+    int justification;
+    int read_max_width;
+    int read_max_height;
+    int writing_direction;
 
-	double zoom;
-	double margin;
-	double quality;
-	double contrast;
-	double defect_size;
-	double line_spacing;
-	double word_spacing;
-	double shrink_factor;
+    double zoom;
+    double margin;
+    double quality;
+    double contrast;
+    double defect_size;
+    double line_spacing;
+    double word_spacing;
+    double shrink_factor;
 
-	int precache;
-	int debug;
-	int cjkchar;
-	BOXA *rboxa;    // word boxes in reflowed page
-	NUMA *rnai;     // word boxes indices in reflowed page
-	BOXA *nboxa;    // word boxes in native page
-	NUMA *nnai;     // word boxes indices in native page
-	WRECTMAPS rectmaps; // rect maps between reflowed and native pages
-	PAGEREGIONS pageregions; // sorted region list by display order
-	BBox bbox;
-	char *language;
-	WILLUSBITMAP dst;
-	WILLUSBITMAP src;
+    int precache;
+    int debug;
+    int cjkchar;
+    BOXA *rboxa;    // word boxes in reflowed page
+    NUMA *rnai;     // word boxes indices in reflowed page
+    BOXA *nboxa;    // word boxes in native page
+    NUMA *nnai;     // word boxes indices in native page
+    WRECTMAPS rectmaps; // rect maps between reflowed and native pages
+    PAGEREGIONS pageregions; // sorted region list by display order
+    BBox bbox;
+    char *language;
+    WILLUSBITMAP dst;
+    WILLUSBITMAP src;
 
 } KOPTContext;
 
