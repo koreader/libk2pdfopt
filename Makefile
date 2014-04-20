@@ -64,9 +64,10 @@ K2PDFOPT_LIB= libk2pdfopt.so.$(MAJVER)
 # Object file rules.
 ##############################################################################
 %.o: %.c
-	$(TARGET_CC) $(CFLAGS) -c -I$(MOD_INC) -I$(WILLUSLIB_DIR) \
+	@echo "BUILD    $@"
+	@$(TARGET_CC) $(CFLAGS) -c -I$(MOD_INC) -I$(WILLUSLIB_DIR) \
 		-I$(K2PDFOPTLIB_DIR) -o $@ $<
-	$(TARGET_DYNCC) $(CFLAGS) -c -I$(MOD_INC) -I$(WILLUSLIB_DIR) \
+	@$(TARGET_DYNCC) $(CFLAGS) -c -I$(MOD_INC) -I$(WILLUSLIB_DIR) \
 		-I$(K2PDFOPTLIB_DIR) -o $(@:.o=_dyn.o) $<
 
 ##############################################################################
@@ -74,37 +75,37 @@ K2PDFOPT_LIB= libk2pdfopt.so.$(MAJVER)
 ##############################################################################
 $(LEPTONICA_LIB):
 ifdef EMULATE_READER
-	cd $(LEPTONICA_DIR) && ./configure \
+	cd $(LEPTONICA_DIR) && ./configure -q \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(CFLAGS)' \
 		--disable-static --enable-shared \
 		--without-zlib --without-libpng --without-jpeg --without-giflib --without-libtiff \
-		&& make
+		&& $(MAKE) --silent >/dev/null 2>&1
 else
-	cd $(LEPTONICA_DIR) && ./configure --host $(HOST) \
+	cd $(LEPTONICA_DIR) && ./configure -q --host $(HOST) \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(CFLAGS)' \
 		--disable-static --enable-shared \
-		&& make
+		&& $(MAKE) --silent >/dev/null 2>&1
 endif
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept.so* ./
 
 $(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cp $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/
 ifdef EMULATE_READER
-	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure \
+	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q \
 		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
 		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
 		LDFLAGS='-Wl,-rpath,\$$$$ORIGIN' \
 		--with-extra-libraries=$(CURDIR) \
 		--disable-static --enable-shared \
-		&& make
+		&& $(MAKE) --silent >/dev/null 2>&1
 else
-	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure --host $(HOST) \
+	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q --host $(HOST) \
 		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
 		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
 		LDFLAGS='-Wl,-rpath,\$$$$ORIGIN' \
 		--with-extra-libraries=$(CURDIR) \
 		--disable-static --enable-shared \
-		&& make
+		&& $(MAKE) --silent >/dev/null 2>&1
 endif
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract.so* ./
 

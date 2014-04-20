@@ -2,3 +2,5 @@
 *.so
 *.so.*
 *.gz
+leptonica-1.69
+tesseract-ocr
