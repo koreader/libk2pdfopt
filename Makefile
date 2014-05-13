@@ -76,15 +76,20 @@ K2PDFOPT_LIB= libk2pdfopt.so.$(MAJVER)
 $(LEPTONICA_LIB):
 ifdef EMULATE_READER
 	cd $(LEPTONICA_DIR) && ./configure -q \
-		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(CFLAGS)' \
+		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(LEPT_CFLAGS)' \
+		LDFLAGS='-Wl,-rpath-link,$(LEPT_PNG_DIR) -Wl,-rpath,'libs' $(LEPT_LDFLAGS)' \
+		LIBS='-lz -lm' \
 		--disable-static --enable-shared \
-		--without-zlib --without-libpng --without-jpeg --without-giflib --without-libtiff \
-		&& $(MAKE) --silent >/dev/null 2>&1
+		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff \
+		&& $(MAKE) --silent CFLAGS='$(LEPT_CFLAGS)'
 else
 	cd $(LEPTONICA_DIR) && ./configure -q --host $(HOST) \
-		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(CFLAGS)' \
+		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(LEPT_CFLAGS)' \
+		LDFLAGS='-Wl,-rpath-link,$(LEPT_PNG_DIR) -Wl,-rpath,'libs' $(LEPT_LDFLAGS)' \
+		LIBS='-lz -lm' \
 		--disable-static --enable-shared \
-		&& $(MAKE) --silent >/dev/null 2>&1
+		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff \
+		&& $(MAKE) --silent CFLAGS='$(LEPT_CFLAGS)'
 endif
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept.so* ./
 
@@ -94,7 +99,8 @@ ifdef EMULATE_READER
 	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q \
 		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
 		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
-		LDFLAGS='-Wl,-rpath,\$$$$ORIGIN' \
+		LDFLAGS='-Wl,-rpath-link,$(LEPT_PNG_DIR) -Wl,-rpath,\$$$$ORIGIN $(LEPT_LDFLAGS)' \
+		LIBS='-lz -lm' \
 		--with-extra-libraries=$(CURDIR) \
 		--disable-static --enable-shared \
 		&& $(MAKE) --silent >/dev/null 2>&1
@@ -102,7 +108,8 @@ else
 	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q --host $(HOST) \
 		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
 		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
-		LDFLAGS='-Wl,-rpath,\$$$$ORIGIN' \
+		LDFLAGS='-Wl,-rpath-link,$(LEPT_PNG_DIR) -Wl,-rpath,\$$$$ORIGIN $(LEPT_LDFLAGS)' \
+		LIBS='-lz -lm' \
 		--with-extra-libraries=$(CURDIR) \
 		--disable-static --enable-shared \
 		&& $(MAKE) --silent >/dev/null 2>&1
