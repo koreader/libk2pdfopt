@@ -43,9 +43,7 @@ void k2pdfopt_tocr_init(char *datadir, char *lang) {
 		k2pdfopt_tocr_end();
 	}
 	if (!k2pdfopt_tocr_inited) {
-		printf("start tesseract OCR engine in %s for %s language\n",
-				datadir, lang);
-		if (ocrtess_init(datadir, lang, stderr) == 0 ) {
+		if (ocrtess_init(datadir, lang, NULL) == 0 ) {
 				k2pdfopt_tocr_inited = 1;
 		} else {
 			printf("fail to start tesseract OCR engine\n");
@@ -73,7 +71,6 @@ const char* k2pdfopt_tocr_get_language() {
 
 void k2pdfopt_tocr_end() {
 	if (k2pdfopt_tocr_inited) {
-		printf("stop tesseract OCR engine\n");
 		ocrtess_end();
 		k2pdfopt_tocr_inited = 0;
 	}
