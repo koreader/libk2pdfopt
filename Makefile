@@ -6,8 +6,10 @@ TESSERACT_DIR = tesseract-ocr
 TESSERACT_MOD = tesseract_mod
 WILLUSLIB_DIR = willuslib
 K2PDFOPTLIB_DIR = k2pdfoptlib
-WILLUSLIB_SRC = $(wildcard $(WILLUSLIB_DIR)/*.c)
-K2PDFOPTLIB_SRC = $(wildcard $(K2PDFOPTLIB_DIR)/*.c)
+WILLUSLIB_FILTER_OUT = $(if $(ANDROID),willuslib/ansi.c,) \
+		       $(if $(ANDROID),willuslib/linux.c,)
+WILLUSLIB_SRC = $(filter-out $(WILLUSLIB_FILTER_OUT), $(wildcard $(WILLUSLIB_DIR)/*.c))
+K2PDFOPTLIB_SRC = $(filter-out userinput.c, $(wildcard $(K2PDFOPTLIB_DIR)/*.c))
 KOPT_SRC = setting.c koptreflow.c koptcrop.c koptocr.c koptpart.c koptimize.c
 
 TESSCAPI_CFLAGS = -I$(MOD_INC) -I$(LEPTONICA_DIR)/src \
@@ -74,46 +76,25 @@ K2PDFOPT_LIB= libk2pdfopt.so.$(MAJVER)
 # Target file rules.
 ##############################################################################
 $(LEPTONICA_LIB):
-ifdef EMULATE_READER
-	cd $(LEPTONICA_DIR) && ./configure -q \
+	cd $(LEPTONICA_DIR) && ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(LEPT_CFLAGS)' \
 		LDFLAGS='-Wl,-rpath-link,$(LEPT_PNG_DIR) -Wl,-rpath,'libs' $(LEPT_LDFLAGS)' \
 		LIBS='-lz -lm' \
 		--disable-static --enable-shared \
 		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff \
 		&& $(MAKE) --silent CFLAGS='$(LEPT_CFLAGS)'
-else
-	cd $(LEPTONICA_DIR) && ./configure -q --host $(HOST) \
-		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(LEPT_CFLAGS)' \
-		LDFLAGS='-Wl,-rpath-link,$(LEPT_PNG_DIR) -Wl,-rpath,'libs' $(LEPT_LDFLAGS)' \
-		LIBS='-lz -lm' \
-		--disable-static --enable-shared \
-		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff \
-		&& $(MAKE) --silent CFLAGS='$(LEPT_CFLAGS)'
-endif
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept.so* ./
 
 $(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cp $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/
-ifdef EMULATE_READER
-	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q \
+	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
 		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
 		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
 		LDFLAGS='-Wl,-rpath-link,$(LEPT_PNG_DIR) -Wl,-rpath,\$$$$ORIGIN $(LEPT_LDFLAGS)' \
 		LIBS='-lz -lm' \
 		--with-extra-libraries=$(CURDIR) \
-		--disable-static --enable-shared \
-		&& $(MAKE) --silent >/dev/null 2>&1
-else
-	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q --host $(HOST) \
-		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
-		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
-		LDFLAGS='-Wl,-rpath-link,$(LEPT_PNG_DIR) -Wl,-rpath,\$$$$ORIGIN $(LEPT_LDFLAGS)' \
-		LIBS='-lz -lm' \
-		--with-extra-libraries=$(CURDIR) \
-		--disable-static --enable-shared \
-		&& $(MAKE) --silent >/dev/null 2>&1
-endif
+		--disable-static --enable-shared --disable-graphics \
+		&& $(MAKE) --silent
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract.so* ./
 
 tesseract_capi: $(TESSERACT_MOD)/tesscapi.cpp $(TESSERACT_LIB)

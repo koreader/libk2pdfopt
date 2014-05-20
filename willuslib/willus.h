@@ -186,7 +186,11 @@ typedef double  real;
 #if (defined(__linux) || defined(linux) || defined(__linux__))
 #define LINUX
 #if (defined(WILLUS_HAVE_FILE64) && !defined(_off64_t))
+#ifdef __off64_t
 #define _off64_t __off64_t
+#else
+#define _off64_t off64_t
+#endif
 #endif
 #endif
 
@@ -843,7 +847,7 @@ typedef void *compress_handle;
 compress_handle compress_start(FILE* f, int level);
 void compress_done(FILE* f, compress_handle *h);
 size_t compress_write(FILE* f, compress_handle h, const void *buf, size_t size);
-    
+
 /* win.c */
 #ifdef WIN32
 void *win_activewin(void);
@@ -1475,7 +1479,7 @@ void wtextchars_clear(WTEXTCHARS *wtc);
 void wtextchars_add_wtextchar(WTEXTCHARS *wtc,WTEXTCHAR *textchar);
 void wtextchars_remove_wtextchar(WTEXTCHARS *wtc,int index);
 void wtextchars_rotate_clockwise(WTEXTCHARS *wtc,int rot_deg);
-void wtextchars_text_inside(WTEXTCHARS *src,char **text,double x1,double y1,double x2,double y2); 
+void wtextchars_text_inside(WTEXTCHARS *src,char **text,double x1,double y1,double x2,double y2);
 void wtextchars_sort_vertically_by_position(WTEXTCHARS *wtc,int type);
 void wtextchars_sort_horizontally_by_position(WTEXTCHARS *wtc);
 void wtextchar_array_sort_horizontally_by_position(WTEXTCHAR *x,int n);
