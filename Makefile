@@ -87,6 +87,8 @@ $(LEPTONICA_LIB):
 
 $(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cp $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/
+	cd $(TESSERACT_DIR) && \
+		patch -N -p1 < ../tesseract_mod/baseapi.cpp.patch
 	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
 		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
 		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
