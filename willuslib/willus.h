@@ -182,15 +182,14 @@ typedef double  real;
 #endif
 #endif
 
+#ifdef ANDROID
+#undef WILLUS_HAVE_FILE64
+#endif
 
 #if (defined(__linux) || defined(linux) || defined(__linux__))
 #define LINUX
 #if (defined(WILLUS_HAVE_FILE64) && !defined(_off64_t))
-#ifdef __off64_t
 #define _off64_t __off64_t
-#else
-#define _off64_t off64_t
-#endif
 #endif
 #endif
 

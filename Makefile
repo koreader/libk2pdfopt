@@ -6,10 +6,8 @@ TESSERACT_DIR = tesseract-ocr
 TESSERACT_MOD = tesseract_mod
 WILLUSLIB_DIR = willuslib
 K2PDFOPTLIB_DIR = k2pdfoptlib
-WILLUSLIB_FILTER_OUT = $(if $(ANDROID),willuslib/ansi.c,) \
-		       $(if $(ANDROID),willuslib/linux.c,)
-WILLUSLIB_SRC = $(filter-out $(WILLUSLIB_FILTER_OUT), $(wildcard $(WILLUSLIB_DIR)/*.c))
-K2PDFOPTLIB_SRC = $(filter-out userinput.c, $(wildcard $(K2PDFOPTLIB_DIR)/*.c))
+WILLUSLIB_SRC = $(wildcard $(WILLUSLIB_DIR)/*.c)
+K2PDFOPTLIB_SRC = $(wildcard $(K2PDFOPTLIB_DIR)/*.c)
 KOPT_SRC = setting.c koptreflow.c koptcrop.c koptocr.c koptpart.c koptimize.c
 
 TESSCAPI_CFLAGS = -I$(MOD_INC) -I$(LEPTONICA_DIR)/src \
@@ -67,10 +65,10 @@ K2PDFOPT_LIB= libk2pdfopt.so.$(MAJVER)
 ##############################################################################
 %.o: %.c
 	@echo "BUILD    $@"
-	@$(TARGET_CC) $(CFLAGS) -c -I$(MOD_INC) -I$(WILLUSLIB_DIR) \
-		-I$(K2PDFOPTLIB_DIR) -o $@ $<
-	@$(TARGET_DYNCC) $(CFLAGS) -c -I$(MOD_INC) -I$(WILLUSLIB_DIR) \
-		-I$(K2PDFOPTLIB_DIR) -o $(@:.o=_dyn.o) $<
+	@$(TARGET_CC) $(CFLAGS) -c $(if $(ANDROID),-DANDROID,) \
+		-I$(MOD_INC) -I$(WILLUSLIB_DIR) -I$(K2PDFOPTLIB_DIR) -o $@ $<
+	@$(TARGET_DYNCC) $(CFLAGS) -c $(if $(ANDROID),-DANDROID,) \
+		-I$(MOD_INC) -I$(WILLUSLIB_DIR) -I$(K2PDFOPTLIB_DIR) -o $(@:.o=_dyn.o) $<
 
 ##############################################################################
 # Target file rules.
@@ -87,7 +85,7 @@ $(LEPTONICA_LIB):
 
 $(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cp $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/
-	cd $(TESSERACT_DIR) && \
+	-cd $(TESSERACT_DIR) && \
 		patch -N -p1 < ../tesseract_mod/baseapi.cpp.patch
 	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
 		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
@@ -107,7 +105,7 @@ $(K2PDFOPT_A): $(K2PDFOPT_O) tesseract_capi
 	$(AR) rcs $@ $(K2PDFOPT_O) $(TESSERACT_API_O)
 
 $(K2PDFOPT_LIB): $(K2PDFOPT_O) tesseract_capi
-	$(CC) $(TARGET_ASHLDFLAGS) -Wl,-rpath,'libs' -o $@ \
+	$(CXX) $(TARGET_ASHLDFLAGS) -Wl,-rpath,'libs' -o $@ \
 		$(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS) \
 		$(MUPDF_LIB) $(TESSERACT_LIB) $(LEPTONICA_LIB)
 	ln -sf $(K2PDFOPT_LIB) libk2pdfopt.so
