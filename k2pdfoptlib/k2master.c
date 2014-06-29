@@ -1,7 +1,7 @@
 /*
 ** k2master.c    Functions to handle the main (master) k2pdfopt output bitmap.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -1803,7 +1803,7 @@ k2printf("     bp1f=%d, bp2f=%d, bp1e=%d, bp2e=%d\n",bp1f,bp2f,bp1e,bp2e);
 static int masterinfo_break_point(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int maxsize)
 
     {
-    int scanheight,j,r1,r2,r1a,r2a;
+    int scanheight,j,r1,r2,r1a,r2a,rowcount;
     BMPREGION region;
     WILLUSBITMAP *bmp,_bmp;
 
@@ -1898,5 +1898,9 @@ textrow_echo(&region.textrows.textrow[j],stdout);
         r1=r1a;
     if (r2a<=scanheight)
         r2=r2a;
-    return(r1<maxsize*.25 ? (r2<scanheight ? r2:scanheight) : r1);
+    rowcount=(r1<maxsize*.25 ? (r2<scanheight ? r2:scanheight) : r1);
+    /* v2.16:  Avoid zero rowcount! */
+    if (rowcount<=2)
+        rowcount=scanheight;
+    return(rowcount);
     }

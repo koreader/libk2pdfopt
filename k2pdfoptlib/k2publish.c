@@ -1,7 +1,7 @@
 /*
 ** k2publish.c   Convert and write the master output bitmap to PDF output pages.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -20,6 +20,9 @@
 
 #include "k2pdfopt.h"
 
+static void k2publish_outline_check(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
+                                    int plus_one);
+
 
 void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int flushall)
 
@@ -31,7 +34,7 @@ void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int
 #endif
     WILLUSBITMAP _bmp,*bmp;
     double bmpdpi;
-    int size_reduction;
+    int output_page_count,size_reduction;
 #ifdef HAVE_OCR_LIB
     OCRWORDS *ocrwords,_ocrwords;
 #else
@@ -56,9 +59,11 @@ void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int
         ocrwords=NULL;
     bmp=&_bmp;
     bmp_init(bmp);
+    output_page_count=0;
     while (masterinfo_get_next_output_page(masterinfo,k2settings,flushall,bmp,
                                            &bmpdpi,&size_reduction,ocrwords)>0)
         {
+        output_page_count++;
         if (masterinfo->preview_bitmap!=NULL)
             {
             if (!k2settings->show_marked_source
@@ -76,18 +81,11 @@ masterinfo->preview_bitmap->width,masterinfo->preview_bitmap->height,masterinfo-
             continue;
             }
 
-        /* v2.10, Put destination page in outline / bookmarks */
+        /* v2.16, outline / bookmark check done in separate function. */
+        k2publish_outline_check(masterinfo,k2settings,0);
 /*
 printf("use_toc=%d, outline=%p, spc=%d, srcpage=%d\n",k2settings->use_toc,masterinfo->outline,masterinfo->outline_srcpage_completed,masterinfo->pageinfo.srcpage);
 */
-        if (k2settings->use_toc!=0 
-             && masterinfo->outline!=NULL
-             && masterinfo->outline_srcpage_completed!=masterinfo->pageinfo.srcpage)
-             {
-             wpdfoutline_set_dstpage(masterinfo->outline,masterinfo->pageinfo.srcpage,
-                                     masterinfo->published_pages);
-             masterinfo->outline_srcpage_completed = masterinfo->pageinfo.srcpage;
-             }
 
         /*
         ** Nothing to do inside loop if using crop boxes -- they all
@@ -164,5 +162,27 @@ bmp_write(bmp,filename,stdout,100);
             pdffile_add_bitmap(&masterinfo->outfile,bmp,bmpdpi,
                                k2settings->jpeg_quality,size_reduction);
         }
+    /*
+    ** v2.16 bug fix:  If no destination output generated, we still have to call outline_check().
+    */
+    if (output_page_count==0)
+        k2publish_outline_check(masterinfo,k2settings,1);
     bmp_free(bmp);
+    }
+
+
+static void k2publish_outline_check(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
+                                    int plus_one)
+
+    {
+    if (k2settings->use_toc!=0 && masterinfo->outline!=NULL
+         && masterinfo->outline_srcpage_completed!=masterinfo->pageinfo.srcpage)
+         {
+/*
+aprintf(ANSI_MAGENTA "\n    --> DEST PAGE %d\n\n" ANSI_NORMAL,masterinfo->published_pages);
+*/
+         wpdfoutline_set_dstpage(masterinfo->outline,masterinfo->pageinfo.srcpage,
+                                 masterinfo->published_pages+(plus_one?1:0));
+         masterinfo->outline_srcpage_completed = masterinfo->pageinfo.srcpage;
+         }
     }

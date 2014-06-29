@@ -1,7 +1,7 @@
 K2pdfopt build help.
 http://willus.com
 Original: 7 September 2012
-Last updated: 22 March 2014 (v2.15)
+Last updated: 14 Jun 2014 (v2.18)
 
 This "read me" file describes the source code distribution for k2pdfopt.
 
@@ -38,15 +38,15 @@ NOTE 4 below).
     --------
     1.  Z-lib 1.2.8 (zlib.net)
         (A custom mod of zlib is no longer required as of k2pdfopt v2.14.)
-    2.  libpng 1.6.3 (www.libpng.org)
-    3.  Turbo JPEG lib 1.3.0 (sourceforge.net/projects/libjpeg-turbo/)
+    2.  libpng 1.6.10 (www.libpng.org)
+    3.  Turbo JPEG lib 1.3.1 (sourceforge.net/projects/libjpeg-turbo/)
 
     TO INCLUDE MuPDF LIBRARY (search for HAVE_MUPDF in k2pdfopt.c)
     --------------------------------------------------------------
     4.  JBIG2Dec 0.11 (jbig2dec.sourceforge.net)
     5.  OpenJPEG 2.0.0 (www.openjpeg.org)
-    6.  FreeType 2.5.0.1 (freetype.sourceforge.net/index2.html)
-    7.  Mupdf 1.3 (mupdf.com) -- SEE NOTE 1.
+    6.  FreeType 2.5.3 (freetype.sourceforge.net/index2.html)
+    7.  Mupdf 1.4 (mupdf.com) -- SEE NOTE 1.
 
     TO INCLUDE DjVuLibre LIBRARY (search for HAVE_DJVU in k2pdfopt.c)
     -----------------------------------------------------------------
@@ -96,7 +96,7 @@ Notes
    to build the project without using these files (I do not use them).
    
 
-Build Steps for k2pdfopt on Windows (gcc 4.8.2)
+Build Steps for k2pdfopt on Windows (gcc 4.8.3)
 -----------------------------------------------
 My compile steps with gcc (MinGW) are as follows (assuming all the libraries are built
 to libxxx.a files in d:\3rdparty_lib and headers are in d:\3rdparty_include):

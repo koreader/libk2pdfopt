@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -227,6 +227,29 @@ void strbuf_sprintf(STRBUF *sbuf,char *fmt,...)
     }
 
 
+void strbuf_dsprintf(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...)
+
+    {
+    static char *funcname="strbuf_dsprintf";
+
+    if (sbuf!=NULL || sbuf2!=NULL)
+        {
+        va_list args;
+        char *buf;
+
+        willus_mem_alloc_warn((void **)&buf,1024,funcname,10);
+        va_start(args,fmt);
+        vsprintf(buf,fmt,args);
+        va_end(args);
+        if (sbuf!=NULL && sbuf2==NULL)
+            strbuf_cat(sbuf,buf);
+        if (sbuf2!=NULL)
+            strbuf_cat(sbuf2,buf);
+        willus_mem_free((double **)&buf,funcname);
+        }
+    }
+
+
 void strbuf_sprintf_no_space(STRBUF *sbuf,char *fmt,...)
 
     {
@@ -245,6 +268,38 @@ void strbuf_sprintf_no_space(STRBUF *sbuf,char *fmt,...)
             {
             strbuf_ensure(sbuf,(sbuf->s==NULL?0:strlen(sbuf->s))+strlen(buf)+2);
             strcat(sbuf->s,buf);
+            }
+        willus_mem_free((double **)&buf,funcname);
+        }
+    }
+
+
+void strbuf_dsprintf_no_space(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...)
+
+    {
+    static char *funcname="strbuf_sprintf";
+
+    if (sbuf!=NULL || sbuf2!=NULL)
+        {
+        va_list args;
+        char *buf;
+
+        willus_mem_alloc_warn((void **)&buf,1024,funcname,10);
+        va_start(args,fmt);
+        vsprintf(buf,fmt,args);
+        va_end(args);
+        if (buf[0]!='\0')
+            {
+            if (sbuf!=NULL && sbuf2==NULL)
+                {
+                strbuf_ensure(sbuf,(sbuf->s==NULL?0:strlen(sbuf->s))+strlen(buf)+2);
+                strcat(sbuf->s,buf);
+                }
+            if (sbuf2!=NULL)
+                {
+                strbuf_ensure(sbuf2,(sbuf2->s==NULL?0:strlen(sbuf2->s))+strlen(buf)+2);
+                strcat(sbuf2->s,buf);
+                }
             }
         willus_mem_free((double **)&buf,funcname);
         }

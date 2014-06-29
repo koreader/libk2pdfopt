@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -116,6 +116,7 @@ static FILIST *wfile_lastptr(RFIND *rf);
 static void wfile_wf2rf(RFIND *rf);
 static int wfile_recfreelast(RFIND *rf);
 static int wfile_correct_exe(char *basename,char *correctname,char *fullname);
+static double generic_size(char *filename);
 
 /* Prevent DJGPP from globbing */
 #ifdef DJGPP
@@ -500,11 +501,27 @@ int wfile_date(const char *filename,struct tm *filedate)
         {
         char fn2[MAXFILENAMELEN];
 
+        strcpy(fn2,filename);
+        /* If a folder, use a different method since CreateFile doesn't work */
+        /* the way I have it set up.                                         */
+        if (wfile_status(fn2)==2)
+            {
+            FILELIST *fl,_fl;
+            fl=&_fl;
+            filelist_init(fl);
+            filelist_fill_from_disk_1(fl,fn2,0,1);
+            if (fl->n==1)
+                {
+                (*filedate)=fl->entry[0].date;
+                filelist_free(fl);
+                return(1);
+                }
+            filelist_free(fl);
+            }
         /* Weird bug:  If I don't use the full path, then sometimes */
         /* this returns an incorrect result.                        */
         /* Started using CreateFile instead of OpenFile because OpenFile */
         /* can't handle long paths.  4-16-09                             */
-        strcpy(fn2,filename);
         handle=(HANDLE)CreateFile(fn2,GENERIC_READ,
                                  FILE_SHARE_DELETE
                                    | FILE_SHARE_READ
@@ -1025,11 +1042,12 @@ double wfile_freespace(char *volume,double *totalspace)
     int     na;
     FILE *f;
 
-    strcpy(tempname,wfile_tempname("",""));
+    /* strcpy(tempname,wfile_tempname("","")); */
+    wfile_abstmpnam(tempname);
 #if (defined(hpux) || defined(__hpux))
-    sprintf(cmd,"bdf %s > %s",volume,tempname);
+    sprintf(cmd,"bdf \"%s\" > \"%s\"",volume,tempname);
 #else
-    sprintf(cmd,"df -k %s > %s",volume,tempname);
+    sprintf(cmd,"df -k \"%s\" > \"%s\"",volume,tempname);
 #endif
     system(cmd);
     f=fopen(tempname,"r");
@@ -1226,7 +1244,7 @@ int wfile_check_file_64bit(char *filename)
     FILE *f;
     
     wfile_abstmpnam(tmpfile);
-    sprintf(cmd,"which %s > %s",filename,tmpfile);
+    sprintf(cmd,"which \"%s\" > \"%s\"",filename,tmpfile);
     system(cmd);
     f=fopen(tmpfile,"r");
     if (f==NULL)
@@ -1239,7 +1257,7 @@ int wfile_check_file_64bit(char *filename)
     fclose(f);
     remove(tmpfile);
     clean_line(fullname);
-    sprintf(cmd,"file %s > %s",fullname,tmpfile);
+    sprintf(cmd,"file \"%s\" > \"%s\"",fullname,tmpfile);
     system(cmd);
     f=fopen(tmpfile,"r");
     if (f==NULL)
@@ -2116,7 +2134,7 @@ double wfile_size(char *filename)
     wfile_expandname(fullname,filename);
     hfile=OpenFile(fullname,&buf,OF_READ);
     if (hfile==HFILE_ERROR)
-        size=-1.0;
+        return(generic_size(filename));
     else
         {
         HANDLE  handle;
@@ -2136,21 +2154,25 @@ double wfile_size(char *filename)
 #elif (defined(UNIX))
     return(unix_size(filename));
 #else
+    return(generic_size(filename));
+#endif
+    return(size);
+    }
+
+
+static double generic_size(char *filename)
+
+    {
+    size_t ptr;
     FILE *f;
-    long lsize;
 
     f=fopen(filename,"rb");
     if (f==NULL)
-        size=-1.0;
-    else
-        {
-        fseek(f,0L,2);
-        lsize=ftell(f);
-        fclose(f);
-        size=(double)lsize;
-        }
-#endif
-    return(size);
+        return(-1.0);
+    fseek(f,(size_t)0,2);
+    ptr=ftell(f);
+    fclose(f);
+    return((double)ptr);
     }
 
 

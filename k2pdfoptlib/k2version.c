@@ -1,8 +1,8 @@
-char *k2pdfopt_version = "v2.15";
+char *k2pdfopt_version = "v2.18";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -18,6 +18,32 @@ char *k2pdfopt_version = "v2.15";
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **
 ** VERSION HISTORY
+** v2.18     14 JUN 2014
+**           - Fixed problem when scaling sometimes gets out of control with tall
+**             regions.  Was causing excessively large bitmaps to be allocated
+**             which would sometimes run the system out of memory.  Search for
+**             "2.18" in k2proc.c.
+**             http://www.mobileread.com/forums/showthread.php?p=2846916#post2846916
+**
+** v2.17a    2 JUN 2014
+**           - Fixes MuPDF v1.4 problem where it was not correctly using MS Windows
+**             system fonts (introduced in v2.17).
+**           - Compiled w/gcc 4.8.3.
+**
+** v2.17     17 MAY 2014
+**           ENHANCEMENTS
+**           - Compiled with the latest versions of MuPDF (1.4), Turbo JPEG (1.3.1),
+**             libpng (1.6.10), and freetype (2.5.3).
+**
+** v2.16     03 MAY 2014
+**           BUG FIXES
+**           - Avoid zero-value return from masterinfo_break_point().
+**             (5-2-14 e-mail).
+**           - TOC positioning fixed when source pages aren't large enough to
+**             cause a new destination page (see k2publish.c).  Also, wmupdf
+**             output now correctly handles UTF-8 outline/TOC titles.
+**             http://www.mobileread.com/forums/showthread.php?p=2815504#post2815504
+**
 ** v2.15     22 MAR 2014
 **           ENHANCEMENTS
 **           - The -cbox option usage has been rewritten and hopefully clarified.

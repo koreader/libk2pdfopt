@@ -572,6 +572,8 @@ int win_buf_to_clipboard(char *lbuf,FILE *out)
     }
 
 
+
+
 /*
 ** Followed example at this link:
 ** http://msdn.microsoft.com/library/default.asp?url=/library/en-us/winui/WinUI/WindowsUserInterface/DataExchange/Clipboard/UsingtheClipboard.asp#_win32_Copying_Information_to_the_Clipboard

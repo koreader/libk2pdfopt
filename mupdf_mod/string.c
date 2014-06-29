@@ -5,7 +5,7 @@ fz_strsep(char **stringp, const char *delim)
 {
 	char *ret = *stringp;
 	if (!ret) return NULL;
-	if ((*stringp = strpbrk(*stringp, delim)))
+	if ((*stringp = strpbrk(*stringp, delim)) != NULL)
 		*((*stringp)++) = '\0';
 	return ret;
 }
@@ -240,9 +240,8 @@ fz_runelen(int c)
 
 float fz_atof(const char *s)
 {
-/* willus.com mod--use atof */
 #if (!defined(__SSE__))
-return((float)atof(s));
+return(atof(s));
 #else
 	double d;
 

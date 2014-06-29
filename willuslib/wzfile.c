@@ -7,7 +7,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -108,7 +108,7 @@ WZFILE *wzopen_special(char *archfile,char *filename,char *tempname)
         pathname[i]='\0';
         if (filename[i]=='\0')
             return(wzopen(pathname,"rb"));
-        if (wzfile_status_special(archfile,pathname,NULL)==2)
+        if (i==0 || wzfile_status_special(archfile,pathname,NULL)==2)
             {
             pathname[i]=filename[i];
             i++;

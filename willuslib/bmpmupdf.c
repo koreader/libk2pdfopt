@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -24,6 +24,7 @@
 
 #ifdef HAVE_MUPDF_LIB
 #include <mupdf/pdf.h>
+void pdf_install_load_system_font_funcs(fz_context *ctx);
 
 static int bmpmupdf_pixmap_to_bmp(WILLUSBITMAP *bmp,fz_context *ctx,fz_pixmap *pixmap);
 
@@ -56,7 +57,12 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
     ctx = fz_new_context(NULL,NULL,FZ_STORE_DEFAULT);
     if (!ctx)
         return(-1);
+    fz_try(ctx)
+    {
+    fz_register_document_handlers(ctx);
     fz_set_aa_level(ctx,8);
+    /* Sumatra version of MuPDF v1.4 -- use locally installed fonts */
+    pdf_install_load_system_font_funcs(ctx);
 //    fz_accelerate();
 //    glyphcache=fz_new_glyph_cache();
     colorspace=(bpp==8 ? fz_device_gray(ctx) : fz_device_rgb(ctx));
@@ -148,6 +154,11 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
 //    pdf_free_xref(xref);
     fz_close_document(doc);
     fz_flush_warnings(ctx);
+    } /* fz_catch before registering handlers */
+    fz_catch(ctx) /* Error registering */
+    {
+    status = -10;
+    }
     fz_free_context(ctx);
 //    fz_free_glyph_cache(glyphcache);
 //    fz_flush_warnings();
@@ -179,7 +190,12 @@ int bmpmupdf_pdffile_width_and_height(char *filename,int pageno,double *width_in
     ctx = fz_new_context(NULL,NULL,FZ_STORE_DEFAULT);
     if (!ctx)
         return(-1);
+    fz_try(ctx)
+    {
+    fz_register_document_handlers(ctx);
     fz_set_aa_level(ctx,8);
+    /* Sumatra version of MuPDF v1.4 -- use locally installed fonts */
+    pdf_install_load_system_font_funcs(ctx);
     fz_try(ctx) { doc=fz_open_document(ctx,filename); }
     fz_catch(ctx) 
         { 
@@ -219,6 +235,12 @@ int bmpmupdf_pdffile_width_and_height(char *filename,int pageno,double *width_in
     fz_drop_display_list(ctx,list);
     fz_free_page(doc,page);
     fz_close_document(doc);
+    } 
+    fz_catch(ctx) /* Error registering */
+    {
+    fz_free_context(ctx);
+    return(-20);
+    }
     fz_free_context(ctx);
     return(0);
     }

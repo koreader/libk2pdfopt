@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -2238,6 +2238,77 @@ void filelist_new_entry_name(FILELIST *fl,int index,char *newname)
     for (i=0;i<fl->n;i++)
         if (fl->entry[i].name > p)
             fl->entry[i].name += delta;
+    }
+
+
+int filelist_write_to_file(FILELIST *fl,char *filename)
+
+    {
+    FILE *f;
+    int i;
+
+    f=fopen(filename,"wb");
+    if (f==NULL)
+        return(-1);
+    if (fwrite(fl,1,sizeof(FILELIST),f)<sizeof(FILELIST))
+        {
+        fclose(f);
+        return(-2);
+        }
+    for (i=0;i<fl->n;i++)
+        fl->entry[i].name = (char *)(fl->entry[i].name - fl->databuf);
+    if (fwrite(fl->entry,sizeof(FLENTRY),fl->n,f)<fl->n)
+        {
+        fclose(f);
+        return(-3);
+        }
+    for (i=0;i<fl->n;i++)
+        fl->entry[i].name = (char *)(fl->databuf + (size_t)fl->entry[i].name);
+    if (fwrite(fl->databuf,1,fl->bytes_allocated,f)<fl->bytes_allocated)
+        {
+        fclose(f);
+        return(-4);
+        }
+    if (fclose(f))
+        return(-5);
+    return(0);
+    }
+
+
+int filelist_read_from_file(FILELIST *fl,char *filename)
+
+    {
+    FILE *f;
+    int i;
+    static char *funcname="filelist_read_from_file";
+
+    f=fopen(filename,"rb");
+    if (f==NULL)
+        return(-1);
+    if (fread(fl,1,sizeof(FILELIST),f)<sizeof(FILELIST))
+        {
+        fclose(f);
+        return(-2);
+        }
+    fl->entry=NULL;
+    fl->databuf=NULL;
+    willus_mem_alloc_warn((void **)&fl->entry,sizeof(FLENTRY)*fl->nmax,funcname,10);
+    willus_mem_alloc_warn((void **)&fl->databuf,fl->bytes_allocated,funcname,10);
+    if (fread(fl->entry,sizeof(FLENTRY),fl->n,f)<fl->n)
+        {
+        fclose(f);
+        return(-3);
+        }
+    for (i=0;i<fl->n;i++)
+        fl->entry[i].name = (char *)(fl->databuf + (size_t)fl->entry[i].name);
+    if (fread(fl->databuf,1,fl->bytes_allocated,f)<fl->bytes_allocated)
+        {
+        fclose(f);
+        return(-4);
+        }
+    if (fclose(f))
+        return(-5);
+    return(0);
     }
 
 

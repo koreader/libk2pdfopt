@@ -3,7 +3,7 @@
 **               (e.g. the Kindle) and smartphones. It works well on
 **               multi-column PDF/DJVU files. K2pdfopt is freeware.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as

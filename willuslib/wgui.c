@@ -79,6 +79,7 @@ void willusgui_init(void)
     winhandlepairs_init(&whpairs);
     willusgui_global_instance=NULL;
     icontrol=NULL;
+    willusgui_set_ime_notify(0);
     }
 
 
@@ -2012,6 +2013,17 @@ LRESULT CALLBACK willusgui_edit2_proc(HWND hWnd,UINT message,WPARAM wParam,LPARA
     }
 
 
+static int ime_notify_status=0;
+void willusgui_set_ime_notify(int status)
+
+    {
+    if (status==0)
+        ime_notify_status=status;
+    else
+        ime_notify_status++;
+    }
+
+
 /*
 ** Call back MS Windows subclass of editclass which selects entire text when receiving focus.
 */
@@ -2020,15 +2032,29 @@ LRESULT CALLBACK willusgui_edit3_proc(HWND hWnd,UINT message,WPARAM wParam,LPARA
     {	
     WNDPROC wndproc;
 /*
-printf("edit3:  hwnd=%p, message=%04x\n",hWnd,message);
+if (message==WM_IME_NOTIFY)
+{
+printf("edit3:  hwnd=%p, message=%04x, ins=%d\n",hWnd,message,ime_notify_status);
+printf("imenotify=%04x\n",WM_IME_NOTIFY);
+}
 */
 	switch (message) 
         {
         /* Need to find the right codes for this... */
         case WM_CAPTURECHANGED:
-        /* case WM_IME_NOTIFY: */
+        case WM_IME_NOTIFY:
         case WM_SETFOCUS:
-            SendMessage(hWnd,EM_SETSEL,0,-1);
+            if (message!=WM_IME_NOTIFY || ime_notify_status)
+                {
+                SendMessage(hWnd,EM_SETSEL,0,-1);
+                /* Kludgey way to keep entire text box selected when re-drawing */
+                if (message==WM_IME_NOTIFY)
+                    {
+                    willusgui_set_ime_notify(1);
+                    if (ime_notify_status>4)
+                        willusgui_set_ime_notify(0);
+                    }
+                }
             break;
         case WM_CHAR:
             /* Ctrl-A */

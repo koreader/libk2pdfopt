@@ -1110,6 +1110,8 @@ int filelist_fill_from_archive_ex(FILELIST *fl,WZFILE *f,int append,int dirstoo,
 void filelist_write_zipstyle_list(FILELIST *fl,FILE *out);
 void filelist_write_7zstyle_list(FILELIST *fl,FILE *out);
 int filelist_add_entry(FILELIST *fl,FLENTRY *entry);
+int filelist_write_to_file(FILELIST *fl,char *filename);
+int filelist_read_from_file(FILELIST *fl,char *filename);
 void filelist_new_entry_name(FILELIST *fl,int index,char *newname);
 void filelist_filter(FILELIST *fl,char *include[],char *exclude[]);
 void filelist_add_path_dirs(FILELIST *fl);
@@ -1466,6 +1468,7 @@ void wpdfboxes_add_box(WPDFBOXES *boxes,WPDFBOX *box);
 void wpdfboxes_delete(WPDFBOXES *boxes,int n);
 void wpdfpageinfo_sort(WPDFPAGEINFO *pageinfo);
 int  wmupdf_info_field(char *infile,char *label,char *buf,int maxlen);
+void wmupdf_scale_source_boxes(WPDFPAGEINFO *pageinfo,double doc_scale_factor);
 int  wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_forms,
                        WPDFOUTLINE *wpdfoutline,FILE *out);
 /* Character position map */
@@ -1514,7 +1517,9 @@ void strbuf_clear(STRBUF *sbuf);
 void strbuf_ensure(STRBUF *sbuf,int n);
 void strbuf_free(STRBUF *sbuf);
 void strbuf_sprintf(STRBUF *sbuf,char *fmt,...);
+void strbuf_dsprintf(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
 void strbuf_sprintf_no_space(STRBUF *sbuf,char *fmt,...);
+void strbuf_dsprintf_no_space(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
 
 /* wgui.c */
 #define WILLUSGUICONTROL_TYPE_BUTTON       1
@@ -1682,6 +1687,7 @@ void willusgui_thread_exit(int exitcode);
 void willusgui_sbitmap_resample_original(WILLUSGUICONTROL *control);
 void willusgui_sbitmap_change_size(WILLUSGUICONTROL *control,int delsize);
 void willusgui_sbitmap_proc(void *handle,int message,int wparam,void *lparam);
+void willusgui_set_ime_notify(int status);
 
 
 #ifdef PI

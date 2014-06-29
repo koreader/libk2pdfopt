@@ -2,7 +2,7 @@
 ** k2file.c      K2pdfopt file handling and main file processing
 **               function (k2pdfopt_proc_one()).
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as

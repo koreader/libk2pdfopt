@@ -29,6 +29,7 @@
 
 #ifdef HAVE_MUPDF_LIB
 #include <mupdf/pdf.h>
+void pdf_install_load_system_font_funcs(fz_context *ctx);
 
 static void wpdfbox_determine_original_source_position(WPDFBOX *box);
 static void wpdfbox_unrotate(WPDFBOX *box,double deg);
@@ -84,6 +85,7 @@ static WPDFOUTLINE *wpdfoutline_convert_from_fitz_outline(fz_outline *fzoutline)
 static void pdf_create_outline(pdf_document *doc,pdf_obj *outline_root,pdf_obj *orref,WPDFOUTLINE *outline);
 static void pdf_create_outline_1(pdf_document *doc,pdf_obj *parent,pdf_obj *parentref,pdf_obj *dict,pdf_obj *dictref,int drefnum,WPDFOUTLINE *outline);
 static pdf_obj *anchor_reference(pdf_document *doc,int pageno);
+static pdf_obj *pdf_new_string_utf8(pdf_document *doc,char *string);
 
 
 int wmupdf_numpages(char *filename)
@@ -97,7 +99,11 @@ int wmupdf_numpages(char *filename)
     ctx = fz_new_context(NULL,NULL,FZ_STORE_DEFAULT);
     if (!ctx)
         return(-1);
-    fz_try(ctx) { doc=fz_open_document(ctx,filename); }
+    fz_try(ctx)
+        {
+        fz_register_document_handlers(ctx);
+        doc=fz_open_document(ctx,filename);
+        }
     fz_catch(ctx)
         {
         fz_free_context(ctx);
@@ -369,6 +375,7 @@ int wmupdf_info_field(char *infile,char *label,char *buf,int maxlen)
         return(-1);
     fz_try(ctx)
         {
+        fz_register_document_handlers(ctx);
         xref=pdf_open_document_no_run(ctx,infile);
         if (!xref)
             {
@@ -399,6 +406,27 @@ int wmupdf_info_field(char *infile,char *label,char *buf,int maxlen)
         }
     fz_free_context(ctx);
     return(0);
+    }
+
+
+void wmupdf_scale_source_boxes(WPDFPAGEINFO *pageinfo,double doc_scale_factor)
+
+    {
+    int i;
+
+    for (i=0;i<pageinfo->boxes.n;i++)
+        {
+        WPDFBOX *box;
+
+        box=&pageinfo->boxes.box[i];
+        box->scale /= doc_scale_factor;
+        box->srcbox.page_width_pts *= doc_scale_factor;
+        box->srcbox.page_height_pts *= doc_scale_factor;
+        box->srcbox.x0_pts *= doc_scale_factor;
+        box->srcbox.y0_pts *= doc_scale_factor;
+        box->srcbox.crop_width_pts *= doc_scale_factor;
+        box->srcbox.crop_height_pts *= doc_scale_factor;
+        }
     }
 
 
@@ -438,6 +466,9 @@ int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_
         }
     fz_try(ctx)
         {
+        fz_register_document_handlers(ctx);
+        /* Sumatra version of MuPDF v1.4 -- use locally installed fonts */
+        pdf_install_load_system_font_funcs(ctx);
         xref=pdf_open_document_no_run(ctx,infile);
         if (!xref)
             {
@@ -1599,77 +1630,88 @@ int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char 
     ctx=fz_new_context(NULL,NULL,FZ_STORE_DEFAULT);
     if (ctx==NULL)
         return(-1);
-    fz_set_aa_level(ctx,8);
-    doc=fz_open_document(ctx,filename);
-    if (doc==NULL)
-        {
-        fz_free_context(ctx);
-        return(-2);
-        }
-    if (fz_needs_password(doc) && !fz_authenticate_password(doc,password))
-        {
-        fz_close_document(doc);
-        fz_free_context(ctx);
-        return(-3);
-        }
-    page=fz_load_page(doc,pageno-1);
-    if (page==NULL)
-        {
-        fz_free_page(doc,page);
-        fz_close_document(doc);
-        fz_free_context(ctx);
-        return(-3);
-        }
     fz_try(ctx)
         {
-        list=fz_new_display_list(ctx);
-        dev=fz_new_list_device(ctx,list);
-        fz_run_page(doc,page,dev,&fz_identity,NULL);
-        }
-    fz_always(ctx)
-        {
-        fz_free_device(dev);
-        dev=NULL;
-        }
-    fz_catch(ctx)
-        {
-        fz_drop_display_list(ctx,list);
-        fz_free_page(doc,page);
-        fz_close_document(doc);
-        fz_free_context(ctx);
-        return(-4);
-        }
-    fz_var(text);
-    fz_bound_page(doc,page,&bounds);
-    wtc->width=fabs(bounds.x1-bounds.x0);
-    wtc->height=fabs(bounds.y1-bounds.y0);
-    textsheet=fz_new_text_sheet(ctx);
-    fz_try(ctx)
-        {
-        text=fz_new_text_page(ctx);
-        dev=fz_new_text_device(ctx,textsheet,text);
-        if (list)
-            fz_run_display_list(list,dev,&fz_identity,&fz_infinite_rect,NULL);
-        else
+        fz_register_document_handlers(ctx);
+        fz_set_aa_level(ctx,8);
+        /* Sumatra version of MuPDF v1.4 -- use locally installed fonts */
+        pdf_install_load_system_font_funcs(ctx);
+        doc=fz_open_document(ctx,filename);
+        if (doc==NULL)
+            {
+            fz_free_context(ctx);
+            return(-2);
+            }
+        if (fz_needs_password(doc) && !fz_authenticate_password(doc,password))
+            {
+            fz_close_document(doc);
+            fz_free_context(ctx);
+            return(-3);
+            }
+        page=fz_load_page(doc,pageno-1);
+        if (page==NULL)
+            {
+            fz_free_page(doc,page);
+            fz_close_document(doc);
+            fz_free_context(ctx);
+            return(-3);
+            }
+        fz_try(ctx)
+            {
+            list=fz_new_display_list(ctx);
+            dev=fz_new_list_device(ctx,list);
             fz_run_page(doc,page,dev,&fz_identity,NULL);
-        fz_free_device(dev);
-        dev=NULL;
-        wtextchars_add_fz_chars(wtc,ctx,text,boundingbox);
-        }
-    fz_always(ctx)
-        {
-        fz_free_device(dev);
-        dev=NULL;
-        fz_free_text_page(ctx,text);
-        fz_free_text_sheet(ctx,textsheet);
-        fz_drop_display_list(ctx,list);
-        fz_free_page(doc,page);
-        fz_close_document(doc);
+            }
+        fz_always(ctx)
+            {
+            fz_free_device(dev);
+            dev=NULL;
+            }
+        fz_catch(ctx)
+            {
+            fz_drop_display_list(ctx,list);
+            fz_free_page(doc,page);
+            fz_close_document(doc);
+            fz_free_context(ctx);
+            return(-4);
+            }
+        fz_var(text);
+        fz_bound_page(doc,page,&bounds);
+        wtc->width=fabs(bounds.x1-bounds.x0);
+        wtc->height=fabs(bounds.y1-bounds.y0);
+        textsheet=fz_new_text_sheet(ctx);
+        fz_try(ctx)
+            {
+            text=fz_new_text_page(ctx);
+            dev=fz_new_text_device(ctx,textsheet,text);
+            if (list)
+                fz_run_display_list(list,dev,&fz_identity,&fz_infinite_rect,NULL);
+            else
+                fz_run_page(doc,page,dev,&fz_identity,NULL);
+            fz_free_device(dev);
+            dev=NULL;
+            wtextchars_add_fz_chars(wtc,ctx,text,boundingbox);
+            }
+        fz_always(ctx)
+            {
+            fz_free_device(dev);
+            dev=NULL;
+            fz_free_text_page(ctx,text);
+            fz_free_text_sheet(ctx,textsheet);
+            fz_drop_display_list(ctx,list);
+            fz_free_page(doc,page);
+            fz_close_document(doc);
+            }
+        fz_catch(ctx)
+            {
+            fz_free_context(ctx);
+            return(-5);
+            }
         }
     fz_catch(ctx)
         {
         fz_free_context(ctx);
-        return(-5);
+        return(-20);
         }
     fz_free_context(ctx);
     return(0);
@@ -2154,22 +2196,34 @@ WPDFOUTLINE *wpdfoutline_read_from_pdf_file(char *filename)
     fz_outline *fzoutline;
     WPDFOUTLINE *wpdfoutline;
 
+    wpdfoutline=NULL;
     doc=NULL;
     ctx = fz_new_context(NULL,NULL,FZ_STORE_DEFAULT);
     if (!ctx)
         return(NULL);
-    fz_set_aa_level(ctx,8);
-    fz_try(ctx) { doc=fz_open_document(ctx,filename); }
-    fz_catch(ctx) 
-        { 
+    fz_try(ctx)
+        {
+        fz_register_document_handlers(ctx);
+        fz_set_aa_level(ctx,8);
+        /* Sumatra version of MuPDF v1.4 -- use locally installed fonts */
+        pdf_install_load_system_font_funcs(ctx);
+        fz_try(ctx) { doc=fz_open_document(ctx,filename); }
+        fz_catch(ctx) 
+            { 
+            fz_free_context(ctx);
+            return(NULL);
+            }
+        fzoutline=fz_load_outline(doc);
+        wpdfoutline=wpdfoutline_convert_from_fitz_outline(fzoutline);
+        if (fzoutline!=NULL)
+            fz_free_outline(ctx,fzoutline);
+        fz_close_document(doc);
+        }
+    fz_catch(ctx)
+        {
         fz_free_context(ctx);
         return(NULL);
         }
-    fzoutline=fz_load_outline(doc);
-    wpdfoutline=wpdfoutline_convert_from_fitz_outline(fzoutline);
-    if (fzoutline!=NULL)
-        fz_free_outline(ctx,fzoutline);
-    fz_close_document(doc);
     fz_free_context(ctx);
     return(wpdfoutline);
     }
@@ -2238,23 +2292,10 @@ static void pdf_create_outline_1(pdf_document *doc,pdf_obj *parent,pdf_obj *pare
         {
         pdf_obj *title,*nextdict,*nextdictref,*aref;
         int nextdictrefnum;
-        char *de;
-        static char *funcname="pdf_create_outline_1";
 
-        /* Convert UTF-8 to PDF-encoding */
-        willus_mem_alloc_warn((void **)&de,strlen(outline->title)+2,funcname,10);
-        /*
-        de=malloc(strlen(outline->title)+2);
-        if (de==NULL)
-            de=outline->title;
-        else
-        */
-        wpdf_docenc_from_utf8(de,outline->title,strlen(outline->title)+1);
-        title=pdf_new_string(doc,de,strlen(de));
+        title=pdf_new_string_utf8(doc,outline->title);
         pdf_dict_puts(dict,"Title",title);
         pdf_drop_obj(title);
-        /* if (de!=outline->title) */
-        willus_mem_free((double **)&de,funcname);
         aref=anchor_reference(doc,outline->dstpage);
         pdf_dict_puts(dict,"A",aref);
         pdf_drop_obj(aref);
@@ -2332,6 +2373,35 @@ static pdf_obj *anchor_reference(pdf_document *doc,int pageno)
     pdf_update_object(doc,arefnum,anchor);
     pdf_drop_obj(anchor);
     return(anchorref);
+    }
+
+
+static pdf_obj *pdf_new_string_utf8(pdf_document *doc,char *string)
+
+    {
+    int *utf16;
+    char *utfbuf;
+    int i,j,n;
+    static char *funcname="pdf_new_string_utf8";
+    pdf_obj *pdfobj;
+
+    n=strlen(string)+2;
+    willus_mem_alloc_warn((void **)&utf16,sizeof(int)*n,funcname,10);
+    n=utf8_to_unicode(utf16,string,n-1);
+    willus_mem_alloc_warn((void **)&utfbuf,n*2+3,funcname,10);
+    j=0;
+    utfbuf[j++]=0xfe;
+    utfbuf[j++]=0xff;
+    for (i=0;i<n;i++)
+        {
+        utfbuf[j++]=(utf16[i]>>8)&0xff;
+        utfbuf[j++]=(utf16[i]&0xff);
+        }
+    utfbuf[j]='\0';
+    willus_mem_free((double **)&utf16,funcname);
+    pdfobj=pdf_new_string(doc,utfbuf,j);
+    willus_mem_free((double **)&utfbuf,funcname);
+    return(pdfobj);
     }
     
 #endif /* HAVE_MUPDF_LIB */

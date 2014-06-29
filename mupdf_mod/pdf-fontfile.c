@@ -33,55 +33,55 @@
 #endif
 
 unsigned char *
-pdf_lookup_builtin_font(char *name, unsigned int *len)
+pdf_lookup_builtin_font(const char *name, unsigned int *len)
 {
 	if (!strcmp("Courier", name)) {
-		*len = sizeof pdf_font_NimbusMonL_Regu;
-		return (unsigned char*) pdf_font_NimbusMonL_Regu;
+		*len = sizeof pdf_font_NimbusMon_Reg;
+		return (unsigned char*) pdf_font_NimbusMon_Reg;
 	}
 	if (!strcmp("Courier-Bold", name)) {
-		*len = sizeof pdf_font_NimbusMonL_Bold;
-		return (unsigned char*) pdf_font_NimbusMonL_Bold;
+		*len = sizeof pdf_font_NimbusMon_Bol;
+		return (unsigned char*) pdf_font_NimbusMon_Bol;
 	}
 	if (!strcmp("Courier-Oblique", name)) {
-		*len = sizeof pdf_font_NimbusMonL_ReguObli;
-		return (unsigned char*) pdf_font_NimbusMonL_ReguObli;
+		*len = sizeof pdf_font_NimbusMon_Obl;
+		return (unsigned char*) pdf_font_NimbusMon_Obl;
 	}
 	if (!strcmp("Courier-BoldOblique", name)) {
-		*len = sizeof pdf_font_NimbusMonL_BoldObli;
-		return (unsigned char*) pdf_font_NimbusMonL_BoldObli;
+		*len = sizeof pdf_font_NimbusMon_BolObl;
+		return (unsigned char*) pdf_font_NimbusMon_BolObl;
 	}
 	if (!strcmp("Helvetica", name)) {
-		*len = sizeof pdf_font_NimbusSanL_Regu;
-		return (unsigned char*) pdf_font_NimbusSanL_Regu;
+		*len = sizeof pdf_font_NimbusSan_Reg;
+		return (unsigned char*) pdf_font_NimbusSan_Reg;
 	}
 	if (!strcmp("Helvetica-Bold", name)) {
-		*len = sizeof pdf_font_NimbusSanL_Bold;
-		return (unsigned char*) pdf_font_NimbusSanL_Bold;
+		*len = sizeof pdf_font_NimbusSan_Bol;
+		return (unsigned char*) pdf_font_NimbusSan_Bol;
 	}
 	if (!strcmp("Helvetica-Oblique", name)) {
-		*len = sizeof pdf_font_NimbusSanL_ReguItal;
-		return (unsigned char*) pdf_font_NimbusSanL_ReguItal;
+		*len = sizeof pdf_font_NimbusSan_Ita;
+		return (unsigned char*) pdf_font_NimbusSan_Ita;
 	}
 	if (!strcmp("Helvetica-BoldOblique", name)) {
-		*len = sizeof pdf_font_NimbusSanL_BoldItal;
-		return (unsigned char*) pdf_font_NimbusSanL_BoldItal;
+		*len = sizeof pdf_font_NimbusSan_BolIta;
+		return (unsigned char*) pdf_font_NimbusSan_BolIta;
 	}
 	if (!strcmp("Times-Roman", name)) {
-		*len = sizeof pdf_font_NimbusRomNo9L_Regu;
-		return (unsigned char*) pdf_font_NimbusRomNo9L_Regu;
+		*len = sizeof pdf_font_NimbusRom_Reg;
+		return (unsigned char*) pdf_font_NimbusRom_Reg;
 	}
 	if (!strcmp("Times-Bold", name)) {
-		*len = sizeof pdf_font_NimbusRomNo9L_Medi;
-		return (unsigned char*) pdf_font_NimbusRomNo9L_Medi;
+		*len = sizeof pdf_font_NimbusRom_Med;
+		return (unsigned char*) pdf_font_NimbusRom_Med;
 	}
 	if (!strcmp("Times-Italic", name)) {
-		*len = sizeof pdf_font_NimbusRomNo9L_ReguItal;
-		return (unsigned char*) pdf_font_NimbusRomNo9L_ReguItal;
+		*len = sizeof pdf_font_NimbusRom_Ita;
+		return (unsigned char*) pdf_font_NimbusRom_Ita;
 	}
 	if (!strcmp("Times-BoldItalic", name)) {
-		*len = sizeof pdf_font_NimbusRomNo9L_MediItal;
-		return (unsigned char*) pdf_font_NimbusRomNo9L_MediItal;
+		*len = sizeof pdf_font_NimbusRom_MedIta;
+		return (unsigned char*) pdf_font_NimbusRom_MedIta;
 	}
 	if (!strcmp("Symbol", name)) {
 		*len = sizeof pdf_font_StandardSymL;
@@ -151,7 +151,6 @@ pdf_lookup_substitute_cjk_font(int ros, int serif, unsigned int *len)
 	return NULL;
 #endif
 }
-
 
 /* SumatraPDF: also load fonts included with Windows */
 #ifdef _WIN32
@@ -311,7 +310,7 @@ str_ends_with(const char *str, const char *end)
 	return len1 >= len2 && !strcmp(str + len1 - len2, end);
 }
 
-static pdf_fontmapMS*
+static pdf_fontmapMS *
 pdf_find_windows_font_path(const char *fontname)
 {
 	return bsearch(fontname, fontlistMS.fontmap, fontlistMS.len, sizeof(pdf_fontmapMS), lookup_compare);
@@ -402,7 +401,7 @@ grow_system_font_list(fz_context *ctx, pdf_fontlistMS *fl)
 }
 
 static void
-insert_mapping(fz_context *ctx, pdf_fontlistMS *fl, const char *facename, const char *path, int index)
+append_mapping(fz_context *ctx, pdf_fontlistMS *fl, const char *facename, const char *path, int index)
 {
 	if (fl->len == fl->cap)
 		grow_system_font_list(ctx, fl);
@@ -528,13 +527,20 @@ parseTTF(fz_stream *file, int offset, int index, const char *path)
 		}
 	}
 
-	// TODO: is there a better way to distinguish Arial Caps from Arial proper?
-	// cf. http://code.google.com/p/sumatrapdf/issues/detail?id=1290
-	if (!strcmp(szPSName, "ArialMT") && (strstr(path, "caps") || strstr(path, "Caps")))
-		fz_throw(file->ctx, FZ_ERROR_GENERIC, "ignore %s, as it can't be distinguished from Arial,Regular", path);
+	// try to prevent non-Arial fonts from accidentally substituting Arial
+	if (!strcmp(szPSName, "ArialMT"))
+	{
+		// cf. https://code.google.com/p/sumatrapdf/issues/detail?id=2471
+		if (strcmp(szTTName, "Arial") != 0)
+			szPSName[0] = '\0';
+		// TODO: is there a better way to distinguish Arial Caps from Arial proper?
+		// cf. http://code.google.com/p/sumatrapdf/issues/detail?id=1290
+		else if (strstr(path, "caps") || strstr(path, "Caps"))
+			fz_throw(file->ctx, FZ_ERROR_GENERIC, "ignore %s, as it can't be distinguished from Arial,Regular", path);
+	}
 
 	if (szPSName[0])
-		insert_mapping(file->ctx, &fontlistMS, szPSName, path, index);
+		append_mapping(file->ctx, &fontlistMS, szPSName, path, index);
 	if (szTTName[0])
 	{
 		// derive a PostScript-like name and add it, if it's different from the font's
@@ -542,13 +548,13 @@ parseTTF(fz_stream *file, int offset, int index, const char *path)
 		makeFakePSName(szTTName, szStyle);
 		// compare the two names before adding this one
 		if (lookup_compare(szTTName, szPSName))
-			insert_mapping(file->ctx, &fontlistMS, szTTName, path, index);
+			append_mapping(file->ctx, &fontlistMS, szTTName, path, index);
 	}
 	if (szCJKName[0])
 	{
 		makeFakePSName(szCJKName, szStyle);
 		if (lookup_compare(szCJKName, szPSName) && lookup_compare(szCJKName, szTTName))
-			insert_mapping(file->ctx, &fontlistMS, szCJKName, path, index);
+			append_mapping(file->ctx, &fontlistMS, szCJKName, path, index);
 	}
 }
 
@@ -671,14 +677,6 @@ create_system_font_list(fz_context *ctx)
 	WCHAR szFontDir[MAX_PATH];
 	UINT cch;
 
-#ifdef DEBUG
-	// allow to overwrite system fonts for debugging purposes
-	// (either pass a full path or a search pattern such as "fonts\*.ttf")
-	cch = GetEnvironmentVariable(L"MUPDF_FONTS_PATTERN", szFontDir, nelem(szFontDir));
-	if (0 < cch && cch < nelem(szFontDir))
-		extend_system_font_list(ctx, szFontDir);
-#endif
-
 	cch = GetWindowsDirectory(szFontDir, nelem(szFontDir) - 12);
 	if (0 < cch && cch < nelem(szFontDir) - 12)
 	{
@@ -686,7 +684,7 @@ create_system_font_list(fz_context *ctx)
 #ifdef _WIN64
 		wcscat_s(szFontDir, MAX_PATH, L"\\Fonts\\*.?t?");
 #else
-		wcscat(szFontDir, L"\\Fonts\\*.?t?");
+		wcscat(szFontDir,L"\\Fonts\\*.?t?");
 #endif
 		extend_system_font_list(ctx, szFontDir);
 	}
@@ -709,17 +707,34 @@ create_system_font_list(fz_context *ctx)
 	// sort the font list, so that it can be searched binarily
 	qsort(fontlistMS.fontmap, fontlistMS.len, sizeof(pdf_fontmapMS), _stricmp);
 
+#ifdef DEBUG
+	// allow to overwrite system fonts for debugging purposes
+	// (either pass a full path or a search pattern such as "fonts\*.ttf")
+	cch = GetEnvironmentVariable(L"MUPDF_FONTS_PATTERN", szFontDir, nelem(szFontDir));
+	if (0 < cch && cch < nelem(szFontDir))
+	{
+		int i, prev_len = fontlistMS.len;
+		extend_system_font_list(ctx, szFontDir);
+		for (i = prev_len; i < fontlistMS.len; i++)
+		{
+			pdf_fontmapMS *entry = bsearch(fontlistMS.fontmap[i].fontface, fontlistMS.fontmap, prev_len, sizeof(pdf_fontmapMS), lookup_compare);
+			if (entry)
+				*entry = fontlistMS.fontmap[i];
+		}
+		qsort(fontlistMS.fontmap, fontlistMS.len, sizeof(pdf_fontmapMS), _stricmp);
+	}
+#endif
+
 	// make sure to clean up after ourselves
 	atexit(destroy_system_font_list);
 }
 
-void
-pdf_load_windows_font(fz_context *ctx, pdf_font_desc *font, char *fontname);
-void
-pdf_load_windows_font(fz_context *ctx, pdf_font_desc *font, char *fontname)
+static fz_font *
+pdf_load_windows_font_by_name(fz_context *ctx, const char *orig_name)
 {
 	pdf_fontmapMS *found = NULL;
-	char *comma, *orig_name = fontname;
+	char *comma, *fontname;
+	fz_font *font;
 
     /* WILLUS MOD--not multi-threaded for k2pdfopt */
 	/* fz_synchronize_begin(); */
@@ -731,15 +746,13 @@ pdf_load_windows_font(fz_context *ctx, pdf_font_desc *font, char *fontname)
 		}
 		fz_catch(ctx) { }
 	}
-	/* fz_synchronize_end(); */ /* WILLUS MOD */
+    /* WILLUS MOD--not multi-threaded for k2pdfopt */
+	/* fz_synchronize_end(); */
 	if (fontlistMS.len == 0)
 		fz_throw(ctx, FZ_ERROR_GENERIC, "fonterror: couldn't find any fonts");
 
-	if (GetEnvironmentVariable(L"MULOG", NULL, 0))
-		printf("pdf_load_windows_font: looking for font '%s'\n", fontname);
-
 	// work on a normalized copy of the font name
-	fontname = fz_strdup(ctx, fontname);
+	fontname = fz_strdup(ctx, orig_name);
 	remove_spaces(fontname);
 
 	// first, try to find the exact font name (including appended style information)
@@ -794,56 +807,117 @@ pdf_load_windows_font(fz_context *ctx, pdf_font_desc *font, char *fontname)
 		}
 	}
 
-	if (found && (!strcmp(fontname, "Symbol") || !strcmp(fontname, "ZapfDingbats")))
-		font->flags |= PDF_FD_SYMBOLIC;
-
 	fz_free(ctx, fontname);
 	if (!found)
 		fz_throw(ctx, FZ_ERROR_GENERIC, "couldn't find system font '%s'", orig_name);
 
-	if (GetEnvironmentVariable(L"MULOG", NULL, 0))
-		printf("pdf_load_windows_font: loading font from '%s'\n", found->fontpath);
+    /*
+	fz_warn(ctx, "loading non-embedded font '%s' from '%s'", orig_name, found->fontpath);
+    */
 
-	font->font = fz_new_font_from_file(ctx, orig_name, found->fontpath, found->index,
+	font = fz_new_font_from_file(ctx, orig_name, found->fontpath, found->index,
 		strcmp(found->fontface, "DroidSansFallback") != 0);
-	/* "cannot load freetype font from file %s", found->fontpath */
-	font->font->ft_file = fz_strdup(ctx, found->fontpath);
+	font->ft_substitute = 1;
+	return font;
 }
 
-void pdf_load_similar_cjk_font(fz_context *ctx, pdf_font_desc *fontdesc, int ros, int serif);
-void pdf_load_similar_cjk_font(fz_context *ctx, pdf_font_desc *fontdesc, int ros, int serif)
+static fz_font *
+pdf_load_windows_font(fz_context *ctx, const char *fontname, int bold, int italic, int needs_exact_metrics)
 {
-	if (serif)
+	if (needs_exact_metrics)
 	{
-		switch (ros)
-		{
-		case PDF_ROS_CNS: pdf_load_windows_font(ctx, fontdesc, "MingLiU"); break;
-		case PDF_ROS_GB: pdf_load_windows_font(ctx, fontdesc, "SimSun"); break;
-		case PDF_ROS_JAPAN: pdf_load_windows_font(ctx, fontdesc, "MS-Mincho"); break;
-		case PDF_ROS_KOREA: pdf_load_windows_font(ctx, fontdesc, "Batang"); break;
-		default: fz_throw(ctx, FZ_ERROR_GENERIC, "invalid serif ros");
-		}
+		const char *clean_name;
+        /* WILLUS: Declare pdf_clean_base14_name() */
+        extern const char *pdf_clean_base14_name(const char *fontname);
+
+		/* TODO: the metrics for Times-Roman and Courier don't match
+		   those of Windows' Times New Roman and Courier New; for
+		   some reason, Poppler doesn't seem to have this problem */
+		unsigned int len;
+		if (pdf_lookup_builtin_font(fontname, &len))
+			return NULL;
+
+		/* cf. http://code.google.com/p/sumatrapdf/issues/detail?id=2173 */
+		clean_name = pdf_clean_base14_name(fontname);
+		if (clean_name != fontname && !strncmp(clean_name, "Times-", 6))
+			return NULL;
 	}
-	else
-	{
-		switch (ros)
-		{
-		case PDF_ROS_CNS: pdf_load_windows_font(ctx, fontdesc, "DFKaiShu-SB-Estd-BF"); break;
-		case PDF_ROS_GB:
-			fz_try(ctx)
-			{
-				pdf_load_windows_font(ctx, fontdesc, "KaiTi");
-			}
-			fz_catch(ctx)
-			{
-				pdf_load_windows_font(ctx, fontdesc, "KaiTi_GB2312");
-			}
-			break;
-		case PDF_ROS_JAPAN: pdf_load_windows_font(ctx, fontdesc, "MS-Gothic"); break;
-		case PDF_ROS_KOREA: pdf_load_windows_font(ctx, fontdesc, "Gulim"); break;
-		default: fz_throw(ctx, FZ_ERROR_GENERIC, "invalid sans-serif ros");
-		}
-	}
+
+	// TODO: unset font->ft_substitute for base14/needs_exact_metrics?
+	return pdf_load_windows_font_by_name(ctx, fontname);
 }
 
-#endif /* _WIN32 -- Sumatra mods */
+static fz_font *
+pdf_load_windows_cjk_font(fz_context *ctx, const char *fontname, int ros, int serif)
+{
+	fz_font *font;
+
+    font=NULL; /* WILLUS: Avoid compiler warning */
+	/* try to find a matching system font before falling back to an approximate one */
+	fz_try(ctx)
+	{
+		font = pdf_load_windows_font_by_name(ctx, fontname);
+	}
+	fz_catch(ctx)
+	{
+		font = NULL;
+	}
+	if (font)
+		return font;
+
+	/* try to fall back to a reasonable system font */
+	fz_try(ctx)
+	{
+		if (serif)
+		{
+			switch (ros)
+			{
+			case FZ_ADOBE_CNS_1: font = pdf_load_windows_font_by_name(ctx, "MingLiU"); break;
+			case FZ_ADOBE_GB_1: font = pdf_load_windows_font_by_name(ctx, "SimSun"); break;
+			case FZ_ADOBE_JAPAN_1: font = pdf_load_windows_font_by_name(ctx, "MS-Mincho"); break;
+			case FZ_ADOBE_KOREA_1: font = pdf_load_windows_font_by_name(ctx, "Batang"); break;
+			default: fz_throw(ctx, FZ_ERROR_GENERIC, "invalid serif ros");
+			}
+		}
+		else
+		{
+			switch (ros)
+			{
+			case FZ_ADOBE_CNS_1: font = pdf_load_windows_font_by_name(ctx, "DFKaiShu-SB-Estd-BF"); break;
+			case FZ_ADOBE_GB_1:
+				fz_try(ctx)
+				{
+					font = pdf_load_windows_font_by_name(ctx, "KaiTi");
+				}
+				fz_catch(ctx)
+				{
+					font = pdf_load_windows_font_by_name(ctx, "KaiTi_GB2312");
+				}
+				break;
+			case FZ_ADOBE_JAPAN_1: font = pdf_load_windows_font_by_name(ctx, "MS-Gothic"); break;
+			case FZ_ADOBE_KOREA_1: font = pdf_load_windows_font_by_name(ctx, "Gulim"); break;
+			default: fz_throw(ctx, FZ_ERROR_GENERIC, "invalid sans-serif ros");
+			}
+		}
+	}
+	fz_catch(ctx)
+	{
+#ifdef NOCJKFONT
+		/* If no CJK fallback font is builtin, maybe one has been shipped separately */
+		font = pdf_load_windows_font_by_name(ctx, "DroidSansFallback");
+#else
+		fz_rethrow(ctx);
+#endif
+	}
+
+	return font;
+}
+
+#endif
+
+void pdf_install_load_system_font_funcs(fz_context *ctx)
+{
+#ifdef _WIN32
+	fz_install_load_system_font_funcs(ctx, pdf_load_windows_font, pdf_load_windows_cjk_font);
+#endif
+}
