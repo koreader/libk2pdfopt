@@ -1614,6 +1614,19 @@ void willusgui_sbitmap_proc(void *handle,int message,int wparam,void *lparam)
     }
 
 
+static int ime_notify_status=0;
+void willusgui_set_ime_notify(int status)
+
+    {
+#ifdef MSWINGUI
+    if (status==0)
+        ime_notify_status=status;
+    else
+        ime_notify_status++;
+#endif
+    }
+
+
 /*
 ** Custom / Subclass callback functions for MS-Windows
 */
@@ -2010,17 +2023,6 @@ LRESULT CALLBACK willusgui_edit2_proc(HWND hWnd,UINT message,WPARAM wParam,LPARA
         }
     wndproc=(WNDPROC)defproc_edit2;
     return(wndproc(hWnd,message,wParam,lParam));
-    }
-
-
-static int ime_notify_status=0;
-void willusgui_set_ime_notify(int status)
-
-    {
-    if (status==0)
-        ime_notify_status=status;
-    else
-        ime_notify_status++;
     }
 
 
