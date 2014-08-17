@@ -57,8 +57,8 @@ void k2pdfopt_optimize_bmp(KOPTContext *kctx) {
     k2settings->dst_userheight_units=UNITS_SOURCE;
     k2settings->dst_fit_to_page=-2;
     k2settings->src_trim=0;
-    k2settings->mar_left=k2settings->mar_top=k2settings->mar_right=k2settings->mar_bot=0.;
-    k2settings->dst_mar=k2settings->dst_marleft=k2settings->dst_martop=k2settings->dst_marright=k2settings->dst_marbot=0.;
+    for (i=0;i<4;i++)
+        k2settings->dstmargins.box[i]=.0;
     k2settings->pad_left=k2settings->pad_top=k2settings->pad_bottom=k2settings->pad_right=0;
     k2settings->mark_corners=0;
     k2pdfopt_settings_sanity_check(k2settings);

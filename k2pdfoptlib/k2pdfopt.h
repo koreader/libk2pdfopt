@@ -78,11 +78,9 @@
 #ifdef HAVE_GOCR_LIB
 #undef HAVE_GOCR_LIB
 #endif
-*/
 #ifdef HAVE_TESSERACT_LIB
 #undef HAVE_TESSERACT_LIB
 #endif
-/*
 #ifdef HAVE_DJVU_LIB
 #undef HAVE_DJVU_LIB
 #endif

@@ -66,7 +66,7 @@ void k2pdfopt_part_bmp(KOPTContext *kctx) {
 	else
 		maxlevels=3;
 	pageregions_init(&kctx->pageregions);
-	pageregions_find_columns(&kctx->pageregions,region,k2settings,maxlevels);
+	pageregions_find_columns(&kctx->pageregions,region,k2settings,masterinfo,maxlevels);
 
 	bmp_free(src);
 	bmp_free(srcgrey);

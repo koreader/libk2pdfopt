@@ -64,7 +64,7 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	printf("source page (%d,%d) - (%d,%d)\n",region->c1,region->r1,region->c2,region->r2);
 	printf("source page bgcolor %d\n", region->bgcolor);
 	bmpregion_trim_margins(region,k2settings,0xf);
-	margin = k2settings->dst_mar*k2settings->dst_dpi/4;
+	margin = kctx->margin*k2settings->dst_dpi/4;
 	kctx->bbox.x0 = (float)region->c1 - margin;
 	kctx->bbox.y0 = (float)region->r1 - margin;
 	kctx->bbox.x1 = (float)region->c2 + margin;

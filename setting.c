@@ -43,11 +43,6 @@ void k2pdfopt_settings_init_from_koptcontext(K2PDFOPT_SETTINGS *k2settings, KOPT
     k2settings->dst_width = k2settings->dst_userwidth;
     k2settings->dst_height = k2settings->dst_userheight;
     k2settings->dst_color = 0;
-    k2settings->dst_mar = 0.06;
-    k2settings->dst_martop = -1.0;
-    k2settings->dst_marbot = -1.0;
-    k2settings->dst_marleft = -1.0;
-    k2settings->dst_marright = -1.0;
     k2settings->use_crop_boxes = 0;
     k2settings->defect_size_pts = 1.0;
 
@@ -81,32 +76,25 @@ void k2pdfopt_settings_init_from_koptcontext(K2PDFOPT_SETTINGS *k2settings, KOPT
         k2settings->src_rot = 270;
     }
 
-    if (kctx->word_spacing < 0) {
-        k2settings->auto_word_spacing = 1;
-        k2settings->word_spacing = 0.15;
-    } else {
-        k2settings->auto_word_spacing = 0;
-        k2settings->word_spacing = kctx->word_spacing;
-    }
+    k2settings->word_spacing = kctx->word_spacing;
 
     if (kctx->trim == 0) {
-        k2settings->mar_left = 0;
-        k2settings->mar_top = 0;
-        k2settings->mar_right = 0;
-        k2settings->mar_bot = 0;
+        k2settings->srccropmargins.box[0] = 0;
+        k2settings->srccropmargins.box[1] = 0;
+        k2settings->srccropmargins.box[2] = 0;
+        k2settings->srccropmargins.box[3] = 0;
     } else {
-        k2settings->mar_left = -1;
-        k2settings->mar_top = -1;
-        k2settings->mar_right = -1;
-        k2settings->mar_bot = -1;
+        k2settings->srccropmargins.box[0] = -1;
+        k2settings->srccropmargins.box[1] = -1;
+        k2settings->srccropmargins.box[2] = -1;
+        k2settings->srccropmargins.box[3] = -1;
     }
 
     // margin
-    k2settings->dst_mar = kctx->margin;
-    k2settings->dst_martop = -1.0;
-    k2settings->dst_marbot = -1.0;
-    k2settings->dst_marleft = -1.0;
-    k2settings->dst_marright = -1.0;
+    k2settings->dstmargins.box[0] = kctx->margin;
+    k2settings->dstmargins.box[1] = kctx->margin;
+    k2settings->dstmargins.box[2] = kctx->margin;
+    k2settings->dstmargins.box[3] = kctx->margin;
 
     // justification
     if (kctx->justification < 0) {

@@ -68,8 +68,8 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 
     /* copy master bitmap to context dst bitmap */
     dst = &kctx->dst;
-    marbot = (int) (k2settings->dst_dpi * k2settings->dst_marbot + .5);
-    marleft = (int) (k2settings->dst_dpi * k2settings->dst_marleft + .5);
+    marbot = (int) (k2settings->dst_dpi * k2settings->dstmargins.box[1] + .5);
+    marleft = (int) (k2settings->dst_dpi * k2settings->dstmargins.box[0] + .5);
     dst->bpp = masterinfo->bmp.bpp;
     dst->width = masterinfo->bmp.width;
     dst->height = masterinfo->rows > kctx->page_height ? masterinfo->rows + marbot : kctx->page_height;
