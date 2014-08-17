@@ -1,7 +1,7 @@
 /*
 ** k2sys.c     K2pdfopt system functions
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -36,6 +36,9 @@ void k2sys_close(K2PDFOPT_SETTINGS *k2settings)
     /* wrapbmp_free(); */
     wsys_set_decimal_period(0);
     k2ocr_end(k2settings);
+#if (WILLUSDEBUGX & 0x100000)
+    willus_dmem_check();
+#endif
     }
 
 

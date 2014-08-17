@@ -319,7 +319,7 @@ static int wpdf_getbufline(char *buf,int maxlen,char *opbuf,int *i0,int bufsize)
 static void insert_length(FILE *f,long pos,int len);
 static void ocrwords_to_pdf_stream(OCRWORDS *ocrwords,FILE *f,double dpi,
                                    double page_height_pts,int text_render_mode,
-                                   WILLUSCHARMAPLIST *cmaplist,int use_spaces);
+                                   WILLUSCHARMAPLIST *cmaplist,int use_spaces,int ocr_flags);
 static double ocrwords_median_size(OCRWORDS *ocrwords,double dpi,WILLUSCHARMAPLIST *cmaplist);
 static void ocrword_width_and_maxheight(OCRWORD *word,double *width,double *maxheight,
                                         WILLUSCHARMAPLIST *cmaplist,double *charpos);
@@ -331,7 +331,7 @@ static void sentence_check_alignment(OCRWORD *word,int n,int *nspaces,double *po
                                      WILLUSCHARMAPLIST *cmaplist);
 static void ocrword_to_pdf_stream(OCRWORD *word,FILE *f,double dpi,
                                   double page_height_pts,double median_size_pts,
-                                  WILLUSCHARMAPLIST *cmaplist);
+                                  WILLUSCHARMAPLIST *cmaplist,int ocr_flags);
 static void willuscharmaplist_init(WILLUSCHARMAPLIST *list);
 static void willuscharmaplist_free(WILLUSCHARMAPLIST *list);
 static void willuscharmaplist_add_charmap(WILLUSCHARMAPLIST *list,int unichar);
@@ -596,6 +596,7 @@ void pdffile_add_bitmap(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,int quality,in
 **     Bit 3 (4):  1=Box around text
 **     Bit 4 (8):  1=Use spaces, 1 space per word
 **     Bit 5 (16): 1=Use spaces, optimize number of spaces per word
+**     Bit 6 (32): 1=Do not round off font sizes
 **
 */
 void pdffile_add_bitmap_with_ocrwords(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,
@@ -696,7 +697,8 @@ void pdffile_add_bitmap_with_ocrwords(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,
             use_spaces=1;
         else
             use_spaces=0;
-        ocrwords_to_pdf_stream(ocrwords,pdf->f,dpi,ph,(ocr_render_flags&2)?0:3,cmaplist,use_spaces);
+        ocrwords_to_pdf_stream(ocrwords,pdf->f,dpi,ph,(ocr_render_flags&2)?0:3,cmaplist,use_spaces,
+                               ocr_render_flags);
         /* 2-1-14: Fix memory leak */
         willuscharmaplist_free(cmaplist);
         }
@@ -1409,7 +1411,7 @@ void ocrwords_box(OCRWORDS *ocrwords,WILLUSBITMAP *bmp)
 
 static void ocrwords_to_pdf_stream(OCRWORDS *ocrwords,FILE *f,double dpi,
                                    double page_height_pts,int text_render_mode,
-                                   WILLUSCHARMAPLIST *cmaplist,int use_spaces)
+                                   WILLUSCHARMAPLIST *cmaplist,int use_spaces,int ocr_flags)
 
     {
     int i;
@@ -1429,7 +1431,7 @@ static void ocrwords_to_pdf_stream(OCRWORDS *ocrwords,FILE *f,double dpi,
                 ocrword_init(&word);
                 ocrwords_optimize_spaces(&word,&ocrwords->word[i1],i-i1+1,dpi,cmaplist,
                                          use_spaces==2 ? 1 : 0);
-                ocrword_to_pdf_stream(&word,f,dpi,page_height_pts,median_size,cmaplist);
+                ocrword_to_pdf_stream(&word,f,dpi,page_height_pts,median_size,cmaplist,ocr_flags);
                 ocrword_free(&word);
                 i1=i+1;
                 }
@@ -1437,7 +1439,8 @@ static void ocrwords_to_pdf_stream(OCRWORDS *ocrwords,FILE *f,double dpi,
         }
     else
         for (i=0;i<ocrwords->n;i++)
-            ocrword_to_pdf_stream(&ocrwords->word[i],f,dpi,page_height_pts,median_size,cmaplist);
+            ocrword_to_pdf_stream(&ocrwords->word[i],f,dpi,page_height_pts,median_size,cmaplist,
+                                  ocr_flags);
     fprintf(f,"ET\n");
     }
 
@@ -1734,7 +1737,7 @@ printf("\n");
 
 static void ocrword_to_pdf_stream(OCRWORD *word,FILE *f,double dpi,
                                   double page_height_pts,double median_size_pts,
-                                  WILLUSCHARMAPLIST *cmaplist)
+                                  WILLUSCHARMAPLIST *cmaplist,int ocr_flags)
 
     {
     int cc,i,n,wordw;
@@ -1744,17 +1747,33 @@ static void ocrword_to_pdf_stream(OCRWORD *word,FILE *f,double dpi,
     int *d;
     static char *funcname="ocrword_to_pdf_stream";
 
+/*
+printf("word->text='%s'\n",word->text);
+printf("    wxh = %dx%d\n",word->w,word->h);
+*/
     n=strlen(word->text)+2;
     willus_mem_alloc_warn((void **)&d,sizeof(int)*n,funcname,10);
     n=utf8_to_unicode(d,word->text,n-1);
     ocrword_width_and_maxheight(word,&width_per_point,&height_per_point,cmaplist,NULL);
+/*
+printf("    word->maxheight=%g\n",word->maxheight);
+*/
     if (word->w/10. < word->lcheight)
         wordw = 0.9*word->w;
     else
         wordw = word->w-word->lcheight;
     fontsize_width = 72.*wordw/dpi / width_per_point;
-    fontsize_height = size_round_off((72.*word->maxheight/dpi) / height_per_point,
-                                       median_size_pts,.25);
+    fontsize_height = (72.*word->maxheight/dpi) / height_per_point;
+    if (!(ocr_flags & 0x20))
+        fontsize_height = size_round_off(fontsize_height,median_size_pts,.25);
+/*
+printf("    fontsize_height=%g\n",fontsize_height);
+*/
+    /*
+    ** Keeping the height small generally improves the ability to graphically
+    ** select the text in PDF readers, so multiply by 0.5.
+    */
+    fontsize_height = 0.5*fontsize_height;
     arat = fontsize_width / fontsize_height;
     ybase = page_height_pts - 72.*word->r/dpi;
     if (word->rot==0)

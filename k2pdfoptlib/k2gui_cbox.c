@@ -2,7 +2,7 @@
 ** k2gui_cbox.c   K2pdfopt WILLUSGUI for the conversion dialog box.
 **                (Non-OS-specific calls.)
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -96,6 +96,19 @@ int k2gui_cbox_converting(void)
     }
 
 
+void k2gui_okay(char *title,char *fmt,...)
+
+    {
+    va_list args;
+    char buf[500];
+    static int bcolors[3]={0x6060b0,0xf0f0f0,0xf0f0f0};
+
+    va_start(args,fmt);
+    vsprintf(buf,fmt,args);
+    willusgui_message_box(k2gui_cbox->mainwin.handle!=NULL ? &k2gui_cbox->mainwin:&k2gui->mainwin,
+                          title,buf,"*&OK",NULL,NULL,NULL,0,24,600,0xe0e0e0,bcolors,NULL,1);
+    }
+
 /*
 ** 1=yes
 ** 2=no
@@ -111,6 +124,27 @@ int k2gui_yesno(char *title,char *fmt,...)
     vsprintf(buf,fmt,args);
     return(willusgui_message_box(k2gui_cbox->mainwin.handle!=NULL ? &k2gui_cbox->mainwin : &k2gui->mainwin,
                           title,buf,"&YES","*&NO",NULL,NULL,0,24,600,0xe0e0e0,bcolors,NULL,1));
+    }
+
+
+/*
+** 1=yes this once
+** 2=no to all
+** 3=yes to all
+*/
+int k2gui_yes_no_all(char *title,char *fmt,...)
+
+    {
+    va_list args;
+    char buf[500];
+    static int bcolors[3]={0x6060b0,0xf0f0f0,0xf0f0f0};
+
+    va_start(args,fmt);
+    vsprintf(buf,fmt,args);
+    return(willusgui_message_box(k2gui_cbox->mainwin.handle!=NULL ? &k2gui_cbox->mainwin
+                                                                  : &k2gui->mainwin,
+                          title,buf,"*&YES (THIS ONCE)","&NO (TO ALL)","YES TO &ALL",
+                          NULL,0,24,600,0xe0e0e0,bcolors,NULL,1));
     }
 
 
@@ -294,6 +328,14 @@ printf("k2conv->k2settings=%p\n",&k2conv->k2settings);
         k2gui_cbox->converting=0;
         return(-4);
         }
+/*
+** Test for Franco Vivona (Ittiandro).  Put in delay to see if it helps the
+** conversion not crash.
+*/
+#if (defined(WIN32) || defined(WIN64))
+win_sleep(500);
+#endif
+
     return(0);
     }
 
@@ -344,6 +386,7 @@ static void k2gui_cbox_start_conversion(void *data)
     */
     k2gui_cbox_set_num_files(1);
     k2gui_cbox_set_files_completed(0,"Counting files...");
+    overwrite_set(1);
     for (i=k2out.filecount=0;i<k2conv->k2files.n;i++)
         {
         k2out.bmp=NULL;
@@ -365,6 +408,7 @@ static void k2gui_cbox_start_conversion(void *data)
     */
     k2gui_cbox_set_error_count(0);
     k2gui_cbox_freelist();
+    overwrite_set(0);
     for (i=k2out.filecount=0;i<k2conv->k2files.n;i++)
         {
         char *buf;

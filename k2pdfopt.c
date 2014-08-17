@@ -1,7 +1,12 @@
 /*
 ** k2pdfopt.c    K2pdfopt optimizes PDF/DJVU files for mobile e-readers
-**               (e.g. the Kindle) and smartphones. It works well on
-**               multi-column PDF/DJVU files. K2pdfopt is freeware.
+**               (e.g. the Kindle) and smartphones. It works well on multi-
+**               column PDF/DJVU files and can re-flow text even on scanned PDF
+**               files. It can also be used as a general PDF copying/cropping/
+**               re-sizing manipulation tool. It can generate native or
+**               bitmapped PDF output, with an optional OCR layer. There are
+**               downloads for MS Windows, Mac OSX, and Linux. The MS Windows
+**               version has an integrated GUI. K2pdfopt is open source.
 **
 ** Copyright (C) 2014  http://willus.com
 **

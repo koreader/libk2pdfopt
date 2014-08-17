@@ -1,7 +1,7 @@
 /*
 ** k2settings.c     Handles k2pdfopt settings (K2PDFOPT_SETTINGS structure)
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -20,13 +20,12 @@
 
 #include "k2pdfopt.h"
 
-static void k2pdfopt_settings_set_device_margins(K2PDFOPT_SETTINGS *k2settings);
-static void k2pdfopt_settings_set_crop_margins(K2PDFOPT_SETTINGS *k2settings);
-
 
 void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
 
     {
+    int i;
+
     k2settings->verbose=0;
     k2settings->debug=0;
     k2settings->cdthresh=.01;
@@ -45,6 +44,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->show_usage=0;
     k2settings->src_left_to_right=1;
     k2settings->src_whitethresh=-1;
+    k2settings->src_paintwhite=0;
 #ifdef HAVE_OCR_LIB
     k2settings->ocrout[0]='\0';
 #ifdef HAVE_TESSERACT_LIB
@@ -59,6 +59,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->dst_ocr_visibility_flags=1;
     k2settings->ocr_max_height_inches=1.5;
     ocrwords_init(&k2settings->dst_ocrwords);
+    k2settings->sort_ocr_text=0;
 #endif
     k2settings->dst_dither=1;
     k2settings->dst_break_pages=1;
@@ -86,27 +87,29 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->dst_landscape=0;
     strcpy(k2settings->dst_opname_format,"%s_k2opt");
     k2settings->src_autostraighten=0;
-    k2settings->dst_mar=0.02;
-    k2settings->dst_martop=-1.0;
-    k2settings->dst_marbot=-1.0;
-    k2settings->dst_marleft=-1.0;
-    k2settings->dst_marright=-1.0;
+    k2settings->dstmargins.pagelist[0]='\0';
+    for (i=0;i<4;i++)
+        {
+        k2settings->dstmargins.box[i]=.02;
+        k2settings->dstmargins.units[i]=UNITS_INCHES;
+        }
     k2settings->min_column_gap_inches=0.1;
     k2settings->max_column_gap_inches=1.5; // max gap between columns
     k2settings->min_column_height_inches=1.5;
     k2settings->row_split_fom=20.; /* Higher make it hard to split rows */
-    k2settings->mar_top=-1.0;
-    k2settings->mar_bot=-1.0;
-    k2settings->mar_left=-1.0;
-    k2settings->mar_right=-1.0;
+    k2settings->srccropmargins.pagelist[0]='\0';
+    for (i=0;i<4;i++)
+        {
+        k2settings->srccropmargins.box[i]=0.;
+        k2settings->srccropmargins.units[i]=UNITS_INCHES;
+        }
     k2settings->max_region_width_inches = 3.6; /* Max viewable width (device width minus margins) */
     k2settings->max_columns=2;
     k2settings->column_gap_range=0.33;
     k2settings->column_offset_max=0.2;
     k2settings->column_row_gap_height_in=1./72.;
     k2settings->text_wrap=1;
-    k2settings->auto_word_spacing=0;
-    k2settings->word_spacing=0.375;
+    k2settings->word_spacing=-0.20;
     k2settings->display_width_inches = 3.6; /* Device width = dst_width / dst_dpi */
     k2settings->pagelist[0]='\0';
     k2settings->column_fitted=0;
@@ -162,6 +165,32 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
 
     /* v2.13 */
     k2settings->devsize_set=0;
+
+    /* v2.20 */
+    k2settings->noteset.n=0;
+    k2settings->text_only=0;
+#ifdef HAVE_K2GUI
+    k2settings->restore_last_settings=-1;
+#endif
+    }
+
+
+K2NOTES *page_has_notes_margin(K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo)
+
+    {
+    int i;
+    K2NOTES *notes;
+
+    for (i=k2settings->noteset.n-1;i>=0;i--)
+        {
+        notes=&k2settings->noteset.notes[i];
+        if (notes->pagelist[0]=='\0')
+            return(notes);
+        if (pagelist_includes_page(notes->pagelist,masterinfo->pageinfo.srcpage,
+                                   masterinfo->srcpages))
+            return(notes);
+        }
+    return(NULL);
     }
 
 
@@ -275,8 +304,7 @@ void k2pdfopt_settings_sanity_check(K2PDFOPT_SETTINGS *k2settings)
     k2settings->src_dpi=k2settings->user_src_dpi < 0. ? (int)(fabs(k2settings->user_src_dpi)*k2settings->dst_dpi+.5) : (int)(k2settings->user_src_dpi+.5);
     if (k2settings->src_dpi < 50.)
         k2settings->src_dpi = 50.;
-
-    k2pdfopt_settings_set_crop_margins(k2settings);
+    /* k2cropbox_set_default_values(&k2settings->srccropmargins,0.,UNITS_INCHES); */
     }
 
 
@@ -305,8 +333,12 @@ void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings)
 void k2pdfopt_settings_set_region_widths(K2PDFOPT_SETTINGS *k2settings)
 
     {
+    int dstmar_pixels[4];
+
     k2settings->max_region_width_inches=k2settings->display_width_inches=(double)k2settings->dst_width/k2settings->dst_dpi;
-    k2settings->max_region_width_inches -= (k2settings->dst_marleft+k2settings->dst_marright);
+    get_dest_margins(dstmar_pixels,k2settings,(double)k2settings->dst_dpi,
+                     k2settings->dst_width,k2settings->dst_height);
+    k2settings->max_region_width_inches -= (double)(dstmar_pixels[0]+dstmar_pixels[2])/k2settings->dst_dpi;
     }
 
 
@@ -316,10 +348,7 @@ void k2pdfopt_settings_restore_output_dpi(K2PDFOPT_SETTINGS *k2settings)
     if (k2settings->column_fitted)
         {
         k2settings->dst_dpi=k2settings->dpi_org;
-        k2settings->dst_marleft=k2settings->lm_org;
-        k2settings->dst_marright=k2settings->rm_org;
-        k2settings->dst_martop=k2settings->tm_org;
-        k2settings->dst_marbot=k2settings->bm_org;
+        k2settings->dstmargins=k2settings->dstmargins_org;
         k2pdfopt_settings_set_region_widths(k2settings);
         }
     k2settings->column_fitted=0;
@@ -330,44 +359,23 @@ void k2pdfopt_settings_fit_column_to_screen(K2PDFOPT_SETTINGS *k2settings,
                                             double column_width_inches)
 
     {
-    double text_width_pixels,lm_pixels,rm_pixels,tm_pixels,bm_pixels;
+    double text_width_pixels;
+    int i,new_dpi;
 
     if (!k2settings->column_fitted)
         {
         k2settings->dpi_org=k2settings->dst_dpi;
-        k2settings->lm_org=k2settings->dst_marleft;
-        k2settings->rm_org=k2settings->dst_marright;
-        k2settings->tm_org=k2settings->dst_martop;
-        k2settings->bm_org=k2settings->dst_marbot;
+        k2settings->dstmargins_org=k2settings->dstmargins;
         }
     text_width_pixels = k2settings->max_region_width_inches*k2settings->dst_dpi;
-    lm_pixels = k2settings->dst_marleft*k2settings->dst_dpi;
-    rm_pixels = k2settings->dst_marright*k2settings->dst_dpi;
-    tm_pixels = k2settings->dst_martop*k2settings->dst_dpi;
-    bm_pixels = k2settings->dst_marbot*k2settings->dst_dpi;
-    k2settings->dst_dpi = text_width_pixels / column_width_inches;
-    k2settings->dst_marleft = lm_pixels / k2settings->dst_dpi;
-    k2settings->dst_marright = rm_pixels / k2settings->dst_dpi;
-    k2settings->dst_martop = tm_pixels / k2settings->dst_dpi;
-    k2settings->dst_marbot = bm_pixels / k2settings->dst_dpi;
+    new_dpi = text_width_pixels / column_width_inches;
+    for (i=0;i<4;i++)
+        if (k2settings->dstmargins.units[i]==UNITS_INCHES
+             || k2settings->dstmargins.units[i]==UNITS_CM)
+            k2settings->dstmargins.box[i] *= (double)k2settings->dst_dpi/new_dpi;
+    k2settings->dst_dpi=new_dpi;
     k2pdfopt_settings_set_region_widths(k2settings);
     k2settings->column_fitted=1;
-    }
-
-
-static void k2pdfopt_settings_set_device_margins(K2PDFOPT_SETTINGS *k2settings)
-
-    {
-    if (k2settings->dst_mar<0.)
-        k2settings->dst_mar=0.02;
-    if (k2settings->dst_martop<0.)
-        k2settings->dst_martop=k2settings->dst_mar;
-    if (k2settings->dst_marbot<0.)
-        k2settings->dst_marbot=k2settings->dst_mar;
-    if (k2settings->dst_marleft<0.)
-        k2settings->dst_marleft=k2settings->dst_mar;
-    if (k2settings->dst_marright<0.)
-        k2settings->dst_marright=k2settings->dst_mar;
     }
 
 
@@ -378,9 +386,12 @@ void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
                                        BMPREGION *region,MASTERINFO *masterinfo,int trimmed)
 
     {
-    double twidth_in,theight_in,swidth_in,sheight_in;
     int new_width,new_height,zeroarea;
     WPDFPAGEINFO *pageinfo;
+    LINE2D trimrect_inches;
+    POINT2D pagedims_inches;
+    LINE2D userrect;
+    int units[4];
 
 #ifdef WILLUSDEBUG
 printf("@k2pdfopt_settings_set_margins_and_devsize(region=%p,trimmed=%d)\n",region,trimmed);
@@ -390,23 +401,23 @@ printf("@k2pdfopt_settings_set_margins_and_devsize(region=%p,trimmed=%d)\n",regi
     if (region==NULL)
         {
         k2settings->devsize_set=0;
-        k2pdfopt_settings_set_device_margins(k2settings);
-        twidth_in=swidth_in = 8.5;
-        theight_in=sheight_in = 11.0;
+        /* k2cropbox_set_default_values(&k2settings->dstmargins,.02,UNITS_INCHES); */
+        trimrect_inches.p[0].x=0.;
+        trimrect_inches.p[0].y=0.;
+        pagedims_inches.x=trimrect_inches.p[1].x=8.5;
+        pagedims_inches.y=trimrect_inches.p[1].y=11.0;
         }
     else
         {
         k2settings->devsize_set++;
-        twidth_in = (double)(region->c2-region->c1+1) / region->dpi;
-        if (twidth_in < 1.0)
-            twidth_in = 1.0;
-        theight_in = (double)(region->r2-region->r1+1) / region->dpi;
-        if (theight_in < 1.0)
-            theight_in = 1.0;
+        trimrect_inches.p[0].x = (double)region->c1/region->dpi;
+        trimrect_inches.p[0].y = (double)region->r1/region->dpi;
+        trimrect_inches.p[1].x = (double)(region->c2+1)/region->dpi;
+        trimrect_inches.p[1].y = (double)(region->r2+1)/region->dpi;
         if (region->c2-region->c1<=0 || region->r2-region->r1<=0)
             zeroarea=1;
-        swidth_in = (double)region->bmp->width / region->dpi;
-        sheight_in = (double)region->bmp->height / region->dpi;
+        pagedims_inches.x = (double)region->bmp->width / region->dpi;
+        pagedims_inches.y = (double)region->bmp->height / region->dpi;
         }
 
 /*    
@@ -428,10 +439,44 @@ printf("@k2pdfopt_settings_set_margins_and_devsize(region=%p,trimmed=%d)\n",regi
         }
 printf("wu=%g, hu=%g\n",wu,hu);
 */
+    userrect.p[0].x=0.;
+    userrect.p[0].y=0.;
+    userrect.p[1].x=k2settings->dst_userwidth;
+    userrect.p[1].y=k2settings->dst_userheight;
+    units[0]=units[2]=k2settings->dst_userwidth_units;
+    units[1]=units[3]=k2settings->dst_userheight_units;
+    if (userrect.p[1].x < 0.)
+        {
+        userrect.p[1].x=fabs(userrect.p[1].x);
+        units[0]=units[2]=UNITS_SOURCE;
+        }
+    if (userrect.p[1].y < 0.)
+        {
+        userrect.p[1].y=fabs(userrect.p[1].y);
+        units[1]=units[3]=UNITS_SOURCE;
+        }
+#if (WILLUSDEBUGX & 0x20000)
+printf("@setmargins\n");
+printf("    dpi = %g\n",(double)k2settings->dst_dpi);
+printf("    userrect = %g,%g - %g,%g\n",userrect.p[0].x,userrect.p[0].y,userrect.p[1].x,userrect.p[1].y);
+printf("    units = %d,%d,%d,%d\n",units[0],units[1],units[2],units[3]);
+printf("    page = %g x %g in\n",pagedims_inches.x,pagedims_inches.y);
+printf("    trim = %g,%g - %g,%g in\n",trimrect_inches.p[0].x,trimrect_inches.p[0].y,
+                                       trimrect_inches.p[1].x,trimrect_inches.p[1].y);
+#endif
+    masterinfo_convert_to_source_pixels(masterinfo,&userrect,units,&pagedims_inches,
+                                        (double)k2settings->dst_dpi,&trimrect_inches);
+#if (WILLUSDEBUGX & 0x20000)
+printf("    userrect (out) = %g,%g - %g,%g\n",userrect.p[0].x,userrect.p[0].y,userrect.p[1].x,userrect.p[1].y);
+#endif
+    new_width=(int)(userrect.p[1].x-userrect.p[0].x+.5);
+    new_height=(int)(userrect.p[1].y-userrect.p[0].y+.5);
+    /*
     new_width=devsize_pixels(k2settings->dst_userwidth,k2settings->dst_userwidth_units,
                              swidth_in,twidth_in,k2settings->dst_dpi,0);
     new_height=devsize_pixels(k2settings->dst_userheight,k2settings->dst_userheight_units,
                               sheight_in,theight_in,k2settings->dst_dpi,0);
+    */
     if (k2settings->dst_landscape)
         int_swap(new_width,new_height)
     if (k2settings->devsize_set==1 || (k2settings->devsize_set>1 && (new_width!=k2settings->dst_width || new_height!=k2settings->dst_height)))
@@ -451,7 +496,7 @@ printf("wu=%g, hu=%g\n",wu,hu);
             {
             masterinfo->bmp.width=k2settings->dst_width;
             /* dst_height*1.5*area_ratio */
-            masterinfo->bmp.height=1.5*swidth_in*sheight_in*k2settings->dst_dpi*k2settings->dst_dpi/k2settings->dst_width;
+            masterinfo->bmp.height=1.5*pagedims_inches.x*pagedims_inches.y*k2settings->dst_dpi*k2settings->dst_dpi/k2settings->dst_width;
             bmp_alloc(&masterinfo->bmp);
             bmp_fill(&masterinfo->bmp,255,255,255);
             masterinfo->rows=0;
@@ -464,17 +509,30 @@ printf("wu=%g, hu=%g\n",wu,hu);
                 double_swap(pageinfo->width_pts,pageinfo->height_pts)
             }
         }
-    if ((double)k2settings->dst_width/k2settings->dst_dpi - k2settings->dst_marleft - k2settings->dst_marright < MIN_REGION_WIDTH_INCHES)
+    {
+    int dstmar_pixels[4];
+    int dx_pixels;
+    get_dest_margins(dstmar_pixels,k2settings,(double)k2settings->dst_dpi,
+                     k2settings->dst_width,k2settings->dst_height);
+    dx_pixels=dstmar_pixels[0]+dstmar_pixels[2];
+    if ((double)(k2settings->dst_width-dx_pixels)/k2settings->dst_dpi < MIN_REGION_WIDTH_INCHES)
         {
         int olddpi;
+        double dx_inches;
         olddpi = k2settings->dst_dpi;
-        k2settings->dst_dpi = (int)((double)k2settings->dst_width/(MIN_REGION_WIDTH_INCHES+k2settings->dst_marleft+k2settings->dst_marright));
+        dx_inches = (double)dx_pixels/olddpi;
+/*
+printf("dstmargins (pixels)=%d,%d,%d,%d\n",dstmar_pixels[0],dstmar_pixels[1],
+dstmar_pixels[2],dstmar_pixels[3]);
+*/
+        k2settings->dst_dpi = (int)(k2settings->dst_width/(MIN_REGION_WIDTH_INCHES+dx_inches));
         if (!zeroarea)
             k2printf(TTEXT_BOLD2 "Output DPI reduced from %d to %d ... " TTEXT_NORMAL,
                 olddpi,k2settings->dst_dpi);
         }
-    k2pdfopt_settings_set_region_widths(k2settings);
     }
+    k2pdfopt_settings_set_region_widths(k2settings);
+    }  
 
 
 /*
@@ -488,40 +546,20 @@ int k2settings_gap_override(K2PDFOPT_SETTINGS *k2settings)
            || (k2settings->src_grid_cols > 0 && k2settings->src_grid_rows > 0));
     }
 
-
-static void k2pdfopt_settings_set_crop_margins(K2PDFOPT_SETTINGS *k2settings)
-
-    {
-    double defval;
-
-    defval=0.0;
-    if (k2settings->mar_left < 0.)
-        k2settings->mar_left=defval;
-    if (k2settings->mar_right < 0.)
-        k2settings->mar_right=defval;
-    if (k2settings->mar_top < 0.)
-        k2settings->mar_top=defval;
-    if (k2settings->mar_bot < 0.)
-        k2settings->mar_bot=defval;
-    }
-
 /*
-** flags==0 for call from k2settings.c
-** flags==1 for call from k2proc.c
-*/
-int devsize_pixels(double user_size,int user_units,double source_size_in,
-                   double trimmed_size_in,double dst_dpi,int flags)
+void k2cropbox_set_default_values(K2CROPBOX *cbox,double value,int units)
 
     {
-    if (flags==0 && user_size==0.)
-        return((int)(source_size_in*dst_dpi+.5));
-    if ((flags==0 && user_size<0.) || user_units==UNITS_SOURCE)
-        return((int)(source_size_in*(flags==0 ? fabs(user_size) : user_size)*dst_dpi+.5));
-    if (user_units==UNITS_TRIMMED)
-        return((int)(trimmed_size_in*user_size*dst_dpi+.5));
-    if (user_units==UNITS_CM)
-        return((int)((user_size/2.54)*dst_dpi+.5));
-    if (user_units==UNITS_INCHES)
-        return((int)(user_size*dst_dpi+.5));
-    return((int)(user_size+.5));
+    int i;
+
+    for (i=0;i<4;i++)
+        {
+        if (cbox->box[i]<0.)
+            {
+            cbox->box[i]=value;
+            if (units>=0)
+                cbox->units[i]=units;
+            }
+        }
     }
+*/

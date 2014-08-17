@@ -41,6 +41,9 @@ void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int
     void *ocrwords;
 #endif
 
+/*
+aprintf(ANSI_GREEN "\n   @masterinfo_publish(flushall=%d)....\n\n" ANSI_NORMAL,flushall);
+*/
 #ifdef HAVE_MUPDF_LIB
     if (wtcs==NULL)
         {
@@ -63,9 +66,14 @@ void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int
     while (masterinfo_get_next_output_page(masterinfo,k2settings,flushall,bmp,
                                            &bmpdpi,&size_reduction,ocrwords)>0)
         {
+/*
+aprintf(ANSI_GREEN "\n   SRC PAGE %d\n\n" ANSI_NORMAL,masterinfo->pageinfo.srcpage);
+*/
         output_page_count++;
         if (masterinfo->preview_bitmap!=NULL)
             {
+            if (ocrwords!=NULL)
+                ocrwords_free(ocrwords); /* Don't really need this, but just for insurance */
             if (!k2settings->show_marked_source
                         && abs(k2settings->preview_page)==masterinfo->published_pages)
                 {
@@ -73,8 +81,7 @@ void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int
 printf("At preview page:  bmp = %d x %d x %d, preview(dst) = %d x %d x %d\n",
 bmp->width,bmp->height,bmp->bpp,
 masterinfo->preview_bitmap->width,masterinfo->preview_bitmap->height,masterinfo->preview_bitmap->bpp);
-*/
-                bmp_copy(masterinfo->preview_bitmap,bmp);
+*/              bmp_copy(masterinfo->preview_bitmap,bmp);
                 masterinfo->preview_captured=1;
                 break;
                 }
@@ -96,15 +103,22 @@ printf("use_toc=%d, outline=%p, spc=%d, srcpage=%d\n",k2settings->use_toc,master
 #ifdef HAVE_OCR_LIB
         if (k2settings->dst_ocr)
             {
+            int flags_extra;
+
+            flags_extra=0;
             if (k2settings->dst_ocr=='m')
                 {
-                int i;
-
+                flags_extra=0x20;
                 /* Don't re-sort--messes up the copy/paste flow */
                 /*
                 if (masterinfo->ocrfilename[0]=='\0')
                     ocrwords_sort_by_pageno(ocrwords);
                 */
+/*
+** This section no longer needed in v2.20.  The text in the ocrword boxes
+** has already been determined by k2ocr_ocrwords_get_from_ocrlayer() in k2ocr.c
+*/
+/*
                 for (i=0;i<ocrwords->n;i++)
                     {
                     static char *funcname="masterinfo_publish";
@@ -137,15 +151,33 @@ ocrwords->word[i].text);
                         i--;
                         }
                     }
+*/
                 
                 }
             if (masterinfo->ocrfilename[0]!='\0')
                 ocrwords_to_textfile(ocrwords,masterinfo->ocrfilename,
                                      masterinfo->published_pages>1);
 
+#if (WILLUSDEBUGX & 0x400)
+printf("Calling pdffile_add_bitmap_with_ocrwords.\n");
+#endif
+#if (WILLUSDEBUGX & 0x10000)
+if (ocrwords!=NULL)
+{
+int k;
+printf("flags_extra= %d\n",flags_extra);
+printf("PAGE OF WORDS\n");
+for (k=0;k<ocrwords->n;k++)
+printf("%3d. '%s'\n",k,ocrwords->word[k].text);
+}
+#endif
             pdffile_add_bitmap_with_ocrwords(&masterinfo->outfile,bmp,bmpdpi,
                                              k2settings->jpeg_quality,size_reduction,
-                                             ocrwords,k2settings->dst_ocr_visibility_flags);
+                                             ocrwords,k2settings->dst_ocr_visibility_flags
+                                                        | flags_extra);
+#if (WILLUSDEBUGX & 0x400)
+printf("Back from pdffile_add_bitmap_with_ocrwords.\n");
+#endif
 /*
 {
 static int count=1;

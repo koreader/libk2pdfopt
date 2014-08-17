@@ -3,7 +3,7 @@
 **                are more-or-less generic functions that don't depend
 **                heavily on k2pdfopt settings.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -24,6 +24,15 @@
 
 static void trim_to(int *count,int *i1,int i2,double gaplen,int dpi,double defect_size_pts);
 static int height2_calc(int *rc,int n);
+static void bmpregion_count_text_row_pixels(BMPREGION *region,int *gw,int *copt,int *ngaps,
+                                            K2PDFOPT_SETTINGS *k2settings);
+static void bmpregion_find_gaps(BMPREGION *region,int *bp,int *gw,int *copt,int *ngaps);
+static int get_word_gap_threshold(int *copt0,int *gw0,int ngaps,int dr,int row_width,
+                                  BMPREGION *region,K2PDFOPT_SETTINGS *k2settings);
+/*
+static int word_longer_than(int gap_thresh,int *gw,int *copt,int ngaps,int display_width,
+                            BMPREGION *region);
+*/
 
 
 int bmpregion_row_black_count(BMPREGION *region,int r0)
@@ -137,6 +146,9 @@ int bmpregion_is_clear(BMPREGION *region,int *row_black_count,int *col_black_cou
     {
     int nr,nc,r,c,pt,mindim;
 
+#if (WILLUSDEBUGX & 128)
+printf("@bmpregion_is_clear(rpc=%d, gt_in=%g), region->dpi=%d\n",rpc,gt_in,region->dpi);
+#endif
     pt=(int)(gt_in*region->dpi*(region->c2-region->c1+1)+.5);
     if (pt<0)
         pt=0;
@@ -229,31 +241,44 @@ region->c1,region->r1,region->c2,region->r2,c,pt,gt_in);
 
 /*
 ** Sets region->c1,c2,r1,r2 directly.
+** Must have region initialized and dpi, bmp, and bmp8 set.
 ** Changes bbox.type to UNDETERMINED.
 */
-void bmpregion_trim_to_crop_margins(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings)
+void bmpregion_trim_to_crop_margins(BMPREGION *region,MASTERINFO *masterinfo,
+                                    K2PDFOPT_SETTINGS *k2settings)
 
     {
-    int n;
+    int i,n;
+    double margins_inches[4];
 
-    if (k2settings->mar_left<0
-         || k2settings->mar_right<0
-         || k2settings->mar_top<0
-         || k2settings->mar_bot<0)
-        k2pdfopt_settings_sanity_check(k2settings);
-    n=(int)(0.5+k2settings->mar_left*region->dpi);
+    region->c1=0;
+    region->c2=region->bmp->width-1;
+    region->r1=0;
+    region->r2=region->bmp->height-1;
+    for (i=0;i<4;i++)
+        if (k2settings->srccropmargins.units[i]==UNITS_TRIMMED)
+            break;
+    if (i<4)
+        bmpregion_trim_margins(region,k2settings,0xf);
+    masterinfo_get_margins(margins_inches,&k2settings->srccropmargins,masterinfo,region);
+    /*
+    for (i=0;i<4;i++)
+        if (cbox->box[i]<0.)
+            k2pdfopt_settings_sanity_check(k2settings);
+    */
+    n=(int)(0.5+margins_inches[0]*region->dpi);
     if (n>region->bmp->width)
         n=region->bmp->width;
     region->c1=n;
-    n=(int)(0.5+k2settings->mar_right*region->dpi);
+    n=(int)(0.5+margins_inches[2]*region->dpi);
     if (n>region->bmp->width)
         n=region->bmp->width;
     region->c2=region->bmp->width-1-n;
-    n=(int)(0.5+k2settings->mar_top*region->dpi);
+    n=(int)(0.5+margins_inches[1]*region->dpi);
     if (n>region->bmp->height)
         n=region->bmp->height;
     region->r1=n;
-    n=(int)(0.5+k2settings->mar_bot*region->dpi);
+    n=(int)(0.5+margins_inches[3]*region->dpi);
     if (n>region->bmp->height)
         n=region->bmp->height;
     region->r2=region->bmp->height-1-n;
@@ -382,7 +407,7 @@ void bmpregion_calc_bbox(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,int cal
     int maxcount,mc2,h2;
     double f;
     int *colcount,*rowcount;
-    static char *funcname="bmpregion_trim_margins";
+    static char *funcname="bmpregion_calc_bbox";
     TEXTROW *bbox;
 /*
 printf("@bmpregion_calc_bbox(%d,%d)-(%d,%d)\n",region->c1,region->r1,region->c2,region->r2);
@@ -1060,8 +1085,8 @@ void bmpregion_find_textrows(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
 
     {
     static char *funcname="bmpregion_find_textrows";
-    int nr,i,brc,brcmin,dtrc,trc,aperture,aperturemax,figrow,labelrow;
-    int ntr,rhmin_pix,rhmean_pixels;
+    int nr,i,brc,brcmin,dtrc,trc,figrow,labelrow;
+    int rhmin_pix,rhmean_pixels;
     BMPREGION *newregion,_newregion;
     TEXTROWS *textrows;
     int *rowthresh;
@@ -1087,60 +1112,7 @@ void bmpregion_find_textrows(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
     nr=region->r2-region->r1+1;
     willus_dmem_alloc_warn(15,(void **)&rowthresh,sizeof(int)*nr,funcname,10);
     brcmin = k2settings->max_vertical_gap_inches*region->dpi;
-    aperturemax = (int)(region->dpi/72.+.5);
-    if (aperturemax < 2)
-        aperturemax = 2;
-    aperture=(int)(region->dpi*k2settings->column_row_gap_height_in+.5);
-/*
-for (i=region->r1;i<=region->r2;i++)
-k2printf("rowcount[%d]=%d\n",i,region->rowcount[i]);
-*/
-    rhmean_pixels=0; // Mean text row height
-    ntr=0; // Number of text rows
-    /* Fill rowthresh[] array */
-    for (dtrc=0,i=region->r1;i<=region->r2;i++)
-        {
-        int ii,i1,i2,sum,pt;
-
-        if (dynamic_aperture)
-            {
-            aperture=(int)(dtrc/13.7+.5);
-            if (aperture > aperturemax)
-                aperture=aperturemax;
-            if (aperture < 2)
-                aperture=2;
-            }
-        i1=i-aperture/2;
-        i2=i1+aperture-1;
-        if (i1<region->r1)
-            i1=region->r1;
-        if (i2>region->r2)
-            i2=region->r2;
-        pt=(int)((i2-i1+1)*k2settings->gtr_in*region->dpi+.5); /* pixel count threshold */
-        if (pt<1)
-            pt=1;
-        /* Sum over row aperture */
-        for (sum=0,ii=i1;ii<=i2;sum+=region->rowcount[ii],ii++);
-        /* Does row have few enough black pixels to be considered blank? */
-        if ((rowthresh[i-region->r1]=10*sum/pt)<=40)
-            {
-            if (dtrc>0)
-                {
-                rhmean_pixels += dtrc;
-                ntr++;
-                }
-            dtrc=0;
-            }
-        else
-            dtrc++;
-        }
-    if (dtrc>0)
-        {
-        rhmean_pixels += dtrc;
-        ntr++;
-        }
-    if (ntr>0)
-        rhmean_pixels /= ntr;
+    bmpregion_fill_row_threshold_array(region,k2settings,dynamic_aperture,rowthresh,&rhmean_pixels);
 /*
 {
 static int count=0;
@@ -1324,7 +1296,7 @@ printf("1. textrow[%d] = figure.\n",textrows->n-1);
 
     /* Look for double-height and triple-height rows and break them up */
     /* if conditions seem right.                                       */
-    textrows_find_doubles(textrows,rowthresh,region,k2settings,3);
+    textrows_find_doubles(textrows,rowthresh,region,k2settings,3,dynamic_aperture);
 
     /* Compute gaps between rows and row heights again */
     textrows_compute_row_gaps(textrows,region->r2);
@@ -1356,26 +1328,101 @@ printf("1. textrow[%d] = figure.\n",textrows->n-1);
 
 
 /*
-** Add a vertically-contiguous rectangular region to the destination bitmap.
-** The rectangular region may be broken up horizontally (wrapped).
+** rowthresh must be dimensioned to region->r2-region->r1+1
+*/
+void bmpregion_fill_row_threshold_array(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
+                                        int dynamic_aperture,int *rowthresh,int *rhmean_pixels)
+
+    {
+    int aperturemax,aperture,dtrc,ntr,i;
+
+    aperturemax = (int)(region->dpi/72.+.5);
+    if (aperturemax < 2)
+        aperturemax = 2;
+    aperture=(int)(region->dpi*k2settings->column_row_gap_height_in+.5);
+/*
+for (i=region->r1;i<=region->r2;i++)
+k2printf("rowcount[%d]=%d\n",i,region->rowcount[i]);
+*/
+    (*rhmean_pixels)=0; // Mean text row height
+    for (ntr=dtrc=0,i=region->r1;i<=region->r2;i++)
+        {
+        int ii,i1,i2,sum,pt;
+
+        if (dynamic_aperture)
+            {
+            aperture=(int)(dtrc/13.7+.5);
+            if (aperture > aperturemax)
+                aperture=aperturemax;
+            if (aperture < 2)
+                aperture=2;
+            }
+        i1=i-aperture/2;
+        i2=i1+aperture-1;
+        if (i1<region->r1)
+            i1=region->r1;
+        if (i2>region->r2)
+            i2=region->r2;
+        pt=(int)((i2-i1+1)*k2settings->gtr_in*region->dpi+.5); /* pixel count threshold */
+        if (pt<1)
+            pt=1;
+        /* Sum over row aperture */
+        for (sum=0,ii=i1;ii<=i2;sum+=region->rowcount[ii],ii++);
+        /* Does row have few enough black pixels to be considered blank? */
+        if ((rowthresh[i-region->r1]=10*sum/pt)<=40)
+            {
+            if (dtrc>0)
+                {
+                (*rhmean_pixels) = (*rhmean_pixels) + dtrc;
+                ntr++;
+                }
+            dtrc=0;
+            }
+        else
+            dtrc++;
+        }
+    if (dtrc>0)
+        {
+        (*rhmean_pixels) = (*rhmean_pixels) + dtrc;
+        ntr++;
+        }
+    if (ntr>0)
+        (*rhmean_pixels) = (*rhmean_pixels) / ntr;
+    }
+
+
+#if (WILLUSDEBUGX & 0x1000)
+static int rn=0;
+#endif
+/*
+**
+** Break row of text into words.
+**
+** Input:  region, expected to be one row of text.
+**
+** Output: region->textrows (treated as textwords) structure filled in with
+**         individual word regions.
+**
 */
 void bmpregion_one_row_find_textwords(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                                       int add_to_dbase)
 
     {
-    int nc,i,mingap,col0,dr,thlow,thhigh;
-    int *bp;
+    int i,i0,dr,lcheight,gap_thresh,display_width,mgt;
     BMPREGION *newregion,_newregion;
     TEXTWORDS _textwords,*textwords;
+    int *gw,*copt,ngaps;
+    int width;
+    double multiplier;
     static char *funcname="bmpregion_one_row_find_textwords";
 
 #if (WILLUSDEBUGX & 0x1000)
 printf("@bmpregion_one_row_find_textwords\n");
 printf("    (%d,%d)-(%d,%d)\n",region->c1,region->r1,region->c2,region->r2);
+printf("    wordspacing=%g\n",k2settings->word_spacing);
 #endif
 #if (WILLUSDEBUGX & 0x1000)
 {
-static int rn=0;
 char filename[256];
 rn++;
 /*
@@ -1402,9 +1449,6 @@ printf("Region #%d\n",rn);
                  "Please report error.\n",region->textrows.n);
         exit(20);
         }
-#if (WILLUSDEBUGX & 0x1000)
-printf("ftw 01\n");
-#endif
     textwords=&_textwords;
     textwords_init(textwords);
     newregion=&_newregion;
@@ -1422,16 +1466,9 @@ printf("ftw 01\n");
     textrows_clear(&region->textrows);
     textrows_add_textrow(&region->textrows,&region->bbox);
 
-#if (WILLUSDEBUGX & 0x1000)
-printf("ftw 02\n");
-#endif
     /* Trim columns to text row */
     bmpregion_trim_margins(newregion,k2settings,0x13);
-#if (WILLUSDEBUGX & 0x1000)
-printf("ftw 03\n");
-#endif
-    nc=newregion->c2-newregion->c1+1;
-    if (nc<6)
+    if (newregion->c2-newregion->c1+1<6)
         {
         bmpregion_free(newregion);
         textwords_free(textwords);
@@ -1442,241 +1479,122 @@ printf("ftw 03\n");
     ** Use this as pixel counting aperture.
     */
     dr=newregion->bbox.lcheight;
-    mingap = dr*k2settings->word_spacing*0.8;
-    if (mingap < 2)
-        mingap = 2;
-
-
-    /*
-    ** Chrox KOReader patch applied in v2.13
-    **
-    ** k2settings->auto_word_spacing is used by KOReader.
-    **
-    ** Calculate gap size for fixed and non-fixed pitch words.
-    ** We assume that fixed pitch characters like CJK have pitch size close to
-    ** line height, while non-fixed pitch characters have pitch size less than
-    ** 0.7 line height.
-    */
-    if (k2settings->auto_word_spacing)
-        {
-        int gapthr = 0;
-        int gaplen = 0;
-        int pitchlen = 0;
-        int gapcount = 0;
-        int pitchcount = 0;
-        int gp[256];
-        int pp[256];
-
-        /* printf("colcount = ["); */
-        for (i=newregion->c1;i<=newregion->c2;i++)
-            {
-            int thiscount;
-
-            thiscount = newregion->colcount[i];
-            /* printf("%d,", thiscount); */
-            if (thiscount <= gapthr)
-                {
-                if (pitchcount > 0)
-                    gaplen++;
-                }
-            else
-                pitchlen++;
-            if (thiscount > gapthr && gaplen > 0)
-                {
-                if (gapcount >= 256)
-                    break;
-                gp[gapcount++] = gaplen;
-                gaplen = 0;
-                }
-            if (thiscount <= gapthr && pitchlen > 0)
-                {
-                if (pitchcount >= 256)
-                    break;
-                pp[pitchcount++] = pitchlen;
-                pitchlen = 0;
-                }
-            }
-        /*
-        printf("]\n");
-
-        printf("gaplens = [");
-        for (i=0; i<gapcount; i++)
-            printf("%d,", gp[i]);
-        printf("]\n");
-        printf("pitchlens = [");
-        for (i=0; i<pitchcount; i++)
-            printf("%d,", pp[i]);
-        printf("]\n");
-        */
-
-        gapcount--;  /* discard the last gap */
-
-        if (pitchcount > 10 && gapcount > 10)
-            {
-            int gap_medium, pitch_medium, rheight;
-            double gap;
-
-            sorti(gp,gapcount);
-            sorti(pp,pitchcount);
-            gap_medium = gp[gapcount/2];
-            pitch_medium = pp[pitchcount/2];
-            rheight = newregion->r2 - newregion->r1;
-            gap = 0.7 * rheight / pitch_medium * gap_medium;
-            /* printf("caculated gap:%.2f, delta:%.2f\n", gap, gap-mingap); */
-            if (gap < 2)
-                gap = 2;
-            mingap = gap;
-            }
-        }
-
+    if (dr<1)
+        dr=1;
 
 #if (WILLUSDEBUGX & 0x1000)
-printf("ftw 04\n");
+    printf("dr=%d\n",dr);
+    {
+    static int count=0;
+    char fname[256];
+    sprintf(fname,"row%04d.png",count+1);
+    bmpregion_write(newregion,fname);
 #endif
+
     /*
-    ** Find places where there are gaps (store in bp array)
-    ** Could do this more intelligently--maybe calculate a histogram?
+    ** Find sizes of gaps and look for bi-modal distribution
+    ** (e.g. small gaps between characters and large gaps between words)
+    ** gw[] gets gaps in pixels.
+    ** copt[] gets the center position of the gap in pixels.
     */
-    willus_dmem_alloc_warn(18,(void **)&bp,sizeof(int)*nc,funcname,10);
-    memset(bp,0,nc*sizeof(int));
-    if (k2settings->src_left_to_right)
-        {
-        for (i=newregion->c1;i<=newregion->c2;i++)
-            {
-            int i1,i2,pt,sum,ii;
-            i1=i-mingap/2;
-            i2=i1+mingap-1;
-            if (i1<newregion->c1)
-                i1=newregion->c1;
-            if (i2>newregion->c2)
-                i2=newregion->c2;
-            pt=(int)((i2-i1+1)*k2settings->gtw_in*region->dpi+.5);
-            if (pt<1)
-                pt=1;
-            for (sum=0,ii=i1;ii<=i2;sum+=newregion->colcount[ii],ii++);
-            bp[i-newregion->c1]=10*sum/pt;
-/*
-if ((i-newregion->c1)%10==0)
-printf("    bp[%3d] = %3d\n",i-newregion->c1,bp[i-newregion->c1]);
-*/
-            }
-        }
-    else
-        {
-        for (i=newregion->c2;i>=newregion->c1;i--)
-            {
-            int i1,i2,pt,sum,ii;
-            i1=i-mingap/2;
-            i2=i1+mingap-1;
-            if (i1<newregion->c1)
-                i1=newregion->c1;
-            if (i2>newregion->c2)
-                i2=newregion->c2;
-            pt=(int)((i2-i1+1)*k2settings->gtw_in*region->dpi+.5);
-            if (pt<1)
-                pt=1;
-            for (sum=0,ii=i1;ii<=i2;sum+=newregion->colcount[ii],ii++);
-            bp[i-newregion->c1]=10*sum/pt;
-            }
-        }
+    ngaps=0;
+    width=newregion->c2-newregion->c1+1;
+    willus_dmem_alloc_warn(31,(void **)&gw,sizeof(int)*width*2,funcname,10);
+    copt=&gw[width];
+    bmpregion_count_text_row_pixels(newregion,gw,copt,&ngaps,k2settings);
+
+    /* Sort by gap size */
+    sortxyi(gw,copt,ngaps);
+    array_flipi(gw,ngaps);
+    array_flipi(copt,ngaps);
+    gap_thresh = get_word_gap_threshold(copt,gw,ngaps,dr,newregion->c2-newregion->c1+1,
+                                        newregion,k2settings);
+    mgt = (int)(fabs(k2settings->word_spacing)*dr+.5);
+    /* Minimum word gap = fabs(word_spacing) */
+    if (k2settings->word_spacing<0 && gap_thresh<mgt)
+        gap_thresh = mgt;
 #if (WILLUSDEBUGX & 0x1000)
-printf("ftw 05\n");
+aprintf("thresh = %5.3f" ANSI_NORMAL "\n",(double)gap_thresh/dr);
 #endif
-#if (WILLUSDEBUGX & 4)
-if (region->r1 > 3699 && region->r1<3750)
-{
-static int a=0;
-FILE *f;
-f=fopen("outbp.ep",a==0?"w":"a");
-a++;
-fprintf(f,"/sa l \"(%d,%d)-(%d,%d) lch=%d\" 2\n",region->c1,region->r1,region->c2,region->r2,region->bbox.lcheight);
-for (i=0;i<nc;i++)
-fprintf(f,"%d\n",bp[i]);
-fprintf(f,"//nc\n");
-fclose(f);
-}
-#endif
-    thlow=10;
-    thhigh=50;
+    for (i=0;i<ngaps;i++)
+        if (gw[i]<gap_thresh)
+            break;
     /*
-    ** Break into pieces
+    ngaps=i;
     */
 #if (WILLUSDEBUGX & 0x1000)
-printf("ftw 06\n");
+    printf("ngaps = %d\n",i);
+    }
 #endif
-    for (col0=newregion->c1;col0<=newregion->c2;col0++)
+    /* Re-sort by position */
+    sortxyi(copt,gw,ngaps);
+#if (WILLUSDEBUGX & 0x1000)
+for (i=0;i<ngaps-1;i++)
+printf("    gw[%2d]=(%4d,%2d)\n",i,copt[i],gw[i]);
+printf("Gap threshold = %d\n",gap_thresh);
+#endif
+    display_width = k2settings->max_region_width_inches*k2settings->src_dpi;
+    for (i0=-1,i=0,multiplier=1.0;i<=ngaps;i++)
         {
-        int copt,c0;
+        int c1,c2;
         BMPREGION xregion;
 
+        if (i<ngaps && gw[i]<gap_thresh*multiplier)
+            continue;
+        c1=(i0<0) ? newregion->c1 : copt[i0]+1;
+        c2=(i==ngaps) ? newregion->c2 : copt[i];
+        if (c2-c1<2)
+            continue;
+        /* Is word too long for display? (Only checked if in automatic spacing mode.) */
+        if (k2settings->word_spacing<0 && (c2-c1+1 > display_width))
+            {
+            if (i-i0>1)
+                {
 #if (WILLUSDEBUGX & 0x1000)
-printf("ftw 07, col0=%d\n",col0);
+if (multiplier > .95)
+printf("Subdividing gap:  %d - %d (del=%d)\n",c1,c2,c2-c1+1);
+#endif
+                multiplier *= 0.9;
+                if (multiplier>.05 && gap_thresh*multiplier >= mgt)
+                    {
+                    i=i0;
+                    continue;
+                    }
+                }
+            }
+#if (WILLUSDEBUGX & 0x1000)
+if (multiplier<0.95)
+printf("    Subdivided:  New len = %d pixels, multiplier=%g.\n",c2-c1+1,multiplier);
 #endif
         bmpregion_init(&xregion);
         bmpregion_copy(&xregion,newregion,0);
-        xregion.c1=col0;
-        for (;col0<=newregion->c2;col0++)
-            if (bp[col0-newregion->c1]>=thhigh)
-                break;
-        if (col0>newregion->c2)
-            {
-            bmpregion_free(&xregion);
-            break;
-            }
-        for (col0++;col0<=newregion->c2;col0++)
-            if (bp[col0-newregion->c1]<thlow)
-                break;
-        for (copt=c0=col0;col0<=newregion->c2 && col0-c0<=dr;col0++)
-            {
-            if (bp[col0-newregion->c1] <  bp[copt-newregion->c1])
-                copt=col0;
-            if (bp[col0-newregion->c1] > thhigh)
-                break;
-            }
-        if (copt>newregion->c2)
-            copt=newregion->c2;
-        xregion.c2=copt;
-        if (xregion.c2-xregion.c1 < 2)
-            {
-            bmpregion_free(&xregion);
-            continue;
-            }
+        xregion.c1=c1;
+        xregion.c2=c2;
         xregion.bbox.type=0;
         bmpregion_calc_bbox(&xregion,k2settings,1);
         textwords_add_bmpregion(textwords,&xregion,REGION_TYPE_WORD);
         bmpregion_free(&xregion);
-        col0=copt;
-        if (copt==newregion->c2)
-            break;
+        /* Mark as done up to this gap. */
+        i0=i;
+        /* Reset to nominal gap threshold */
+        multiplier=1.0;
         }
-#if (WILLUSDEBUGX & 0x1000)
-printf("ftw 08\n");
-#endif
+    /* End of scope which includes gw[] and copt[] arrays */
+    willus_dmem_free(31,(double **)&gw,funcname);
+
     textwords_compute_col_gaps(textwords,newregion->c2);
-#if (WILLUSDEBUGX & 0x1000)
-printf("ftw 09\n");
-#endif
+    lcheight = newregion->bbox.lcheight;
     bmpregion_free(newregion);
-#if (WILLUSDEBUGX & 0x1000)
-printf("ftw 09a\n");
-#endif
-    willus_dmem_free(18,(double **)&bp,funcname);
-#if (WILLUSDEBUGX & 0x1000)
-printf("ftw 10\n");
-#endif
 
     /* Remove small gaps */
-    {
-    double median_gap;
-    textwords_add_word_gaps(add_to_dbase ? textwords : NULL,newregion->bbox.lcheight,&median_gap,
-                            k2settings->word_spacing);
-    textwords_remove_small_col_gaps(textwords,newregion->bbox.lcheight,median_gap/1.9,
-                                    k2settings->word_spacing);
-    }
+    if (k2settings->word_spacing>=0.)
+        {
+        double median_gap;
+        textwords_add_word_gaps(add_to_dbase ? textwords : NULL,lcheight,&median_gap,
+                                (double)gap_thresh/dr);
+        textwords_remove_small_col_gaps(textwords,lcheight,median_gap/1.9,(double)gap_thresh/dr);
+        }
 
-#if (WILLUSDEBUGX & 0x1000)
-printf("ftw 11\n");
-#endif
     /* If we found words, copy them to BMPREGION structure */
     if (textwords->n > 0)
         {
@@ -1684,12 +1602,9 @@ printf("ftw 11\n");
         for (i=0;i<textwords->n;i++)
             textwords_add_textword(&region->textrows,&textwords->textrow[i]);
         }
-#if (WILLUSDEBUGX & 0x1000)
-printf("ftw 12\n");
-#endif
     textwords_free(textwords);
 #if (WILLUSDEBUGX & 0x1000)
-printf("ftw end\n");
+printf("End bmpregion_one_row_find_textwords.\n");
 #endif
     }
 
@@ -1709,3 +1624,429 @@ void textrow_echo(TEXTROW *textrow,FILE *out)
     fprintf(out,"    type=%d\n",textrow->type);
     fprintf(out,"    rat=%g\n",textrow->rat);
     }
+
+
+static void bmpregion_count_text_row_pixels(BMPREGION *region,int *gw,int *copt,int *ngaps,
+                                            K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    int nc,dr,mingap,*bp;
+    static char *funcname="bmpregion_count_text_row_pixels";
+
+    /*
+    ** Find places where there are gaps (store in bp array)
+    ** Could do this more intelligently--maybe calculate a histogram?
+    */
+    nc=region->c2-region->c1+1;
+    willus_dmem_alloc_warn(18,(void **)&bp,sizeof(int)*nc,funcname,10);
+    memset(bp,0,nc*sizeof(int));
+    /*
+    ** Look for "space-sized" gaps, i.e. gaps that would occur between words.
+    ** Use this as pixel counting aperture.
+    */
+    dr=region->bbox.lcheight;
+    if (dr<1)
+        dr=1;
+    /*
+    ** v2.20:  Err on small value for mingap now.  The auto-spacing version
+    **         for KO Reader used to have a special algorithm for calculating
+    **         mingap, but using a very small value seems to work fine for the
+    **         the latest word gap detection algorithm, regardless of whether
+    **         the alphabet is Western or CJK.
+    */
+    mingap = dr*.02;
+    if (mingap < 2)
+        mingap = 2;
+
+    if (k2settings->src_left_to_right)
+        {
+        int i;
+
+#if (WILLUSDEBUGX & 0x1000)
+FILE *xx;
+static int count=0;
+xx=fopen("rowgaps.ep",count==0?"w":"a");
+count++;
+nprintf(xx,"/sa l \"reg %d\" 1\n",rn);
+#endif
+        for (i=region->c1;i<=region->c2;i++)
+            {
+            int i1,i2,pt,sum,ii;
+
+            i1=i-mingap/2;
+            i2=i1+mingap-1;
+            if (i1<region->c1)
+                i1=region->c1;
+            if (i2>region->c2)
+                i2=region->c2;
+            pt=(int)((i2-i1+1)*k2settings->gtw_in*region->dpi+.5);
+            if (pt<1)
+                pt=1;
+            for (sum=0,ii=i1;ii<=i2;sum+=region->colcount[ii],ii++);
+            bp[i-region->c1]=10*sum/pt;
+#if (WILLUSDEBUGX & 0x1000)
+nprintf(xx,"%.1f\n",(double)bp[i-region->c1]);
+#endif
+            }
+#if (WILLUSDEBUGX & 0x1000)
+nprintf(xx,"//nc\n");
+if (xx!=NULL)
+fclose(xx);
+#endif
+        }
+    else
+        {
+        int i;
+
+        for (i=region->c2;i>=region->c1;i--)
+            {
+            int i1,i2,pt,sum,ii;
+
+            i1=i-mingap/2;
+            i2=i1+mingap-1;
+            if (i1<region->c1)
+                i1=region->c1;
+            if (i2>region->c2)
+                i2=region->c2;
+            pt=(int)((i2-i1+1)*k2settings->gtw_in*region->dpi+.5);
+            if (pt<1)
+                pt=1;
+            for (sum=0,ii=i1;ii<=i2;sum+=region->colcount[ii],ii++);
+            bp[i-region->c1]=10*sum/pt;
+            }
+        }
+#if (WILLUSDEBUGX & 4)
+if (region->r1 > 3699 && region->r1<3750)
+{
+static int a=0;
+int i;
+FILE *f;
+f=fopen("outbp.ep",a==0?"w":"a");
+a++;
+fprintf(f,"/sa l \"(%d,%d)-(%d,%d) lch=%d\" 2\n",region->c1,region->r1,region->c2,region->r2,region->bbox.lcheight);
+for (i=0;i<nc;i++)
+fprintf(f,"%d\n",bp[i]);
+fprintf(f,"//nc\n");
+fclose(f);
+}
+#endif
+    bmpregion_find_gaps(region,bp,gw,copt,ngaps);
+    willus_dmem_free(18,(double **)&bp,funcname);
+    }
+
+
+static void bmpregion_find_gaps(BMPREGION *region,int *bp,int *gw,int *copt,int *ngaps)
+
+    {
+    int thlow,thhigh,col0,dr;
+                             
+    thlow=10;
+    thhigh=20;
+    dr=region->bbox.lcheight;
+    if (dr<1)
+        dr=1;
+    /*
+    ** Find sizes of gaps and look for bi-modal distribution
+    ** (e.g. small gaps between characters and large gaps between words)
+    ** gw[] gets gaps in pixels.
+    ** copt[] gets the center position of the gap in pixels.
+    ** dgap[i] = gapwidth[i]-gapwidth[i-1] after gapwidth[] gets sorted
+    ** gapcount[i] = i (before sorting)
+    */
+    (*ngaps)=0;
+    /* Find gaps between text (letters and words) and store in gw[] and copt[] */
+    for (col0=region->c1;col0<=region->c2;col0++)
+        {
+        int copt0,c0;
+
+        for (;col0<=region->c2;col0++)
+            if (bp[col0-region->c1]>=thhigh)
+                break;
+        if (col0>region->c2)
+            break;
+        for (col0++;col0<=region->c2;col0++)
+            if (bp[col0-region->c1]<thlow)
+                break;
+        if (col0 >= region->c2)
+            break;
+        /* 2*dr was dr before v2.20 */
+        for (copt0=c0=col0;col0<=region->c2  && col0-c0<=2*dr;col0++)
+            {
+            if (bp[col0-region->c1] <  bp[copt0-region->c1])
+                copt0=col0;
+            if (bp[col0-region->c1] > thhigh)
+                break;
+            }
+        if (col0>region->c2)
+            break;
+        if (copt0>region->c2)
+            copt0=region->c2;
+        gw[(*ngaps)]=col0-c0;
+        copt[(*ngaps)]=copt0;
+        (*ngaps)=(*ngaps)+1;
+        col0=copt0;
+        if (copt0==region->c2)
+            break;
+        }
+    }
+
+
+/*
+** Given an array of pixel gap widths (gw[]) and gap positions (copt[]) between letters
+** and words in a text row, determine a threshold-word-gap width in pixels.  Gaps at this
+** width or higher will be considered gaps between words (eligible places to split a
+** text row for text re-flow).
+** 
+** NOTE!  gw[] and copt[] arrays must be sorted, in descending order, by values in gw[]
+**
+** dr = height of lowercase 'o' in pixels
+** row_width = width of text row in pixels
+**
+** ngaps must be >=2
+**
+** v2.20
+**
+*/
+static int get_word_gap_threshold(int *copt,int *gw,int ngaps,int dr,int row_width,
+                                  BMPREGION *region,K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    int i,gt,ibest;
+    int *dgap,*gapcount;
+    double expected,bestpos;
+    static char *funcname="get_word_gap_threshold";
+    int display_width;
+
+#if (WILLUSDEBUGX & 0x01000)
+printf("@get_word_gap_threshold, ngaps=%d, dr=%d\n",ngaps,dr);
+#endif
+    if (ngaps<=0)
+        return((int)(fabs(k2settings->word_spacing)*dr+.5));
+    /*
+    ** Compute the expected number of word gaps in the text row based
+    ** on a typical word length being ~ 6 * dr.
+    **
+    ** where dr = height of lowercase 'o' in pixels.
+    */
+    expected=(double)row_width/(6*dr)-1.;
+    /*
+    ** Text rows longer than display width either need to be wrapped or shrunk
+    */
+    display_width = k2settings->max_region_width_inches*k2settings->src_dpi;
+#if (WILLUSDEBUGX & 0x01000)
+    if (ngaps>0)
+        {
+        FILE *out;
+        static int c2=0;
+
+        out=fopen("rowgaps2.ep",c2==0?"w":"a");
+        c2++;
+        /* nprintf(out,"/sa l \"reg %d, row %d, len=%d, lcheight=%d\" 2\n",rn,count+1,row_width,dr); */
+        for (i=0;i<ngaps;i++)
+            nprintf(out,"%g %g\n",(double)(i+1)/expected,(double)gw[i]/dr);
+        nprintf(out,"//nc\n");
+        if (out!=NULL)
+            fclose(out);
+        }
+#endif
+    if (expected<=0. || (expected<1.5 && (double)gw[0]/dr<.2))
+        return(gw[ngaps-1]+.1); /* No gaps */
+    /* If ngaps==1, use historicals?? */
+    if (k2settings->word_spacing>=0. || ngaps<2)
+        return((int)(fabs(k2settings->word_spacing)*dr+.5));
+    if (expected<0.1)
+        expected=0.1;
+    willus_dmem_alloc_warn(36,(void **)&dgap,sizeof(int)*ngaps*2,funcname,10);
+    gapcount=&dgap[ngaps];
+
+    for (i=0;i<ngaps-1;i++)
+        {
+        dgap[i]=gw[i]-gw[i+1];
+        gapcount[i]=i+1;
+        }
+    sortxyi(dgap,gapcount,ngaps-1);
+    array_flipi(dgap,ngaps-1);
+    array_flipi(gapcount,ngaps-1);
+    /*
+    ** Check the three largest changes to the gap size--we expect that there
+    ** should be a natural bi-modal gap size distribution made up of gaps between
+    ** letters and gaps between words.  So the distribution of gap sizes should
+    ** have a natural break in it. -- This may not work for all languages, though,
+    ** particularly symbol languages like Chinese.
+    **
+    */
+    gt=-1;
+#if (WILLUSDEBUGX & 0x1000)
+for (i=0;i<ngaps-1;i++)
+printf("    gw[%2d]=(%4d,%2d); dgap[%2d]=%2d, gapcount[%2d]=%4d\n",i,copt[i],gw[i],i,dgap[i],i,gapcount[i]);
+#endif
+    /* First look for best-centered large gap change */
+    ibest = -1;
+    bestpos = -1.;
+    for (i=0;i<ngaps-1;i++)
+        {
+        double pos;
+        
+#if (WILLUSDEBUGX & 0x1000)
+printf("i=%d/%d, dgap=%d, gapcount=%d\n",i,ngaps-1,dgap[i],gapcount[i]);
+#endif
+        if ((double)dgap[i]/dr < 0.1)
+            break;
+        if (i>0 && (double)gw[gapcount[i]]/gw[gapcount[i-1]] > 0.6)
+            continue;
+        pos = (double)gapcount[i]/expected;
+        if (bestpos<0. || fabs(pos-1.0) < fabs(bestpos-1.0))
+            {
+            bestpos=pos;
+            ibest=i;
+            }
+        }
+#if (WILLUSDEBUGX & 0x1000)
+printf("Done loop checkinf for best-centered large gap. ibest=%d\n",ibest);
+#endif
+    if (ibest >= 0)
+        {
+        gt=(gw[gapcount[ibest]]+gw[gapcount[ibest]-1])/2;
+#if (WILLUSDEBUGX & 0x1000)
+aprintf(ANSI_GREEN "ibest=%d, gt_init=%d, ",ibest,gt);
+#endif
+        }
+    else
+        {
+        /* Look for largest gap change that's in the right ball park */
+        for (i=0;i<ngaps-1;i++)
+            {
+            /*
+            ** Change in gap sizes has to be at least 0.07 x dr
+            */
+#if (WILLUSDEBUGX & 0x1000)
+printf("ngaps=%d, dgap[%d]/%d = %g\n",ngaps,i,dr,(double)dgap[i]/dr);
+printf("   expected = %g\n",expected);
+printf("   gapcount[%d]/expected = %g\n",i,gapcount[i]/expected);
+#endif
+            if ((double)dgap[i]/dr < 0.07)
+                break;
+            if (i==0 && ngaps<=2)
+                {
+                gt=(gw[0]+gw[1])/2;
+                break;
+                }
+            /*
+            ** If this change in gap sizes is significantly larger than any
+            ** others, it's probably the right one.
+            ** Or if we get about the right number of word gaps compared to
+            ** what we expect.
+            */
+            if ((i==0 && (double)dgap[i+1]/dgap[i] < 0.6)
+                 || (gapcount[i]/expected > 0.3 && gapcount[i]/expected < 3.5))
+                {
+                gt=(gw[gapcount[i]]+gw[gapcount[i]-1])/2;
+#if (WILLUSDEBUGX & 0x1000)
+aprintf(ANSI_GREEN);
+#endif
+                break;
+                }
+            }
+        }
+#if (WILLUSDEBUGX & 0x1000)
+printf("Past first cut analysis.  gt = %d\n",gt);
+#endif
+    /*
+    ** No obvious break point in the gap spacings found?  (gt < 0)
+    */
+    if (gt<0)
+        {
+        /* Not a very long row -- lean towards not breaking it */
+        if (expected < 3.5 && row_width <= display_width)
+            {
+            if ((double)gw[0]/dr < 0.15)
+                gt = gw[0]+.1; /* Don't allow breaks */
+            else
+                {
+                i=(int)(2.0*expected+0.5);
+                if (i>ngaps-1)
+                    i=ngaps-1;
+                gt = gw[i]+0.1*dr;
+                }
+#if (WILLUSDEBUGX & 0x1000)
+aprintf(ANSI_MAGENTA "short row: ");
+#endif
+            }
+        else
+            {
+            /* Long row--we should pick a gap size so we can break it up */
+            i=(int)(.35*expected+0.5);
+            if (i>ngaps-1)
+                i=ngaps-1;
+            gt=gw[i];
+            if (gt > 0.4*dr)
+                gt /= 2;
+            else
+                gt -= 0.1*dr;
+            if (gt<0)
+                gt=0;
+#if (WILLUSDEBUGX & 0x1000)
+aprintf(ANSI_YELLOW "long row (dw=%d): ",display_width);
+#endif
+            }
+        }
+/*
+** This part is done later by the calling function now
+*/
+#ifdef COMMENT
+    if (gt>0)
+        {
+        int gt0;
+
+        gt0=gt;
+        /* Make sure no word is longer than display width if possible */
+        sortxyi(copt,gw,ngaps);
+        while (word_longer_than(gt,gw,copt,ngaps,display_width,region))
+            gt--;
+        sortxyi(gw,copt,ngaps);
+        array_flipi(gw,ngaps);
+        array_flipi(copt,ngaps);
+#if (WILLUSDEBUGX & 0x1000)
+if (gt<gt0)
+aprintf("DECREMENT FROM %d TO %d\n",gt0,gt);
+#endif
+        }
+#endif /* COMMENT */
+    willus_dmem_free(36,(double **)&dgap,funcname);
+#if (WILLUSDEBUGX & 0x1000)
+printf("Done get_word_gap_threshold, gt=%d.\n",gt);
+#endif
+    return(gt);
+    }
+
+
+#ifdef COMMENT
+/*
+** Returns NZ if longest word length is > display_length
+** copt[] and gw[] arrays must be sorted by copt[] values.
+*/
+static int word_longer_than(int gap_thresh,int *gw,int *copt,int ngaps,int display_width,
+                            BMPREGION *region)
+
+   {
+   int i,i0;
+
+   for (i0=region->c1,i=0;i<=ngaps;i++)
+       {
+       int c;
+
+       c=(i==ngaps)?region->c2:copt[i];
+       if (i<ngaps && gw[i] < gap_thresh)
+           continue;
+/*
+#if (WILLUSDEBUGX & 0x1000)
+aprintf("        gt=%d, wlen=%d (dl=%d)\n",gap_thresh,c-i0,display_width);
+#endif
+*/
+       if (c-i0 > display_width)
+           return(1);
+       i0=c;
+       }
+    return(0);
+    }
+#endif

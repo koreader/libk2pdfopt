@@ -1,7 +1,7 @@
 /*
 ** textrows.c   Functions to handle TEXTROWS structure.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -21,8 +21,8 @@
 #include "k2pdfopt.h"
 
 
-static int  minval(int *x,int n,int dx,int *index,int index0,int indexmin,int indexmax);
-static int  maxval(int *x,int n,int dx,int *index,int index0);
+static int  minval(int *x,int n,int n0,int dx,int *index,int index0,int indexmin,int indexmax);
+static int  maxval(int *x,int n,int n0,int dx,int *index,int index0);
 static void textrow_assign_bmpregion(TEXTROW *textrow,BMPREGION *region,int type);
 /*
 static int textrows_median_row_height(TEXTROWS *textrows);
@@ -484,11 +484,13 @@ void textrows_sort_by_row_position(TEXTROWS *textrows)
 ** Find double-height rows and split them into two if there is a reasonable gap.
 */
 void textrows_find_doubles(TEXTROWS *textrows,int *rowthresh,BMPREGION *region,
-                           K2PDFOPT_SETTINGS *k2settings,int maxsize)
+                           K2PDFOPT_SETTINGS *k2settings,int maxsize,
+                           int dynamic_aperture)
 
     {
     int i,r1,r2;
     int rb[4];
+    static char *funcname="textrows_find_doubles";
 
     r1=region->r1;
     r2=region->r2;
@@ -496,12 +498,18 @@ void textrows_find_doubles(TEXTROWS *textrows,int *rowthresh,BMPREGION *region,
         maxsize = 5;
 #if (WILLUSDEBUGX & 256)
 printf("@textrows_find_doubles, textrows->n=%d\n",textrows->n);
+printf("    dpi = %d\n",region->dpi);
+printf("    row 1:  (%d,%d) - (%d,%d)\n",textrows->textrow[0].c1,textrows->textrow[0].r1,
+textrows->textrow[0].c2,textrows->textrow[0].r2);
+printf("    row %d:  (%d,%d) - (%d,%d)\n",textrows->n,textrows->textrow[textrows->n-1].c1,textrows->textrow[textrows->n-1].r1,
+textrows->textrow[textrows->n-1].c2,textrows->textrow[textrows->n-1].r2);
 for (i=0;i<textrows->n;i++)
 printf("    row[%2d].lc/h5050/cap = %3d %3d %3d\n",i,textrows->textrow[i].lcheight,textrows->textrow[i].h5050,textrows->textrow[i].capheight);
 #endif
     for (i=0;i<textrows->n;i++)
         {
-        int lch,rh;
+        int lch,rh,c1new,partial,r0,nrt;
+        int *prowthresh,*rthresh;
 
         lch=0;
         if (i>0 && textrows->textrow[i].capheight > textrows->textrow[i-1].capheight*1.8)
@@ -530,7 +538,12 @@ printf("    row[%2d].lc/h5050/cap = %3d %3d %3d\n",i,textrows->textrow[i].lcheig
 
            maxrat = -1.0;
            jbest=-1;
-           for (itry=0;itry<=1;itry++)
+           /*
+           ** itry=0:  Find best ratio, full row
+           ** itry=1:  Find best ratio, minus hypothetical large beginning letter
+           ** itry=2:  Re-calculate best of all cases
+           */
+           for (itry=0;itry<=2;itry++)
 
            {
            int j;
@@ -539,52 +552,167 @@ printf("    row[%2d].lc/h5050/cap = %3d %3d %3d\n",i,textrows->textrow[i].lcheig
 if (itry==0)
 printf("Large gap:  row[%d] = rows %d - %d, capheight = %d, lch=%d, rh=%d\n",i,textrows->textrow[i].r1,textrows->textrow[i].r2,textrows->textrow[i].capheight,lch,rh);
 #endif
+
+           /*
+           ** Default is to use rowthresh array, but rthresh may bet re-assigned in the
+           ** if statement below.
+           */
+           rthresh = rowthresh;
+           nrt=r2-r1+1;
+           r0=0;
+           partial = 0;
+           c1new = textrows->textrow[i].c1;
+           /*
+           ** If we're on the pass where itry==1, then it means there was a case where
+           ** a section almost qualified as a double or triple row, so go back through
+           ** but with a partial region--ignoring the left side which might encompass
+           ** a "double-row"-sized letter which begins a chapter.
+           ** Only works for left-to-right docs for now.  v2.20.  7-19-2014.
+           */
+           if (itry==1)
+               {
+               BMPREGION *pregion,_pregion;
+               int trh,trw,k,rhmean_pixels;
+
+#if (WILLUSDEBUGX & 256)
+printf("TRYING PARTIAL ANALYSIS OF TEXTROW %d\n",i);
+#endif
+               if (!k2settings->src_left_to_right)
+                   continue;
+               trh = textrows->textrow[i].r2-textrows->textrow[i].r1+1;
+               trw = textrows->textrow[i].c2-textrows->textrow[i].c1+1;
+               /* text row must be sufficiently long */
+               if (trw < trh*4)
+                   continue;
+               /* Compute counts for partial row */
+               partial=1;
+               pregion=&_pregion;
+               bmpregion_init(pregion);
+               bmpregion_copy(pregion,region,0);
+               /* Limit region to only this text row */
+               pregion->c1=textrows->textrow[i].c1;
+               pregion->c2=textrows->textrow[i].c2;
+               pregion->r1=textrows->textrow[i].r1;
+               pregion->r2=textrows->textrow[i].r2;
+              
+               /* Fill in colcount and rowcount */
+               bmpregion_calc_bbox(pregion,k2settings,0);
+               /*
+               ** Find left-edge minimum in column count--looking for where
+               ** the large letter would end.
+               */
+               for (c1new=trh/20,k=c1new+1;k<rh*2 && pregion->c1+k<=pregion->c2;k++)
+                   if (pregion->colcount[pregion->c1+k]<pregion->colcount[pregion->c1+c1new])
+                      c1new=k;
+               c1new += pregion->c1;
+#if (WILLUSDEBUGX & 256)
+printf("    c1=%d, c1new=%d, trh=%d\n",pregion->c1,c1new,trh);
+#endif
+               /*
+               ** Scoot left column over to avoid possible large letter--only works
+               ** for left-to-right.
+               */
+               pregion->c1 += trh*2;
+
+               /* Re-count rows and columns with new first column */
+               bmpregion_calc_bbox(pregion,k2settings,0);
+               nrt=pregion->r2-pregion->r1+1;
+               willus_dmem_alloc_warn(37,(void **)&prowthresh,sizeof(int)*nrt,funcname,10);
+               bmpregion_fill_row_threshold_array(pregion,k2settings,dynamic_aperture,
+                                                  prowthresh,&rhmean_pixels);
+               /*
+               ** Use prowthresh for evaluating line breaks
+               */
+               rthresh = prowthresh;
+               r0=pregion->r1-region->r1;
+               bmpregion_free(pregion);
+#if (WILLUSDEBUGX & 256)
+if (k2settings->verbose)
+{
+printf("rowthresh vs. prowthresh\n");
+for (k=0;k<nrt;k++)
+printf("  %3d %4d %4d\n",k+r0,rowthresh[k+r0],prowthresh[k]);
+}
+#endif
+               /*
+               ** Signal that this is partial region scan
+               */
+               partial=1;
+               }
+
+           /* For each j value, evaluate if there are gaps at spacings for that many rows */
            for (j=2;j<=maxsize;j++)
                {
                int ip,c1,c2;
                double rat;
 
-               if (itry==1 && j!=jbest)
+               if (itry>0 && j!=jbest)
                    continue;
+
+#if (WILLUSDEBUGX & 256)
+printf("    j=%d\n",j);
+printf("    textrow[%d].rowheight=%d\n",i,textrows->textrow[i].rowheight);
+printf("    textrow[%d].r1=%d, r2=%d\n",i,textrows->textrow[i].r1,textrows->textrow[i].r2);
+printf("    textrow[%d].capheight=%d\n",i,textrows->textrow[i].capheight);
+printf("    textrow[%d].rowbase=%d\n",i,textrows->textrow[i].rowbase);
+printf("    rh=%d\n",rh);
+#endif
+               /* Sanity checks removed, v2.20.  They sometimes fail. */
                /* Sanity check the row height -- should be approx. j * the nominal height */
+               /*
                if (i>0 && (textrows->textrow[i].rowheight < j*rh*0.7
                              || textrows->textrow[i].rowheight > j*rh*1.5))
                    continue;
+               */
+#if (WILLUSDEBUGX & 256)
+printf("    past check 1\n");
+#endif
+               /*
                if (i==0 && (textrows->textrow[i].capheight < j*rh*0.7
                              || textrows->textrow[i].capheight > j*rh*1.5))
                    continue;
+               */
                c1=c2=-1;
+#if (WILLUSDEBUGX & 256)
+printf("    past checks\n");
+#endif
                for (ip=0;ip<j-1;ip++)
                    {
                    int rmin,c;
                    /* v1.66 fix -- bound the search */
-                   c=minval(rowthresh,r2-r1+1,lch,&rmin,
+                   c=minval(rthresh,nrt,r0,lch,&rmin,
                         textrows->textrow[i].rowbase-(ip+1)*textrows->textrow[i].capheight/j-r1,
                         textrows->textrow[i].r1+2-r1,textrows->textrow[i].r2-2-r1);
                    rb[ip]=rmin+r1;
-/* printf("        nadir point[%d of %d] = row %4d = %d\n",ip+1,j-1,rmin+r1,rowthresh[rmin]); */
+/* printf("        nadir point[%d of %d] = row %4d = %d\n",ip+1,j-1,rmin+r1,rthresh[rmin]); */
                    if (c1<0 || c>c1)
                        c1=c;
                    } 
+#if (WILLUSDEBUGX & 256)
+printf("    c1=%d\n",c1);
+#endif
                for (ip=0;ip<j;ip++)
                    {
                    int rmax,c;
                    if (ip==0)
-                       c=maxval(rowthresh,r2-r1+1,lch,&rmax,textrows->textrow[i].rowbase-textrows->textrow[i].capheight+lch-r1);
+                       c=maxval(rthresh,nrt,r0,lch,&rmax,textrows->textrow[i].rowbase-textrows->textrow[i].capheight+lch-r1);
                    else if (ip==j-1)
-                       c=maxval(rowthresh,r2-r1+1,lch,&rmax,textrows->textrow[i].rowbase-lch-r1);
+                       c=maxval(rthresh,nrt,r0,lch,&rmax,textrows->textrow[i].rowbase-lch-r1);
                    else
-                       c=maxval(rowthresh,r2-r1+1,lch,&rmax,textrows->textrow[i].rowbase - (ip+1)*textrows->textrow[i].capheight*ip/(j-1)-r1);
+                       c=maxval(rthresh,nrt,r0,lch,&rmax,textrows->textrow[i].rowbase - (ip+1)*textrows->textrow[i].capheight*ip/(j-1)-r1);
                    if (c2<0 || c<c2)
                        c2=c;
-/* printf("        peak point[%d of %d] = row %4d = %d\n",ip+1,j,rmax+r1,rowthresh[rmax]); */
+/* printf("        peak point[%d of %d] = row %4d = %d\n",ip+1,j,rmax+r1,rthresh[rmax]); */
                    } 
+#if (WILLUSDEBUGX & 256)
+printf("    c2=%d\n",c2);
+#endif
                if (c1==0)
                    c1=1;
                rat=(double)c2/c1;
 #if (WILLUSDEBUGX & 256)
-if (itry==0)
-printf("    rat[%d rows] = %g\n",j,rat);
+if (itry==0 || itry==1)
+printf("    rat[%d rows] = %g = %d / %d\n",j,rat,c2,c1);
 #endif
                if (maxrat<0 || rat > maxrat)
                    {
@@ -592,6 +720,14 @@ printf("    rat[%d rows] = %g\n",j,rat);
                    jbest = j;
                    }
                }
+           /* Possible case for checking large letter?  If not, skip that itry level. */
+           if (itry==0 && (maxrat>k2settings->row_split_fom || maxrat<k2settings->row_split_fom/4.))
+               {
+               itry++;
+               continue;
+               }
+           if (itry>0)
+               break;
            }
 #if (WILLUSDEBUGX & 256)
 printf("MAX RATIO (%d rows) = %g\n",jbest,maxrat);
@@ -610,16 +746,42 @@ printf("MAX RATIO (%d rows) = %g\n",jbest,maxrat);
                textrows_free(&newrows);
 
                /* Modify the copies */
+#if (WILLUSDEBUGX & 256)
+if (partial)
+aprintf(ANSI_YELLOW "Inserting %d rows (partial region)." ANSI_NORMAL "\n",jbest-1);
+else
+aprintf(ANSI_GREEN "Inserting %d rows." ANSI_NORMAL "\n",jbest-1);
+{ int k;
+for (k=0;k<jbest-1;k++)
+printf("    rb[%d]=%d\n",k,rb[k]);
+}
+#endif
+               if (jbest-1>1)
+                   sorti(rb,jbest-1);
+
                for (ii=i;ii<i+jbest;ii++)
                    {
                    BMPREGION _newregion,*newregion;
                    TEXTROW *textrow;
 
                    textrow=&textrows->textrow[ii];
+                   /* This doesn't seem to take--need to investigate later.
+                   ** Maybe have c1x and r2x in the textrow and only use them
+                   ** (if they are > 0) to do special word wrap processing
+                   ** around a large letter?
+                   */
+                   /*
+                   if (partial && ii>i)
+                       textrow->c1 = c1new;
+                   */
                    if (ii<i+jbest-1)
                        textrow->r2 = rb[ii-i];
                    if (ii>i)
                        textrow->r1 = rb[ii-i-1]+1;
+#if (WILLUSDEBUGX & 256)
+if (partial)
+printf("    1. row[%d]: (%d,%d) - (%d,%d)\n",ii,textrow->c1,textrow->r1,textrow->c2,textrow->r2);
+#endif
                    newregion=&_newregion;
                    bmpregion_init(newregion);
                    bmpregion_copy(newregion,region,0);
@@ -631,11 +793,20 @@ printf("MAX RATIO (%d rows) = %g\n",jbest,maxrat);
                    bmpregion_calc_bbox(newregion,k2settings,1);
                    textrow_assign_bmpregion(textrow,newregion,REGION_TYPE_TEXTLINE);
                    textrow->rat=maxrat;
+#if (WILLUSDEBUGX & 256)
+if (partial)
+printf("    2. row[%d]: (%d,%d) - (%d,%d)\n",ii,textrow->c1,textrow->r1,textrow->c2,textrow->r2);
+#endif
                    bmpregion_free(newregion);
                    }
                }
+           if (partial)
+               willus_dmem_free(37,(double **)&prowthresh,funcname);
            }
         }
+#if (WILLUSDEBUGX & 256)
+printf("All done, textrows_find_doubles().\n");
+#endif
     }
 
 
@@ -710,7 +881,7 @@ void textrow_scale(TEXTROW *textrow,double scalew,double scaleh,int c2max,int r2
 /*
 ** v1.66 fix -- pass indexmin and indexmax to bound the search.
 */
-static int minval(int *x,int n,int dx,int *index,int index0,int indexmin,int indexmax)
+static int minval(int *x,int n,int n0,int dx,int *index,int index0,int indexmin,int indexmax)
 
     {
     int i,imin,dx2,index1,index2;
@@ -732,7 +903,7 @@ static int minval(int *x,int n,int dx,int *index,int index0,int indexmin,int ind
         if (index1 >= index2)
             index1=index2-1;
         }
-    for (imin=-1,i=index1;i<=index2;i++)
+    for (imin=-1,i=index1-n0;i<=index2-n0;i++)
         {
         if (i<0 || i>=n)
             continue;
@@ -740,12 +911,12 @@ static int minval(int *x,int n,int dx,int *index,int index0,int indexmin,int ind
             imin=i;
         }
     if (index!=NULL)
-        (*index)=imin;
+        (*index)=imin+n0;
     return(x[imin]);
     }
 
 
-static int maxval(int *x,int n,int dx,int *index,int index0)
+static int maxval(int *x,int n,int n0,int dx,int *index,int index0)
 
     {
     int i,imax,dx2;
@@ -753,7 +924,7 @@ static int maxval(int *x,int n,int dx,int *index,int index0)
     dx2=dx/4;
     if (dx2<1)
         dx2=1;
-    for (imax=-1,i=index0-dx2;i<=index0+dx2;i++)
+    for (imax=-1,i=index0-dx2-n0;i<=index0+dx2-n0;i++)
         {
         if (i<0 || i>=n)
             continue;
@@ -761,6 +932,6 @@ static int maxval(int *x,int n,int dx,int *index,int index0)
             imax=i;
         }
     if (index!=NULL)
-        (*index)=imax;
+        (*index)=imax+n0;
     return(x[imax]);
     }

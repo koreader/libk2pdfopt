@@ -60,7 +60,8 @@ bmp_write(src,filename,stdout,100);
 ** mark_flags & 8 :  Mark right
 **
 */
-void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int caller_id,int mark_flags)
+void mark_source_page(K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo,
+                      BMPREGION *region0,int caller_id,int mark_flags)
 
     {
     static int display_order=0;
@@ -84,20 +85,20 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
         return;
         }
 
-    /* v2.15 -- use new convention for bmpregion */
     region=&_region;
+    /* v2.15--use new conventions for bmpregion--init and free */
     bmpregion_init(region);
     bmpregion_copy(region,region0,0);
 
     /* Clip the region w/ignored margins */
     {
     BMPREGION *clip,_clip;
-
     clip=&_clip;
     bmpregion_init(clip);
     clip->bmp=region0->bmp;
+    clip->bmp8=region0->bmp8;
     clip->dpi=region0->dpi;
-    bmpregion_trim_to_crop_margins(clip,k2settings);
+    bmpregion_trim_to_crop_margins(clip,masterinfo,k2settings);
     if (region->c1 < clip->c1)
         region->c1 = clip->c1;
     if (region->c2 > clip->c2)
@@ -119,6 +120,7 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
     shownum=0;
     nval=0;
 #endif
+/* aprintf(ANSI_YELLOW "MARK CALLER ID = %d" ANSI_NORMAL "\n",caller_id); */
     if (caller_id==1)
         {
         display_order++;
@@ -144,18 +146,28 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
         n=(int)(region->dpi/80.+0.5);
         if (n<4)
             n=4;
-        r=0;
-        g=255;
-        b=0;
+        if (caller_id==3)
+            {
+            r=0;
+            g=255;
+            b=0;
+            }
         }
-    else if (caller_id==4)
+    else if (caller_id==4) /* Notes */
         {
-        n=2;
+        n=4;
         r=255;
         g=0;
         b=255;
         }
-    else if (caller_id>=100 && caller_id<=199)
+    else if (caller_id==5) /* rows of text */
+        {
+        n=2;
+        r=140;
+        g=140;
+        b=140;
+        }
+    else if (caller_id>=100 && caller_id<=199) /* Double rows */
         {
 #ifndef K2PDFOPT_KINDLEPDFVIEWER
         shownum=1;
@@ -166,12 +178,12 @@ void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,int calle
         g=90;
         b=40;
         }
-    else
+    else /* Not sure this is used anymore -- v2.20 */
         {
         n=2;
-        r=140;
-        g=140;
-        b=140;
+        r=110;
+        g=110;
+        b=110;
         }
     if (n<2)
         n=2;

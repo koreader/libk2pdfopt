@@ -1,4 +1,4 @@
-char *k2pdfopt_version = "v2.18";
+char *k2pdfopt_version = "v2.21";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
@@ -18,6 +18,130 @@ char *k2pdfopt_version = "v2.18";
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **
 ** VERSION HISTORY
+**
+** v2.21 25 JUL 2014
+**           - Compiled with MuPDF v1.5 (a highly recommened, mostly-bug-fix
+**             upgrade recommended by the MuPDF folks).
+**
+** v2.20 25 JUL 2014
+**           NEW FEATURES
+**           - Added k2ocr_ocrwords_get_from_ocrlayer() and supporting functions to
+**             to more intelligently extract all of the OCR-layer text from a major
+**             ("red box") region (rather than parsing for the words graphically,
+**             the OCR layer is queried for any words which are within the box).
+**             This should eliminate the need to use the -ocrcol option on PDF
+**             files which already have their own text layer.
+**           - There is a new option optimized for PDFs that have notes in the
+**             left or right margins.  This option (-nl for notes in the left
+**             margin or -nr for notes in the right margin) tells k2pdfopt to
+**             look for notes and intersperse them with the main text.  The notes
+**             can even alternate, e.g. left margin for odd pages and right margin for
+**             even pages would be -nlo -nre.  Works well, for example, with the
+**             attachment from this post:
+**             http://www.mobileread.com/forums/showthread.php?p=2539093#post2539093
+**             E.g. k2pdfopt -p 18-23 -cg 0.05 -nl -sm -f2p -1 ebook.pdf
+**           - The word spacing (-ws) option now defaults to -0.20 (the old default
+**             was 0.375).  When a negative value is given, an automatic word spacing
+**             detection algorithm now used to break apart words in lines.  The
+**             algorithm will try to choose a natural word spacing value, with
+**             the minimum allowed being the absolute value of the setting (e.g.
+**             0.2 for the default).  If you want k2pdfopt to aggressively break
+**             lines (e.g. break apart long words if they don't fit on a line),
+**             use a smaller absolute value, e.g. -ws -0.01.
+**             You can use a positive value for the older style of line breaking,
+**             and the lines are only broken where a gap exceeds that fraction
+**             of the height of a lower-case 'o'.  There is also a new Windows
+**             GUI checkbox for this option.
+**           - Entire rows of text within the OCR layer can either have the words
+**             within rendered individually (the default and original behavior
+**             of k2pdfopt), or the entire row can be rendered at once with
+**             spaces used between each word.  This may improve the text selection
+**             behavior for certain readers.  The option that controls this is
+**             -ocrsp:
+**                 -ocrsp   puts one space between each word in the row.
+**                 -ocrsp+  puts multiple spaces between each word in the row in
+**                          order to better position the words since k2pdfopt
+**                          does not typically match the exact font used by
+**                          the source document when doing the OCR layer (it
+**                          always uses arial).
+**                 -ocrsp-  reverts to the original (default) behavior.
+**             To test this, you can temporarily make the OCR layer visible by using
+**             this option:  -ocrvis st
+**             Thanks to a 19 Jan 2014 e-mail for inspiring this change.  A user
+**             was having difficulty selecting text on their Sony PRS-T1 (the
+**             entire row would select whenever they pressed on a single word).
+**           - The -m and -om options now can use units, e.g. pixels, inches, cm,
+**             and "s" for page/screen size.  In addition, -m can use the other
+**             units used by -cbox, -w, and -h ("t" and "x").
+**           - The new "x" unit of measure corresponds to the OCR Layer bounding
+**             box, e.g. -cbox 0x,0x,1x,1x will correspond to a crop box that
+**             matches the bounding box of the OCR layer.  This can be used by
+**             the -w, -h, and -m options as well.  See -h usage.  Thanks to
+**             markom for suggesting this (quite a while ago!):
+**             http://www.mobileread.com/forums/showthread.php?p=2212714#post2212714
+**           - New option -to[-] for text-only output, removes all figures as
+**             determined by a height limit (see -jf option).  Use with -bp m
+**             to avoid text selection issues if using in conjunction with native
+**             output.  Requested in a 9 May 2014 e-mail.
+**           - If -wt+ is specified for the white threshold, all pixels >= the
+**             specified value will be painted pure white (255).
+**             https://github.com/koreader/koreader/pull/549
+**           - While not a perfect work-around, large, stylized first letters
+**             which frequently begin a book chapter (typically the height of 2
+**             or 3 normal-sized text rows) are now detected when wrapping text
+**             lines so that the lines adjacent to them are more-or-less correctly
+**             wrapped. Still needs improvement.
+**
+**           MS-WINDOWS GUI ENHANCEMENTS
+**           - If the custom buttons are not used, a "2-column" and a "Fit Width"
+**             button are automatically assigned.
+**           - New MS-Windows GUI check box for -bp m option (Avoid text select overlap).
+**           - New MS-Windows GUI check box for defects (sets -de 1.5).
+**           - New MS-Windows GUI check box / text box for line break setting (-ws option)
+**           - The last settings (other than the custom button presets) are remembered
+**             between settings (stored in the K2PDFOPT_CUSTOM0 env var).
+**             (4-15-14 e-mail)
+**           - There is now a "Restore Defaults" button since k2pdfopt remembers
+**             its last settings.
+**           - New option for GUI: -rls[+|-].  Forces/disables restoration of last
+**             settings from K2PDFOPT_CUSTOM0 environment variable.
+**           - Environment variables related to the MS Windows GUI are only read
+**             and set through Windows calls (not through getenv() and putenv())--
+**             this was causing problems in trying to clear them.
+**           - Command-line options that don't impact the GUI are put into the
+**             "additional options" box upon launch.
+**           - For file overwriting, the user is now given a "Yes to All" option
+**             and a "No to all" option.
+**           - There are two new menu options--to save and restore the settings
+**             (stored in environment variables) to and from a file. This is done
+**             in the k2gui_save_settings_to_file() and
+**             k2gui_restore_settings_from_file() functions in k2gui.c.
+**             http://www.mobileread.com/forums/showthread.php?p=2865852#post2865852
+**           - If the output file cannot be opened (e.g. because another application
+**             already has it open), a message box is shown informing the user
+**             rather than just quitting the program.
+**             http://www.mobileread.com/forums/showthread.php?p=2862339#post2862339
+**
+**           BUG FIXES
+**           - Tabbing between crop margin text fields in the MS Windows GUI keeps
+**             the entire text field selected even when you change a value before
+**             tabbing.
+**           - Fixed bug in window positioning at startup.
+**           - Fixed bug where -ds did not get properly applied in native mode.
+**             http://www.mobileread.com/forums/showthread.php?p=2828182#post2828182
+**           - Fixed bug where tesseract was incorrectly initializing languages
+**             that do not have CUBE/COMBINED data (e.g. Russian).  If that
+**             initialization fails, it now tries CUBE-only (and then no CUBE at all).
+**             This required a couple minor mods to the Tesseract library itself,
+**             which are included in the latest k2pdfopt source code distribution.
+**             http://www.mobileread.com/forums/showthread.php?p=2859736#post2859736
+**
+**           SOURCE CODE MODIFICATIONS
+**           - The bmpregion_add() function and some others use a new parameter
+**             data structure rather than having so many arguments passed to them
+**             (ADDED_REGION_INFO).
+**           - Copied web text at top of main k2 page to k2pdfopt.c intro.
+**
 ** v2.18     14 JUN 2014
 **           - Fixed problem when scaling sometimes gets out of control with tall
 **             regions.  Was causing excessively large bitmaps to be allocated
@@ -34,6 +158,9 @@ char *k2pdfopt_version = "v2.18";
 **           ENHANCEMENTS
 **           - Compiled with the latest versions of MuPDF (1.4), Turbo JPEG (1.3.1),
 **             libpng (1.6.10), and freetype (2.5.3).
+**           - No longer echoes "fontdesc->font=000000000..." to the screen (was a
+**             debugging printf that I put in MuPDF).
+**             Example: k2pdfopt Example-PDF-Fonts-1.pdf
 **
 ** v2.16     03 MAY 2014
 **           BUG FIXES
@@ -263,7 +390,7 @@ char *k2pdfopt_version = "v2.18";
 **           - A new option, -bmp, will write out a preview bitmap of the specified
 **             page, e.g. -bmp 2 will write out the 2nd converted page to the file
 **             k2pdfopt_out.png (sorry, the bitmap file name cannot be specified).
-**           - New option -sp simply echos the page counts of the source files
+**           - New option -sp simply echoes the page counts of the source files
 **             and exits.
 **           - OCR text can be written to a separate text file now with the
 **             -ocrout option.  E.g. -ocrout %s.txt will write the OCR from

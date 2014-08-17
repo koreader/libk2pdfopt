@@ -1,7 +1,7 @@
 /*
 ** k2cmdparse.c   Parse command-line options for k2pdfopt.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -25,6 +25,26 @@ static int valid_numerical_char(int c);
 static int next_is_number(CMDLINEINPUT *cl,int setvals,int quiet,int *good,int *readnext,double *dstval);
 static int next_is_integer(CMDLINEINPUT *cl,int setvals,int quiet,int *good,int *readnext,int *dstval);
 
+
+#define CBOXVAL(x,cbox,cboxindex,defunits,srcmar) if (!stricmp(cl->cmdarg,x)) { \
+                                  if (cmdlineinput_next(cl)==NULL) \
+                                      break; \
+                                  if (srcmar && is_a_number(cl->cmdarg) && atof(cl->cmdarg)<0.) \
+                                      { \
+                                      cbox.box[cboxindex]=fabs(atof(cl->cmdarg)); \
+                                      cbox.units[cboxindex]=UNITS_SOURCE; \
+                                      } \
+                                  else \
+                                      set_value_with_units(cl->cmdarg, \
+                                         &cbox.box[cboxindex], \
+                                         &cbox.units[cboxindex], \
+                                         defunits); \
+                                  if (!srcmar && (cbox.units[cboxindex]==UNITS_TRIMMED \
+                                                   || cbox.units[cboxindex]==UNITS_OCRLAYER)) \
+                                      cbox.units[cboxindex]=UNITS_SOURCE; \
+                                  continue; \
+                                  }
+
 #define NEEDS_VALUE(x,y) if (!stricmp(cl->cmdarg,x)) { \
                          if (!next_is_number(cl,setvals==1,quiet,&good,&readnext,&k2settings->y)) \
                              break; \
@@ -34,7 +54,30 @@ static int next_is_integer(CMDLINEINPUT *cl,int setvals,int quiet,int *good,int 
                         if (!next_is_integer(cl,setvals==1,quiet,&good,&readnext,&k2settings->y)) \
                               break; \
                         continue; }
-
+#define PLUS_MINUS_BITOPTION(x,y,orval,plusval,sv) if (!stricmp(cl->cmdarg,x) || !stricmp(cl->cmdarg,x "-")) \
+            { \
+            if (setvals==sv) \
+                { \
+                if (cl->cmdarg[strlen(cl->cmdarg)-1]=='-') \
+                    k2settings->y &= ~(orval|plusval); \
+                else if (cl->cmdarg[strlen(cl->cmdarg)-1]=='+') \
+                    k2settings->y |= plusval; \
+                else \
+                    k2settings->y |= orval; \
+                } \
+            continue; \
+            }
+#define MINUS_BITOPTION(x,y,orval,sv) if (!stricmp(cl->cmdarg,x) || !stricmp(cl->cmdarg,x "-")) \
+            { \
+            if (setvals==sv) \
+                { \
+                if (cl->cmdarg[strlen(cl->cmdarg)-1]=='-') \
+                    k2settings->y &= ~orval; \
+                else \
+                    k2settings->y |= orval; \
+                } \
+            continue; \
+            }
 #define MINUS_OPTION(x,y,sv) if (!stricmp(cl->cmdarg,x) || !stricmp(cl->cmdarg,x "-")) \
             { \
             if (setvals==sv) \
@@ -62,6 +105,8 @@ static int next_is_integer(CMDLINEINPUT *cl,int setvals,int quiet,int *good,int 
 ** OLD BEHAVIOR (PRE v1.65):
 ** setvals==1 to set all values based on options
 **        ==2 to set only ansi, user interface, exit on complete
+**        ==3 to test if should restore last settings.
+**            returns 0 if there are cmd args (do not restore last settings, GUI only)
 **        ==0 to not set any values
 ** procfiles == 1 to process files
 **           == 0 to count files only
@@ -74,6 +119,9 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
     STRBUF *allopts,_allopts;
     int readnext,good;
     K2PDFOPT_SETTINGS *k2settings;
+#ifdef HAVE_K2GUI
+    int argcheck;
+#endif
 
     k2settings=&k2conv->k2settings;
     k2pdfopt_files_clear(&k2conv->k2files);
@@ -88,12 +136,18 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
     cl=&_cl;
     cmdlineinput_init(cl,0,NULL,allopts->s);
     readnext=1;
+#ifdef HAVE_K2GUI
+    argcheck=0;
+#endif
     while (1)
         {
         if (readnext && cmdlineinput_next(cl)==NULL)
             break;
         readnext=1;
 #ifdef HAVE_K2GUI
+        /* v2.20 */
+        if (setvals==3 && argcheck)
+            return(0);
         /* Re-launch code */
         if (!stricmp(cl->cmdarg,"-gui+"))
             {
@@ -103,6 +157,26 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
             }
         MINUS_OPTION("-gui",gui,2)
         MINUS_OPTION("-guimin",guimin,2)
+        if (!stricmp(cl->cmdarg,"-rls+"))
+            {
+            if (setvals==2)
+                k2settings->restore_last_settings = 1;
+            continue;
+            }
+        if (!stricmp(cl->cmdarg,"-rls-"))
+            {
+            if (setvals==2)
+                k2settings->restore_last_settings = 0;
+            continue;
+            }
+        if (!stricmp(cl->cmdarg,"-rls"))
+            {
+            if (setvals==2)
+                k2settings->restore_last_settings = -1;
+            continue;
+            }
+        /* v2.20 */
+        argcheck=1;
 #endif
         MINUS_OPTION("-?",show_usage,2)
         MINUS_OPTION("-toc",use_toc,1)
@@ -118,6 +192,11 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
         MINUS_OPTION("-mc",mark_corners,1)
         MINUS_OPTION("-t",src_trim,1)
         MINUS_OPTION("-s",dst_sharpen,1)
+        MINUS_OPTION("-to",text_only,1)
+#ifdef HAVE_OCR_LIB
+        MINUS_BITOPTION("-ocrsort",dst_ocr_visibility_flags,32,1)
+        PLUS_MINUS_BITOPTION("-ocrsp",dst_ocr_visibility_flags,8,16,1)
+#endif
         /*
         MINUS_OPTION("-pi",preserve_indentation,1)
         */
@@ -278,8 +357,16 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                     k2settings->dst_color=1;
                     k2settings->src_trim=tm ? 1 : 0;
                     k2settings->dst_fit_to_page=-2;
-                    k2settings->mar_left=k2settings->mar_top=k2settings->mar_right=k2settings->mar_bot=0.;
-                    k2settings->dst_mar=k2settings->dst_marleft=k2settings->dst_martop=k2settings->dst_marright=k2settings->dst_marbot=0.;
+                    {
+                    int ii;
+                    for (ii=0;ii<4;ii++)
+                        {
+                        k2settings->srccropmargins.box[ii]=0.;
+                        k2settings->srccropmargins.units[ii]=UNITS_INCHES;
+                        k2settings->dstmargins.box[ii]=0.;
+                        k2settings->dstmargins.units[ii]=UNITS_INCHES;
+                        }
+                    }
                     k2settings->pad_left=k2settings->pad_top=k2settings->pad_bottom=k2settings->pad_right=0;
                     k2settings->mark_corners=0;
                     }
@@ -335,8 +422,16 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                     k2settings->src_rot=SRCROT_AUTO;
                     k2settings->src_trim=1;
                     k2settings->dst_fit_to_page=0;
-                    k2settings->mar_left=k2settings->mar_top=k2settings->mar_right=k2settings->mar_bot=-1.;
-                    k2settings->dst_mar=k2settings->dst_marleft=k2settings->dst_martop=k2settings->dst_marright=k2settings->dst_marbot=0.02;
+                    {
+                    int ii;
+                    for (ii=0;ii<4;ii++)
+                        {
+                        k2settings->srccropmargins.box[ii]=0.;
+                        k2settings->srccropmargins.units[ii]=UNITS_INCHES;
+                        k2settings->dstmargins.box[ii]=0.02;
+                        k2settings->dstmargins.units[ii]=UNITS_INCHES;
+                        }
+                    }
                     }
                 else
                     {
@@ -838,14 +933,18 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                 set_value_with_units(cl->cmdarg,&k2settings->dst_userheight,&k2settings->dst_userheight_units,UNITS_PIXELS);
             continue;
             }
-        if (!stricmp(cl->cmdarg,"-wt"))
+        if (!stricmp(cl->cmdarg,"-wt") || !stricmp(cl->cmdarg,"-wt+"))
             {
+            int paint;
+
+            paint=(cl->cmdarg[3]=='+');
             if (!next_is_integer(cl,setvals==1,quiet,&good,&readnext,&k2settings->src_whitethresh))
                 break;
             if (good && setvals==1)
                 {
                 if (k2settings->src_whitethresh>255)
                     k2settings->src_whitethresh=255;
+                k2settings->src_paintwhite = paint ? 1 : 0;
                 }
             continue;
             }
@@ -857,43 +956,59 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                 set_value_with_units(cl->cmdarg,&k2settings->dst_userwidth,&k2settings->dst_userwidth_units,UNITS_PIXELS);
             continue;
             }
-        if (!stricmp(cl->cmdarg,"-om"))
+        if (!stricmp(cl->cmdarg,"-m") || !stricmp(cl->cmdarg,"-om"))
             {
+            K2CROPBOX *cbox;
+            int srcmar;
+
+            srcmar = !stricmp(cl->cmdarg,"-m");
+            cbox = srcmar ? &k2settings->srccropmargins : &k2settings->dstmargins;
             if (cmdlineinput_next(cl)==NULL)
                 break;
             if (setvals==1)
                 {
-                double v[4];
-                int na;
-                na=string_read_doubles(cl->cmdarg,v,4);
-                if (na>=1)
-                    k2settings->dst_mar=k2settings->dst_marleft=k2settings->dst_martop=k2settings->dst_marright=k2settings->dst_marbot=v[0];
-                if (na>=2)
-                    k2settings->dst_martop=k2settings->dst_marright=k2settings->dst_marbot=v[1];
-                if (na>=3)
-                    k2settings->dst_marright=k2settings->dst_marbot=v[2];
-                if (na>=4)
-                    k2settings->dst_marbot=v[3];
-                }
-            continue;
-            }
-        if (!stricmp(cl->cmdarg,"-m"))
-            {
-            if (cmdlineinput_next(cl)==NULL)
-                break;
-            if (setvals==1)
-                {
-                double v[4];
-                int na;
-                na=string_read_doubles(cl->cmdarg,v,4);
-                if (na>=1)
-                    k2settings->mar_left=k2settings->mar_top=k2settings->mar_right=k2settings->mar_bot=v[0];
-                if (na>=2)
-                    k2settings->mar_top=k2settings->mar_right=k2settings->mar_bot=v[1];
-                if (na>=3)
-                    k2settings->mar_right=k2settings->mar_bot=v[2];
-                if (na>=4)
-                    k2settings->mar_bot=v[3];
+                int na,k;
+
+                for (na=0,k=0;na<4;na++,k++)
+                    {
+                    int c,m;
+                    
+                    for (m=k;cl->cmdarg[k]!=',' && cl->cmdarg[k]!='\0';k++);
+                    c=cl->cmdarg[k];
+                    cl->cmdarg[k]='\0';
+                    if (k>m)
+                        {
+                        int jj;
+                        /* Negative value w/o units means use source page size */
+                        if (srcmar && is_a_number(&cl->cmdarg[m]) && atof(&cl->cmdarg[m])<0.)
+                            {
+                            cbox->box[na]=fabs(atof(&cl->cmdarg[m]));
+                            cbox->units[na]=UNITS_SOURCE;
+                            }
+                        else
+                            set_value_with_units(&cl->cmdarg[m],&cbox->box[na],&cbox->units[na],
+                                                 UNITS_INCHES);
+                        if (!srcmar && (cbox->units[na]==UNITS_TRIMMED || cbox->units[na]==UNITS_OCRLAYER))
+                            cbox->units[na]=UNITS_SOURCE;
+                        for (jj=na+1;jj<4;jj++)
+                            {
+                            cbox->box[jj]=cbox->box[na];
+                            cbox->units[jj]=cbox->units[na];
+                            }
+                        }
+                    if (c=='\0')
+                        break;
+                    }
+/*
+{
+int jj;
+printf("srcmar=%d\n    box,units =",srcmar);
+for (jj=0;jj<4;jj++)
+printf(" %g (%d)",cbox->box[jj],cbox->units[jj]);
+printf("\n");
+printf("units=%d\n",k2settings->srccropmargins.units[0]);
+}
+*/
                 }
             continue;
             }
@@ -957,6 +1072,57 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                     }
                 else
                     k2settings->cropboxes.n++;
+                }
+            continue;
+            }
+        if (!strnicmp(cl->cmdarg,"-nl",3) || !strnicmp(cl->cmdarg,"-nr",3))
+            {
+            char buf[256];
+            double v[2];
+            double left,right;
+
+            if (cl->cmdarg[3]=='-' && cl->cmdarg[4]=='\0')
+                {
+                if (setvals==1)
+                    k2settings->noteset.n=0;
+                continue;
+                }
+            left = tolower(cl->cmdarg[2])=='l' ? .05 : .65;
+            right = left + .3;
+            strncpy(buf,&cl->cmdarg[3],255);
+            buf[255]='\0';
+            if (cmdlineinput_next(cl)==NULL)
+                break;
+            if (string_read_doubles(cl->cmdarg,v,2)<2)
+                readnext=0;
+            else
+                {
+                left=v[0];
+                right=v[1];
+                }
+            if (setvals==1)
+                {
+                int index;
+
+                if (k2settings->noteset.n>=MAXK2NOTES)
+                    {
+                    static int warned=0;
+                    if (!warned && !quiet)
+                        k2printf(TTEXT_WARN "\a\n** Max notes margins exceeded (max=%d). **\n\n",
+                                 MAXK2NOTES);
+                    warned=1;
+                    continue;
+                    }
+                index=k2settings->noteset.n;
+                strcpy(k2settings->noteset.notes[index].pagelist,buf);
+                k2settings->noteset.notes[index].left=left;
+                k2settings->noteset.notes[index].right=right;
+                k2settings->noteset.n++;
+                /*
+                ** In the two examples I tried, min_column_gap_inches had to be 0.05
+                ** rather than 0.1.
+                */
+                k2settings->min_column_gap_inches=0.05;
                 }
             continue;
             }
@@ -1041,21 +1207,14 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
         NEEDS_INTEGER("-odpi",dst_dpi)
         NEEDS_INTEGER("-dpi",dst_dpi)
         NEEDS_VALUE("-ws",word_spacing)
-        if (k2settings->word_spacing < 0)
-            {
-            k2settings->word_spacing = -k2settings->word_spacing;
-            k2settings->auto_word_spacing = 1;
-            }
-        else
-            k2settings->auto_word_spacing = 0;
-        NEEDS_VALUE("-omb",dst_marbot)
-        NEEDS_VALUE("-omt",dst_martop)
-        NEEDS_VALUE("-omr",dst_marright)
-        NEEDS_VALUE("-oml",dst_marleft)
-        NEEDS_VALUE("-mb",mar_bot)
-        NEEDS_VALUE("-mt",mar_top)
-        NEEDS_VALUE("-mr",mar_right)
-        NEEDS_VALUE("-ml",mar_left)
+        CBOXVAL("-oml",k2settings->dstmargins,0,UNITS_INCHES,0)
+        CBOXVAL("-omt",k2settings->dstmargins,1,UNITS_INCHES,0)
+        CBOXVAL("-omr",k2settings->dstmargins,2,UNITS_INCHES,0)
+        CBOXVAL("-omb",k2settings->dstmargins,3,UNITS_INCHES,0)
+        CBOXVAL("-ml",k2settings->srccropmargins,0,UNITS_INCHES,1)
+        CBOXVAL("-mt",k2settings->srccropmargins,1,UNITS_INCHES,1)
+        CBOXVAL("-mr",k2settings->srccropmargins,2,UNITS_INCHES,1)
+        CBOXVAL("-mb",k2settings->srccropmargins,3,UNITS_INCHES,1)
         NEEDS_INTEGER("-pb",pad_bottom)
         NEEDS_INTEGER("-pr",pad_right)
         NEEDS_INTEGER("-pl",pad_left)
@@ -1067,10 +1226,18 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
         NEEDS_VALUE("-arlim",no_wrap_ar_limit)
         NEEDS_VALUE("-rwmin",little_piece_threshold_inches)
 
+#ifdef HAVE_K2GUI
+        /* v2.20--indicate that this arg is a file name */
+        argcheck=0;
+#endif
         /* Add command arg to file list */
         k2pdfopt_files_add_file(&k2conv->k2files,cl->cmdarg);
         }
     strbuf_free(allopts);
+#ifdef HAVE_K2GUI
+    if (setvals==3)
+        return(1);
+#endif
     return(k2conv->k2files.n);
     }
 
@@ -1090,6 +1257,8 @@ static void set_value_with_units(char *s,double *val,int *units,int defunits)
         (*units)=UNITS_SOURCE;
     else if (tolower(s[i])=='t')
         (*units)=UNITS_TRIMMED;
+    else if (tolower(s[i])=='x')
+        (*units)=UNITS_OCRLAYER;
     else if (tolower(s[i])=='p')
         (*units)=UNITS_PIXELS;
     else

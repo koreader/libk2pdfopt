@@ -1,7 +1,7 @@
 /*
 ** pageregions.c   Functions to handle PAGEREGIONS structure.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -75,6 +75,7 @@ void pageregion_copy(PAGEREGION *dst,PAGEREGION *src)
     bmpregion_copy(&dst->bmpregion,&src->bmpregion,1);
     dst->fullspan = src->fullspan;
     dst->level = src->level;
+    dst->notes = src->notes;
     }
 
 
@@ -109,7 +110,7 @@ void pageregions_insert(PAGEREGIONS *dst,int index,PAGEREGIONS *src)
 
 
 void pageregions_add_pageregion(PAGEREGIONS *regions,BMPREGION *bmpregion,int level,
-                                       int fullspan)
+                                       int fullspan,int notes)
 
     {
     static char *funcname="pageregions_add_pageregion";
@@ -127,5 +128,6 @@ void pageregions_add_pageregion(PAGEREGIONS *regions,BMPREGION *bmpregion,int le
     bmpregion_copy(&regions->pageregion[regions->n].bmpregion,bmpregion,1);
     regions->pageregion[regions->n].level=level;
     regions->pageregion[regions->n].fullspan=fullspan;
+    regions->pageregion[regions->n].notes=notes;
     regions->n++;
     }

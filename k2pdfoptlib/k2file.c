@@ -21,6 +21,8 @@
 
 #include "k2pdfopt.h"
 
+static int k2files_overwrite=0;
+
 static void   k2pdfopt_proc_arg(K2PDFOPT_SETTINGS *k2settings,char *arg,int process,
                                 K2PDFOPT_OUTPUT *k2out);
 static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings,char *filename,double rot_deg,
@@ -244,6 +246,9 @@ static double k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings0,char *filename,do
 #ifdef HAVE_MUPDF_LIB
     static char *mupdferr_trygs=TTEXT_WARN "\a\n ** ERROR reading from " TTEXT_BOLD2 "%s" TTEXT_WARN "using MuPDF.  Trying Ghostscript...\n\n" TTEXT_NORMAL;
 #endif
+/*
+extern void willus_mem_debug_update(char *);
+*/
 
 /*
 printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",filename,rot_deg,k2out->bmp);
@@ -416,6 +421,17 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
         if (pdffile_init(&masterinfo->outfile,dstfile,1)==NULL)
             {
             k2printf(TTEXT_WARN "\n\aCannot open PDF file %s for output!" TTEXT_NORMAL "\n\n",dstfile);
+#ifdef HAVE_K2GUI
+            if (k2gui_active())
+                {
+                k2gui_okay("Failed to open output file",
+                           "Cannot open PDF file %s for output!\n"
+                           "Maybe another application has it open already?\n"
+                           "Conversion failed!",dstfile);
+                k2out->status=4;
+                return(0.);
+                }
+#endif
             k2sys_exit(k2settings,30);
             }
         k2out->outname=NULL;
@@ -571,7 +587,10 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
         {
         char bmpfile[256];
         int pageno;
-
+/*
+sprintf(bmpfile,"i=%d",i);
+willus_mem_debug_update(bmpfile);
+*/
         pageno=0;
         if (pagecount>0 && i+1>pagecount)
             break;
@@ -673,7 +692,6 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
             pages_done++;
             continue;
             }
-
         k2printf("\n" TTEXT_HEADER "SOURCE PAGE %d",pageno);
         if (pagecount>0)
             {
@@ -691,7 +709,7 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
         bmpregion_source_page_add(&region,k2settings,masterinfo,1,pages_done++);
         /* v2.15 memory leak fix */
         bmpregion_free(&region);
-        }
+        } /* End declaration of BMPREGION region */
 #ifdef HAVE_K2GUI
         if (k2gui_active())
             k2gui_cbox_set_pages_completed(pages_done,NULL);
@@ -703,7 +721,7 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
             }
         /* Reset the display order for this source page */
         if (k2settings->show_marked_source)
-            mark_source_page(k2settings,NULL,0,0xf);
+            mark_source_page(k2settings,masterinfo,NULL,0,0xf);
         /*
         ** v2.10 Call masterinfo_publish() no matter what.  If we've just kicked out a
         **       page, it doesn't matter.  It will do nothing.
@@ -727,6 +745,9 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
         k2printf("%d new pages saved.\n",masterinfo->published_pages-pw);
         pw=masterinfo->published_pages;
         }
+/*
+willus_mem_debug_update("End");
+*/
     /* Didn't find the preview page yet--push out final page. */
     if (preview)
         {
@@ -812,7 +833,11 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
     if (!k2settings->use_crop_boxes)
         {
         if (masterinfo->outline!=NULL)
+            {
+            if (k2settings->debug)
+                wpdfoutline_echo(masterinfo->outline,1,1,stdout);
             pdffile_add_outline(&masterinfo->outfile,masterinfo->outline);
+            }
         pdffile_finish(&masterinfo->outfile,title,author,masterinfo->pageinfo.producer,cdate);
         pdffile_close(&masterinfo->outfile);
         }
@@ -823,6 +848,8 @@ printf("@k2pdfopt_proc_one(filename='%s', rot_deg=%g, preview_bitmap=%p)\n",file
 wpdfboxes_echo(&masterinfo->pageinfo.boxes,stdout);
 #endif
 #ifdef HAVE_MUPDF_LIB
+        /* v2.20 bug fix -- need to compensate for document_scale_factor if its not 1.0 */
+        wmupdf_scale_source_boxes(&masterinfo->pageinfo,1./k2settings->document_scale_factor);
         wmupdf_remake_pdf(mupdffilename,dstfile,&masterinfo->pageinfo,1,masterinfo->outline,stdout);
 #endif
         }
@@ -988,6 +1015,18 @@ static void filename_substitute(char *dst,char *fmt,char *src,int count,char *de
     }
 
 
+/*
+**  0 = ask each time
+**  1 = overwrite all
+** -1 = no overwriting (all)
+*/
+void overwrite_set(int status)
+
+    {
+    k2files_overwrite=status;
+    }
+
+
 static int overwrite_fail(char *outname,double overwrite_minsize_mb)
 
     {
@@ -995,17 +1034,18 @@ static int overwrite_fail(char *outname,double overwrite_minsize_mb)
     char basepath[512];
     char buf[512];
     char newname[512];
-    static int all=0;
 
     if (wfile_status(outname)==0)
         return(0);
     if (overwrite_minsize_mb < 0.)
         return(0);
-    if (all)
+    if (k2files_overwrite==1)
         return(0);
     size_mb = wfile_size(outname)/1024./1024.;
     if (size_mb < overwrite_minsize_mb)
         return(0);
+    if (k2files_overwrite==-1)
+        return(1);
     wfile_basepath(basepath,outname);
     strcpy(newname,outname);
     k2printf("\n\a");
@@ -1017,11 +1057,16 @@ static int overwrite_fail(char *outname,double overwrite_minsize_mb)
             if (k2gui_active())
                 {
                 int reply;
-                reply=k2gui_yesno("File overwrite query","File %s (%.1f MB) already exists!  "
-                                  "Overwrite it?",newname,size_mb);
+                reply=k2gui_yes_no_all("File overwrite query","File %s (%.1f MB) already exists!  "
+                                       "Overwrite it?",newname,size_mb);
                 if (reply==2)
+                    {
+                    overwrite_set(-1);
                     return(1);
-                buf[0]=(reply==1)?'y':'n';
+                    }
+                if (reply==3)
+                    overwrite_set(1);
+                return(0);
                 }
             else
                 {
@@ -1048,7 +1093,7 @@ static int overwrite_fail(char *outname,double overwrite_minsize_mb)
         if (buf[0]=='a' || buf[0]=='y')
             {
             if (buf[0]=='a')
-                all=1;
+                overwrite_set(1);
             return(0);
             }
 

@@ -1,7 +1,7 @@
 /*
 ** userinput.c    User input functions for k2pdfopt.c.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -20,6 +20,8 @@
 
 #include "k2pdfopt.h"
 
+static void string_display(char *s);
+static int string_match(char *s,int c);
 
 int userinput_float(char *message,double defval,double *dstval,int nmax,
                double min,double max,char *extramessage)
@@ -145,8 +147,11 @@ int userinput_string(char *message,char *selection[],char *def)
         {
         k2printf(TTEXT_BOLD2 "%s" TTEXT_NORMAL " (",message);
         for (i=0;selection[i][0]!='\0';i++)
-            k2printf("%s" TTEXT_BOLD "%c" TTEXT_NORMAL "%s",
-                    i>0 ? ", " : "",selection[i][0],&selection[i][1]);
+            {
+            if (i>0)
+                k2printf(", ");
+            string_display(selection[i]);
+            }
         k2printf(") [%c]: " TTEXT_INPUT,def[0]);
         k2gets(buf,255,"");
         k2printf(TTEXT_NORMAL "\n");
@@ -156,13 +161,53 @@ int userinput_string(char *message,char *selection[],char *def)
         if (tolower(buf[0])=='q')
             return(-1);
         for (i=0;selection[i][0]!='\0';i++)
-            if (tolower(buf[0])==tolower(selection[i][0]))
+            if (string_match(selection[i],buf[0]))
                 return(i);
         k2printf(TTEXT_WARN "\aThe response '%s' is not valid.\n\n" TTEXT_NORMAL,
                 buf);
         }
     }
 
+
+/* v2.15 new function so that strings can have an asterisk to mark the selection char */
+static void string_display(char *s)
+
+    {
+    int i,ap;
+
+    for (i=0;s[i]!='\0';i++)
+        if (s[i]=='*')
+            break;
+    ap = (s[i]=='*');
+    for (i=0;s[i]!='\0';i++)
+        {
+        if (s[i]=='*' || (i==0 && !ap))
+            {
+            k2printf("%s",TTEXT_BOLD);
+            if (s[i]=='*' && s[i+1]!='\0')
+                i++;
+            k2printf("%c",s[i]);
+            k2printf("%s",TTEXT_NORMAL);
+            continue;
+            }
+        k2printf("%c",s[i]);
+        }
+    }
+
+
+/* v2.15 new function so that strings can have an asterisk to mark the selection char */
+static int string_match(char *s,int c)
+
+    {
+    int i;
+
+    if (s[0]=='\0')
+        return(0);
+    for (i=0;s[i]!='\0';i++)
+        if (s[i]=='*')
+            return(tolower(c)==tolower(s[i+1]));
+    return(tolower(c)==tolower(s[0]));
+    }
 
 
 int get_ttyrows(void)

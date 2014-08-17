@@ -139,8 +139,14 @@ int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out)
     if (api.GetPageSegMode() == tesseract::PSM_SINGLE_BLOCK)
         api.SetPageSegMode(pagesegmode);
     if (out!=NULL)
-        fprintf(out,"Tesseract Open Source OCR Engine v%s with Leptonica (lang=%s)\n",
-                tesseract::TessBaseAPI::Version(),language);
+        {
+        fprintf(out,"Tesseract Open Source OCR Engine v%s ",tesseract::TessBaseAPI::Version());
+        if (ocr_type==0 || ocr_type==3)
+            fprintf(out,"[CUBE+] ");
+        else if (ocr_type==2)
+            fprintf(out,"[CUBE] ");
+        fprintf(out,"(lang=%s)\n",language);
+        }
     /* Turn off CUBE debugging output */
     api.SetVariable("cube_debug_level","0");
 #if (WILLUSDEBUG & 1)

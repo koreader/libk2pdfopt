@@ -27,12 +27,16 @@
 
 #ifdef HAVE_K2GUI
 
-static char *unitname[]={"px","in","cm","s","t",""};
+static char *unitname[]={"px","in","cm","s","t","x",""};
 static K2GUI *k2gui,_k2gui;
+static int force_repaint=0;
 
 char *k2gui_short_name(char *filename);
 static int  k2gui_winposition_get(WILLUSGUIRECT *rect);
 static void k2gui_winposition_save(void);
+static void k2gui_get_settings(int index,K2PDFOPT_SETTINGS *k2settings,STRBUF *extra);
+static void k2gui_save_settings(int index,K2PDFOPT_SETTINGS *k2settings,STRBUF *extra,char *name);
+static void k2gui_set_button_defaults(void);
 /*
 static void k2gui_cmdline_to_settings(K2PDFOPT_SETTINGS *k2settings,STRBUF *cmdline);
 */
@@ -49,7 +53,10 @@ static int  k2gui_set_device_from_listbox(WILLUSGUICONTROL *control);
 static WILLUSGUICONTROL *k2gui_control_with_focus(int *index);
 static void k2gui_update_controls(void);
 static void k2gui_error_out(char *message);
+static void k2gui_clear_envvars(void);
 static void k2gui_add_files(void);
+static void k2gui_save_settings_to_file(void);
+static void k2gui_restore_settings_from_file(void);
 static int  k2gui_determine_fontsize(void);
 static void k2gui_add_children(int already_drawn);
 static double mar_eval(double x);
@@ -97,7 +104,43 @@ printf("@k2gui_main, k2conv=%p, k2settings=%p\n",k2conv0,&k2conv0->k2settings);
     willus_mem_alloc_warn((void **)&k2conv,sizeof(K2PDFOPT_CONVERSION),funcname,10);
     k2pdfopt_settings_init(&k2conv->k2settings);
     */
-    parse_cmd_args(k2gui->k2conv,cmdline,NULL,NULL,1,1);
+    if (k2gui->k2conv->k2settings.restore_last_settings==1
+          || (k2gui->k2conv->k2settings.restore_last_settings==-1
+                && parse_cmd_args(k2gui->k2conv,env,cmdline,NULL,3,1)==1))
+        {
+        k2gui_get_settings(0,&k2gui->k2conv->k2settings,&k2gui->cmdxtra);
+        parse_cmd_args(k2gui->k2conv,&k2gui->cmdxtra,NULL,NULL,1,1);
+        }
+    parse_cmd_args(k2gui->k2conv,env,cmdline,NULL,1,1);
+    /*
+    ** v2.20
+    ** Capture non-gui part of command-line options to k2gui->cmdxtra and 
+    ** change k2gui->k2conv->k2settings to that only the GUI cmd-line params
+    ** take effect... a bit kludgey.
+    */
+    {
+    STRBUF guicmds;
+    K2PDFOPT_CONVERSION k2c;
+    K2PDFOPT_SETTINGS _k2inited,*k2inited;
+    
+    k2inited=&_k2inited;
+    k2pdfopt_settings_init(k2inited);
+    strbuf_clear(&k2gui->cmdxtra);
+    strbuf_init(&guicmds);
+/*
+printf("k2inited->vertical_break_threshold=%g\n",k2inited->vertical_break_threshold);
+printf("k2gui->k2conv->k2settings.vertical_break_threshold=%g\n",k2gui->k2conv->k2settings.vertical_break_threshold);
+printf("k2inited->src_trim=%d, k2gui->srctrim=%d\n",k2inited->src_trim,k2gui->k2conv->k2settings.src_trim);
+*/
+    k2pdfopt_settings_get_cmdline(&guicmds,&k2gui->k2conv->k2settings,k2inited,&k2gui->cmdxtra);
+/*
+printf("guicmds='%s', k2gui->cmdxtra='%s'\n",guicmds.s,k2gui->cmdxtra.s);
+*/
+    k2pdfopt_settings_init(&k2gui->k2conv->k2settings);
+    k2pdfopt_conversion_init(&k2c);
+    parse_cmd_args(&k2c,&guicmds,NULL,NULL,1,1);
+    k2pdfopt_settings_copy(&k2gui->k2conv->k2settings,&k2c.k2settings);
+    }
     /*
     k2pdfopt_settings_copy(&k2gui->k2conv->k2settings,&k2conv->k2settings);
     willus_mem_free((double **)&k2conv,funcname);
@@ -234,7 +277,29 @@ void k2gui_get_custom_options(int index,K2PDFOPT_SETTINGS *k2settings,
 */
 
 
-void k2gui_get_settings(int index,K2PDFOPT_SETTINGS *k2settings,STRBUF *extra)
+static void k2gui_set_button_defaults(void)
+
+    {
+    static char *defbuttons[] =
+        {
+        "2-column paper;-mode 2col;",
+        "Trim Margins;-mode fw;",
+        ""
+        };
+    int i;
+
+    for (i=0;defbuttons[i][0]!='\0';i++)
+        {
+        char envname[32],buf[256];
+
+        sprintf(envname,"K2PDFOPT_CUSTOM%d",i+1);
+        if (wsys_get_envvar_ex(envname,buf,255) < 0)
+            wsys_set_envvar(envname,defbuttons[i],0);
+        }
+    }
+
+
+static void k2gui_get_settings(int index,K2PDFOPT_SETTINGS *k2settings,STRBUF *extra)
 
     {
     char envname[32];
@@ -290,7 +355,7 @@ printf("    k2settings->gui=%d\n",k2settings->gui);
     }
 
 
-void k2gui_save_settings(int index,K2PDFOPT_SETTINGS *k2settings,STRBUF *extra)
+static void k2gui_save_settings(int index,K2PDFOPT_SETTINGS *k2settings,STRBUF *extra,char *name)
 
     {
     STRBUF *settings,_settings;
@@ -299,12 +364,20 @@ void k2gui_save_settings(int index,K2PDFOPT_SETTINGS *k2settings,STRBUF *extra)
     char envname[32];
     int status;
 
-    k2gui_get_custom_name(index,customname,31);
-    status=k2gui_get_text("Save Custom Settings",
+    if (name==NULL || name[0]=='\0')
+        {
+        k2gui_get_custom_name(index,customname,31);
+        status=k2gui_get_text("Save Custom Settings",
                           "Enter name for custom settings:",
                           "*Save","Cancel",customname,31);
-    if (status!=1)
-        return;
+        if (status!=1)
+            return;
+        }
+    else
+        {
+        strncpy(customname,name,31);
+        customname[31]='\0';
+        }
     settings=&_settings;
     envvar=&_envvar;
     strbuf_init(settings);
@@ -327,7 +400,7 @@ void k2gui_settings_to_cmdline(STRBUF *cmdline,K2PDFOPT_SETTINGS *k2settings)
     K2PDFOPT_SETTINGS _k2inited,*k2inited;
     k2inited=&_k2inited;
     k2pdfopt_settings_init(k2inited);
-    k2pdfopt_settings_get_cmdline(cmdline,k2settings,k2inited);
+    k2pdfopt_settings_get_cmdline(cmdline,k2settings,k2inited,NULL);
     }
 
 
@@ -504,6 +577,8 @@ static void k2gui_main_window_init(int normal_size)
     WILLUSGUIRECT dtrect;
     int k2w,k2h,dtw,dth,i;
 
+    /* Fill in a couple settings buttons if they are not already used */
+    k2gui_set_button_defaults();
     /* Get desktop rectangle */
     willusgui_window_get_rect(NULL,&dtrect);
     if (k2gui_winposition_get(&k2gui->mainwin.rect))
@@ -527,7 +602,8 @@ static void k2gui_main_window_init(int normal_size)
             k2gui->mainwin.rect.top = 0;
         if (k2gui->mainwin.rect.left+w > dtrect.right)
             k2gui->mainwin.rect.left = dtrect.right-w;
-        if (k2gui->mainwin.rect.top+w > dtrect.bottom)
+        /* v2.20 bug fix -- change w to h */
+        if (k2gui->mainwin.rect.top+h > dtrect.bottom)
             k2gui->mainwin.rect.top = dtrect.bottom-h;
         k2gui->mainwin.rect.right = k2gui->mainwin.rect.left + w - 1;
         k2gui->mainwin.rect.bottom = k2gui->mainwin.rect.top + h - 1;
@@ -547,6 +623,8 @@ static void k2gui_main_window_init(int normal_size)
         k2gui->mainwin.rect.right=k2gui->mainwin.rect.left+k2w-1;
         k2gui->mainwin.rect.bottom=k2gui->mainwin.rect.top+k2h-1;
         }
+    /* Done earlier now... */
+    /* k2gui_get_settings(0,&k2gui->k2conv->k2settings,&k2gui->cmdxtra); */
     k2gui_osdep_main_window_init(&k2gui->mainwin,normal_size);
     willusgui_window_set_focus(&k2gui->mainwin);
     for (i=0;i<k2gui->ncontrols;i++)
@@ -563,7 +641,8 @@ static void k2gui_main_window_init(int normal_size)
 static void k2gui_window_menus_init(WILLUSGUIWINDOW *win)
 
     {
-    static char *menus[] = {"_File","&Add Source File...","E&xit",
+    static char *menus[] = {"_File","&Add Source File...","&Save Settings...",
+                                    "&Restore Settings...","E&xit",
                             "_Help","&Website help page...","&Command-line Options...",
                                     "&About k2pdfopt...",
                             ""};
@@ -619,7 +698,7 @@ printf("@k2gui_timer_event, selected=%d, ms=%d...\n",k2gui->control_selected,k2g
 
                 preset=k2gui->control[index].flags&7;
                 /* Store local copy because it can change during processing */
-                k2gui_save_settings(preset,&k2gui->k2conv->k2settings,&k2gui->cmdxtra);
+                k2gui_save_settings(preset,&k2gui->k2conv->k2settings,&k2gui->cmdxtra,NULL);
                 k2gui_get_custom_name(preset,k2gui->control[index].name,31);
                 /* Refresh button label */
                 willusgui_control_redraw(&k2gui->control[index],0);
@@ -734,7 +813,7 @@ printf("Selecting all in control %d.\n",control_index);
                         dp=devprofile_get(buf);
                         */
                         srcin = (control->name[0]=='w') ? 8.5 : 11;
-                        if (ii==UNITS_SOURCE || ii==UNITS_TRIMMED)
+                        if (ii==UNITS_SOURCE || ii==UNITS_TRIMMED || ii==UNITS_OCRLAYER)
                             {
                             if ((*x)==UNITS_CM)
                                 (*xf) /= srcin*2.54;
@@ -745,7 +824,7 @@ printf("Selecting all in control %d.\n",control_index);
                             }
                         else if (ii==UNITS_PIXELS)
                             {
-                            if ((*x)==UNITS_SOURCE || (*x)==UNITS_TRIMMED)
+                            if ((*x)==UNITS_SOURCE || (*x)==UNITS_TRIMMED || (*x)==UNITS_OCRLAYER)
                                 (*xf) *= srcin*dpi;
                             else if ((*x)==UNITS_CM)
                                 (*xf) *= dpi/2.54;
@@ -756,7 +835,7 @@ printf("Selecting all in control %d.\n",control_index);
                             {
                             double scale;
                             scale = (ii==UNITS_CM ? 2.54 : 1.0);
-                            if ((*x)==UNITS_SOURCE || (*x)==UNITS_TRIMMED)
+                            if ((*x)==UNITS_SOURCE || (*x)==UNITS_TRIMMED || (*x)==UNITS_OCRLAYER)
                                 (*xf) *= srcin*scale;
                             else if ((*x)==UNITS_INCHES)
                                 (*xf) *= 2.54;
@@ -856,6 +935,16 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                     strbuf_cpy(&k2gui->cmdxtra,buf);
                     willus_mem_free((double **)&buf,funcname);
                     }
+                else if (!strcmp(control->name,"linebreakval"))
+                    {
+                    char buf[32];
+                    willusgui_control_get_text(control,buf,31);
+                    if (k2settings->word_spacing<0)
+                        k2settings->word_spacing = -fabs(atof(buf));
+                    else
+                        k2settings->word_spacing = fabs(atof(buf));
+                    k2gui_update_controls();
+                    }
                 return;
                 }
 
@@ -883,9 +972,19 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
 #endif
                         k2settings->text_wrap=0;
                         }
+#ifdef HAVE_OCR_LIB
+                    else
+                        {
+                        if (k2settings->dst_ocr==0)
+                            k2settings->dst_ocr='m';
+                        }
+#endif
                     }
                 else if (!strcmp(control->name,"r2l"))
                     k2settings->src_left_to_right = checked ? 0 : 1;
+                else if (!strcmp(control->name,"linebreak"))
+                    k2settings->word_spacing = checked ? -fabs(k2settings->word_spacing) 
+                                                       : fabs(k2settings->word_spacing);
                 else if (!strcmp(control->name,"markup"))
                     k2settings->show_marked_source = checked ? 1 : 0;
                 else if (!strcmp(control->name,"wrap"))
@@ -904,8 +1003,12 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
 #endif
                 else if (!strcmp(control->name,"evl"))
                     k2settings->erase_vertical_lines = checked ? 1 : 0;
+                else if (!strcmp(control->name,"bpm"))
+                    k2settings->dst_break_pages = checked ? 4 : 1;
                 else if (!strcmp(control->name,"autorot"))
                     k2settings->src_rot = checked ? SRCROT_AUTO : SRCROT_AUTOPREV;
+                else if (!strcmp(control->name,"defects"))
+                    k2settings->defect_size_pts = checked ? 1.5 : 0.75;
                 k2gui_update_controls();
                 }
                  
@@ -954,6 +1057,22 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                             }
                         willus_mem_free((double **)&selected,funcname);
                         filebox_populate();
+                        }
+                    }
+                else if (in_string(control->name,"restore defaults")>=0)
+                    {
+                    int status;
+                    status=willusgui_message_box(&k2gui->mainwin,
+                           "Restore Default Settings",
+                           "This will restore all GUI settings to the defaults.",
+                           "*&OK","&CANCEL",NULL,
+                           NULL,0,24.,320,0xffc0c0,NULL,NULL,1);
+                    if (status==1)
+                        {
+                        /* Restore Defaults */
+                        k2pdfopt_settings_init(&k2gui->k2conv->k2settings);
+                        strbuf_clear(&k2gui->cmdxtra);
+                        k2gui_update_controls();
                         }
                     }
                 else if (in_string(control->name,"convert all")>=0)
@@ -1125,7 +1244,7 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                 {
                 strcpy(fmt,"%.2f");
                 del=0.05;
-                xf=&k2settings->mar_left;
+                xf=&k2settings->srccropmargins.box[0];
                 min=0.;
                 max=-1.;
                 vtype=1;
@@ -1134,7 +1253,7 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                 {
                 strcpy(fmt,"%.2f");
                 del=0.05;
-                xf=&k2settings->mar_top;
+                xf=&k2settings->srccropmargins.box[1];
                 min=0.;
                 max=-1.;
                 vtype=1;
@@ -1143,7 +1262,7 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                 {
                 strcpy(fmt,"%.2f");
                 del=0.05;
-                xf=&k2settings->mar_right;
+                xf=&k2settings->srccropmargins.box[2];
                 min=0.;
                 max=-1.;
                 vtype=1;
@@ -1152,7 +1271,7 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                 {
                 strcpy(fmt,"%.2f");
                 del=0.05;
-                xf=&k2settings->mar_bot;
+                xf=&k2settings->srccropmargins.box[3];
                 min=0.;
                 max=-1.;
                 vtype=1;
@@ -1198,8 +1317,10 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                     if (fabs(fnew-(*xf))>1e-4)
                         {
                         /* For crop margins, zero = default, so change to -1 */
+                        /*
                         if (!strncmp(control->name,"crop",4) && fnew<=1e-8)
                             fnew = -1.;
+                        */
                         (*xf)=fnew;
                         k2gui_update_controls();
                         }
@@ -1228,11 +1349,15 @@ printf("K2PDFOPT <-- '%s'\n",buf);
             switch (message->param[0])
                 {
                 case 700:  /* Add source file */
-                    {
                     k2gui_add_files();
                     break;
-                    }
                 case 701:
+                    k2gui_save_settings_to_file();
+                    break;
+                case 702:
+                    k2gui_restore_settings_from_file();
+                    break;
+                case 703:
                     k2gui_quit();
                     break;
                 case 710:
@@ -1344,6 +1469,7 @@ printf("K2PDFOPT <-- '%s'\n",buf);
         */
         case WILLUSGUIACTION_CLOSE:
         case WILLUSGUIACTION_ESC_PRESS:
+            k2gui_save_settings(0,&k2gui->k2conv->k2settings,&k2gui->cmdxtra,"Last Settings");
             k2gui_winposition_save();
             k2gui_destroy_mainwin();
             break;
@@ -1410,11 +1536,19 @@ static WILLUSGUICONTROL *k2gui_control_with_focus(int *index)
 static void k2gui_update_controls(void)
 
     {
+/*
+char buf[256];
+int status;
+sprintf(buf,"@k2gui_update_controls, needs_redraw=%d",needs_redraw);
+status=willusgui_message_box(&k2gui->mainwin,"Debug",buf,
+"*&OK","","",NULL,0,24,600,0xe0e0e0,NULL,NULL,1);
+*/
     /* Make checkboxes consistent */
     if (k2gui!=NULL && k2gui->k2conv!=NULL)
         k2pdfopt_settings_quick_sanity_check(&k2gui->k2conv->k2settings);
     if (needs_redraw!=2)
         needs_redraw=1;
+    willusgui_set_ime_notify(1);
     willusgui_control_redraw(&k2gui->mainwin,1);
     }
 
@@ -1480,6 +1614,156 @@ void k2gui_add_file(char *filename)
     }
 
 
+static void k2gui_save_settings_to_file(void)
+
+    {
+    int status,size;
+    char *filename;
+    static char *funcname="k2gui_save_settings_to_file";
+    static int bcolors[3]={0x6060b0,0xf0f0f0,0xf0f0f0};
+    char buf[512];
+
+    size=512;
+    willus_mem_alloc_warn((void **)&filename,size,funcname,10);
+    status=willusgui_file_select_dialog(filename,size-1,"Text files\0*.txt\0\0\0",
+                                        "Select a save file","txt",1);
+    if (status)
+        {
+        FILE *out;
+        if (wfile_status(filename)!=0)
+            {
+            sprintf(buf,"File %s already exists?  Overwrite it?",filename);
+            status=willusgui_message_box(&k2gui->mainwin,"Overwrite settings?",buf,
+                                        "&YES (Overwrite)","*&NO (Cancel)","",
+                                        NULL,0,24,600,0xe0e0e0,bcolors,NULL,1);
+            if (status!=1)
+                {
+                willus_mem_free((double **)&filename,funcname);
+                return;
+                }
+            }
+        out=fopen(filename,"w");
+        if (out==NULL)
+            {
+            sprintf(buf,"Cannot open file %s for overwriting.",filename);
+            status=willusgui_message_box(&k2gui->mainwin,"Cannot write file",buf,
+                                        "*&OK","","",NULL,0,24,600,0xe0e0e0,bcolors,NULL,1);
+            }
+        else
+            {
+            int i;
+
+            for (i=-1;i<=4;i++)
+                {
+                char envname[128];
+                char *cmdbuf;
+
+                if (i<0)
+                    strcpy(envname,"K2PDFOPT");
+                else
+                    sprintf(envname,"K2PDFOPT_CUSTOM%d",i);
+                willus_mem_alloc_warn((void **)&cmdbuf,4096,funcname,10);
+                if (!wsys_get_envvar_ex(envname,cmdbuf,4095))
+                    fprintf(out,"%s=%s\n",envname,cmdbuf);
+                willus_mem_free((double **)&cmdbuf,funcname);
+                }
+            if (fclose(out))
+                {
+                sprintf(buf,"Error writing settings to file %s.",filename);
+                status=willusgui_message_box(&k2gui->mainwin,"Error",buf,
+                                            "*&OK","","",NULL,0,24,600,0xe0e0e0,bcolors,NULL,1);
+                }
+            else
+                {
+                sprintf(buf,"Settings successfully saved to file %s.",filename);
+                status=willusgui_message_box(&k2gui->mainwin,"Success",buf,
+                                            "*&OK","","",NULL,0,24,600,0xe0e0e0,bcolors,NULL,1);
+                }
+            }
+        }
+    willus_mem_free((double **)&filename,funcname);
+    }
+
+
+static void k2gui_restore_settings_from_file(void)
+
+    {
+    int status,size;
+    char *filename;
+    static char *funcname="k2gui_restore_settings_from_file";
+    static int bcolors[3]={0x6060b0,0xf0f0f0,0xf0f0f0};
+    char buf[512];
+
+    size=512;
+    willus_mem_alloc_warn((void **)&filename,size,funcname,10);
+    status=willusgui_file_select_dialog(filename,size-1,"Text files\0*.txt\0\0\0",
+                                        "Select a settings file","txt",0);
+    if (status)
+        {
+        FILE *f;
+        f=fopen(filename,"r");
+        if (f==NULL)
+            {
+            sprintf(buf,"Cannot open settings file %s for reading.",filename);
+            status=willusgui_message_box(&k2gui->mainwin,"Cannot open settings file",buf,
+                                        "*&OK","","",NULL,0,24,600,0xe0e0e0,bcolors,NULL,1);
+            }
+        else
+            {
+            char *cmdbuf;
+
+            k2gui_clear_envvars();
+            willus_mem_alloc_warn((void **)&cmdbuf,4096,funcname,10);
+            while (fgets(cmdbuf,4095,f)!=NULL)
+                {
+                int i;
+
+                if (cmdbuf[0]==';')
+                    continue;
+                /* Get rid of CR/LF */
+                clean_line(cmdbuf);
+                for (i=0;cmdbuf[i]!='\0' && cmdbuf[i]!='=';i++);
+                if (cmdbuf[i]=='\0')
+                    continue;
+                cmdbuf[i]='\0';
+                clean_line(cmdbuf);
+                if (strnicmp(cmdbuf,"k2pdfopt",8))
+                    continue;
+                wsys_set_envvar(cmdbuf,&cmdbuf[i+1],0);
+                }
+            willus_mem_free((double **)&cmdbuf,funcname);
+            fclose(f);
+            /* Apply K2PDFOPT_CUSTOM0 */
+            k2gui_get_settings(0,&k2gui->k2conv->k2settings,&k2gui->cmdxtra);
+            parse_cmd_args(k2gui->k2conv,&k2gui->cmdxtra,NULL,NULL,1,1);
+            /* Completely re-draw main window */
+            force_repaint=1;
+            k2gui_main_repaint(0);
+            sprintf(buf,"Settings restored from file %s.",filename);
+            status=willusgui_message_box(&k2gui->mainwin,"Success",buf,
+                                        "*&OK","","",NULL,0,24,600,0xe0e0e0,bcolors,NULL,1);
+            }
+        }
+    willus_mem_free((double **)&filename,funcname);
+    }
+
+
+static void k2gui_clear_envvars(void)
+
+    {
+    int i;
+
+    wsys_set_envvar("K2PDFOPT","",0);
+    for (i=0;i<=4;i++)
+        {
+        char buf[128];
+
+        sprintf(buf,"K2PDFOPT_CUSTOM%d",i);
+        wsys_set_envvar(buf,"",0);
+        }
+    }
+
+
 static void k2gui_add_files(void)
 
     {
@@ -1494,7 +1778,7 @@ printf("Calling wincomdlg...\n");
 */
     size=16384;
     willus_mem_alloc_warn((void **)&filename,size,funcname,10);
-    status=willusgui_file_select_dialog(filename,size-1,allowed_files,"Select source file","pdf");
+    status=willusgui_file_select_dialog(filename,size-1,allowed_files,"Select source file","pdf",0);
 /* printf("status=%d\n",status); */
     if (status)
         {
@@ -1554,7 +1838,13 @@ static void k2gui_add_children(int already_drawn)
     STRBUF *settings,_settings;
     K2PDFOPT_SETTINGS *k2settings;
 
-    
+/*    
+char buf[256];
+int status;
+sprintf(buf,"@k2gui_add_children, already_drawn=%d",already_drawn);
+status=willusgui_message_box(&k2gui->mainwin,"Debug",buf,
+"*&OK","","",NULL,0,24,600,0xe0e0e0,NULL,NULL,1);
+*/
 /*
     {
     HWND dummy;
@@ -2345,16 +2635,10 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
                 sprintf(buf,"%.1f",k2settings->dst_display_resolution);
                 break;
             case 2:
-                sprintf(buf,"%.2f",mar_eval(k2settings->mar_left));
-                break;
             case 3:
-                sprintf(buf,"%.2f",mar_eval(k2settings->mar_top));
-                break;
             case 4:
-                sprintf(buf,"%.2f",mar_eval(k2settings->mar_right));
-                break;
             case 5:
-                sprintf(buf,"%.2f",mar_eval(k2settings->mar_bot));
+                sprintf(buf,"%.2f",mar_eval(k2settings->srccropmargins.box[i-2]));
                 break;
             }
         willusgui_control_set_text(control,buf);
@@ -2403,20 +2687,22 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
     y1 = control->rect.bottom + ((int)(linesize*0.1)<2 ? 2 : (int)(linesize*0.1));
     }
 
-
     /* Checkboxes */
     {
     static char *checkboxlabel[] = {"Auto&straighten","&Break after each source page",
                                "Color o&utput","Rotate output to &landscape",
                                "&Native PDF output","Right-&to-left text",
+                               "Smart line brea&ks",
                                "Generate &marked-up source","Re-flow te&xt",
                                "Erase vertical l&ines","Fast Previe&w",
+                               "Avoi&d Text Select Overlap","I&gnore small defects",
 #ifdef HAVE_OCR_LIB
                                "&OCR (Tesseract)",
 #endif
                                ""};
     static char *checkboxname[] = {"straighten","break","color","landscape","native",
-                                   "r2l","markup","wrap","evl","autorot"
+                                   "r2l","linebreak","markup","wrap","evl","autorot","bpm",
+                                   "defects"
 #ifdef HAVE_OCR_LIB
                                    ,"ocr"
 #endif
@@ -2432,8 +2718,9 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
     ybmax = 0;
     for (i=0;i<n;i++)
         {
-        int c,r,checked;
+        int c,r,checked,lbreak;
 
+        lbreak=!stricmp(checkboxname[i],"linebreak");
         c=i/n2;
         r=i%n2;
         control=&k2gui->control[k2gui->ncontrols];
@@ -2450,6 +2737,12 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
                 ybmax = control->rect.bottom;
             control->font.size=k2gui->font.size;
             willusgui_font_get(&control->font);
+            if (lbreak)
+                {
+                WILLUSGUIRECT r1;
+                willusgui_window_text_extents(&k2gui->mainwin,&control->font,checkboxlabel[i],&r1);
+                control->rect.right=control->rect.left+(r1.right-r1.left)+eheight*0.85;
+                }
             control->type=WILLUSGUICONTROL_TYPE_CHECKBOX;
             control->color=0xd0ffd0;
             strcpy(control->name,checkboxname[i]);
@@ -2482,19 +2775,28 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
                 checked=!k2settings->src_left_to_right;
                 break;
             case 6:
-                checked=k2settings->show_marked_source;
+                checked=(k2settings->word_spacing<0);
                 break;
             case 7:
-                checked=k2settings->text_wrap;
+                checked=k2settings->show_marked_source;
                 break;
             case 8:
-                checked=k2settings->erase_vertical_lines;
+                checked=k2settings->text_wrap;
                 break;
             case 9:
+                checked=k2settings->erase_vertical_lines;
+                break;
+            case 10:
                 checked=fabs(k2settings->src_rot-SRCROT_AUTO)<.5;
                 break;
+            case 11:
+                checked=(k2settings->dst_break_pages==4);
+                break;
+            case 12:
+                checked=fabs(k2settings->defect_size_pts-1.5)<.001;
+                break;
 #ifdef HAVE_OCR_LIB
-            case 10:
+            case 13:
                 checked=(k2settings->dst_ocr=='t');
                 break;
 #endif
@@ -2507,17 +2809,57 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
             willusgui_control_create(control);
         else
             willusgui_control_redraw(control,0);
+        if (lbreak)
+            {
+            char xbuf[32];
+            WILLUSGUICONTROL *ctrl1;
+            int dy;
+
+            ctrl1=control;
+            dy=ctrl1->rect.bottom-ctrl1->rect.top+1;
+            control=&k2gui->control[k2gui->ncontrols];
+            control->index=100+k2gui->ncontrols;
+            k2gui->ncontrols++;
+            if (!already_drawn)
+                {
+                willusgui_control_init(control);
+                control->rect.left= ctrl1->rect.right + eheight/2;
+                control->rect.top = ctrl1->rect.top+dy*.1;
+                control->rect.bottom = ctrl1->rect.bottom-dy*.1;
+                control->rect.right = control->rect.left + eheight*1.5;
+                control->font.size=k2gui->font.size*0.75;
+                control->type=WILLUSGUICONTROL_TYPE_EDITBOX;
+                willusgui_font_get(&control->font);
+                strcpy(control->name,"linebreakval");
+                control->parent=&k2gui->mainwin;
+                }
+            if (already_drawn)
+                willusgui_control_redraw(control,0);
+            else
+                willusgui_control_create(control);
+            sprintf(xbuf,"%.3f",fabs(k2settings->word_spacing));
+            willusgui_control_set_text(control,xbuf);
+            }
         }
     }
 
-    /* Convert button */
-    for (i=0;i<1;i++)
+    /* Reset / Convert buttons */
+    {
+    int n;
+    n=2;
+    xmin -= pmbw;
+    for (i=0;i<n;i++)
         {
         double xl;
+        int dx;
+        static char *buttonnames[]={"*&Convert All Files","Restore Defaults"};
+        static int buttoncolors[2]={0xd0ffd0,0xffb0b0};
 
+/* printf("crect->left=%d, xmin=%d\n",crect->left,xmin); */
         xl = 1.2;
-        w = xl*fs*10;
-        x1 = crect->left + ((xmin-crect->left)-w)/2;
+        w = xl*fs*8.5;
+        dx = xl*fs*1.5;
+        x1 = crect->left + ((xmin-crect->left)-n*w-(n-1)*dx)/2 + i*(w+dx);
         h = fs*(xl+.4);
         /* y1 = crect->bottom - h - f4; */
         y1 = (crect->bottom - f4 + ybmax - h)/2;
@@ -2533,8 +2875,8 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
             control->font.size=k2gui->font.size*xl;
             willusgui_font_get(&control->font);
             control->type=WILLUSGUICONTROL_TYPE_BUTTON;
-            control->color=0xd0ffd0;
-            strcpy(control->name,"*&Convert All Files");
+            control->color=buttoncolors[i];
+            strcpy(control->name,buttonnames[i]);
             control->parent=&k2gui->mainwin;
             }
         if (already_drawn)
@@ -2543,6 +2885,7 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
             willusgui_control_create(control);
         k2gui->ncontrols++;
         }
+    }
     strbuf_free(settings);
 /*
 if (!already_drawn)
@@ -2585,6 +2928,12 @@ void k2gui_main_repaint(int changing)
     char buf[256];
     WILLUSGUIRECT rect;
 
+/*
+int status;
+sprintf(buf,"@k2gui_main_repaint, changing=%d, needs_redraw=%d",changing,needs_redraw);
+status=willusgui_message_box(&k2gui->mainwin,"Debug",buf,
+"*&OK","","",NULL,0,24,600,0xe0e0e0,NULL,NULL,1);
+*/
 #if (WILLUSDEBUG & 0x2000)
 printf("@k2gui_main_repaint(changing=%d, needs_redraw=%d)\n",changing,needs_redraw);
 #endif
@@ -2594,7 +2943,7 @@ printf("@k2gui_main_repaint(changing=%d, needs_redraw=%d)\n",changing,needs_redr
                    || (height != rect.bottom-rect.top+1));
     width = rect.right-rect.left+1;
     height = rect.bottom-rect.top+1;
-    if (newsize)
+    if (newsize || force_repaint)
         {
         /* If child controls exist, delete them so we can draw new re-sized ones */
         if (children_created)
@@ -2604,6 +2953,8 @@ printf("@k2gui_main_repaint(changing=%d, needs_redraw=%d)\n",changing,needs_redr
             }
         needs_redraw=2;
         }
+    if (force_repaint)
+        force_repaint=0;
 
     /* Set window title (in title bar) */
     k2sys_header(buf);
@@ -2753,8 +3104,8 @@ static void k2gui_preview_start(void)
 /*
 ** This small delay seems to prevent a weird bug where the preview
 ** occasionally fails, resulting in a fail with status=4, or a complete
-** crash with some errors reported by the PNG library.  I can't get
-** seem to get the crash to occur with this delay.  -- 4 Sep 2013, v2.01
+** crash with some errors reported by the PNG library.  I can't seem
+** to get the crash to occur with this delay.  -- 4 Sep 2013, v2.01
 */
 #if (defined(WIN32) || defined(WIN64))
 win_sleep(100);
@@ -2818,6 +3169,7 @@ static void k2gui_preview_make_bitmap(char *data)
     k2out.bmp->width=-1;
 
     /* Convert it, baby! */
+    overwrite_set(1);
     k2pdfopt_proc_wildarg(&k2conv->k2settings,k2conv->k2files.file[0],1,&k2out);
     willus_mem_free((double **)&k2out.outname,funcname);
 
@@ -3004,5 +3356,4 @@ void k2gui_preview_refresh(void)
     */
     willusgui_control_close(control);
     }
-
 #endif /* HAVE_K2GUI */

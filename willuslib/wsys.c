@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -522,22 +522,38 @@ static int wsys_decimal_is_period(void)
 ** Returns 0 for okay, negative value for error.
 ** Only implemented in Windows for now.
 ** system==NZ for system level var, 0 for user var.
+**
+** 7-20-2014:  Only use Windows calls in Windows.
 */
 int wsys_set_envvar(char *varname,char *value,int system)
 
     {
-    char *estr;
-    static char *funcname="wsys_set_envvar";
 #if (defined(WIN32) || defined(WIN64))
     int status;
     HKEY newkey;
+#else
+    char *estr;
+    static char *funcname="wsys_set_envvar";
+    int assign;
 #endif
 
-    willus_mem_alloc_warn((void **)&estr,strlen(varname)+strlen(value)+16,funcname,10);
-    sprintf(estr,"%s=%s",varname,value);
-    putenv(estr);
-    willus_mem_free((double **)&estr,funcname);
-#if (defined(WIN32) || defined(WIN64))
+#if (!defined(WIN32) && !defined(WIN64))
+    /* Linux / OSX */
+    assign=1;
+    if (value[0]=='\0')
+        {
+        estr=getenv(varname);
+        if (estr==NULL);
+            assign=0;
+        }
+    if (assign)
+        {
+        willus_mem_alloc_warn((void **)&estr,strlen(varname)+strlen(value)+16,funcname,10);
+        sprintf(estr,"%s=%s",varname,value);
+        putenv(estr);
+        willus_mem_free((double **)&estr,funcname);
+        }
+#else
     /* Make permanent by changing Windows registry */
     if (system)
         status=RegOpenKeyEx(HKEY_LOCAL_MACHINE,"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",0,KEY_WRITE,&newkey);
@@ -545,11 +561,14 @@ int wsys_set_envvar(char *varname,char *value,int system)
         status=RegOpenKeyEx(HKEY_CURRENT_USER,"Environment",0,KEY_WRITE,&newkey);
     if (status!=ERROR_SUCCESS)
         return(-1);
-    status=RegSetValueEx(newkey,varname,0,REG_SZ,(unsigned char *)value,strlen(value)+1);
+    if (value[0]!='\0')
+        status=RegSetValueEx(newkey,varname,0,REG_SZ,(unsigned char *)value,strlen(value)+1);
+    else
+        status=RegDeleteValue(newkey,varname);
     if (status!=ERROR_SUCCESS)
-        return(-2);
+        return(-1);
     RegCloseKey(newkey);
-#endif
+#endif /* WIN32 || WIN64 */
     return(0);
     }
 
@@ -558,6 +577,8 @@ int wsys_set_envvar(char *varname,char *value,int system)
 ** Return 0 for okay, negative for error.
 **
 ** If windows, uses registry first.
+**
+** 7-20-2014:  Only use Windows functions for env var in Windows.
 **
 */
 int wsys_get_envvar_ex(char *varname,char *value,int maxlen)
@@ -596,6 +617,7 @@ int wsys_get_envvar_ex(char *varname,char *value,int maxlen)
             }
         RegCloseKey(newkey);
         }
+    return(-10);
 #endif
     value[0]='\0';
     p=getenv(varname);

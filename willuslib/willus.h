@@ -992,7 +992,7 @@ void win_icons_from_exe(void **iconr,void **smalliconr);
 /* wincomdlg.c */
 #ifdef WIN32
 int wincomdlg_get_filename(char *filename,int maxlen,char *filter,char *title,char *defext,
-                           int multiselect,int must_exist);
+                           int multiselect,int must_exist,int for_writing);
 #endif
 
 /* wsys.c */
@@ -1271,12 +1271,15 @@ typedef struct
     double maxheight;  /* max height of any letter from baseline in pixels */
     double lcheight;  /* height of a lowercase letter in pixels */
     int rot;   /* rotation angle of word in degrees */
+    int n;     /* Number of chars in word */
     char *text;  /* UTF-8 text of word */
 
     /* Used by MuPDF */
     double x0,y0; /* Position of top-left of first char of word rel. to top-left of
                      rendered source page (pts) */
     double w0,h0; /* Width and height of word in points */
+    double *cpos; /* Position of the right side of each character, horizontally, from the */
+                  /* beginning of the word, in points.  cpos[n-1] should be = w0.         */
     double rot0_deg; /* Rotation of source document */
     int pageno; /* Source page number */
     } OCRWORD;
@@ -1290,6 +1293,8 @@ typedef struct
 void ocrword_init(OCRWORD *word);
 void ocrword_free(OCRWORD *word);
 void ocrwords_init(OCRWORDS *words);
+void ocrword_copy(OCRWORD *dst,OCRWORD *src);
+void ocrword_truncate(OCRWORD *word,int i1,int i2);
 int  ocrwords_to_textfile(OCRWORDS *words,char *filename,int append);
 void ocrwords_add_word(OCRWORDS *words,OCRWORD *word);
 void ocrwords_remove_words(OCRWORDS *words,int i1,int i2);
@@ -1673,7 +1678,7 @@ void willusgui_control_text_select_all(WILLUSGUICONTROL *control);
 void *willusgui_control_handle_with_focus(void);
 void willusgui_window_set_redraw(WILLUSGUIWINDOW *window,int status);
 int  willusgui_file_select_dialog(char *buf,int maxlen,char *allowedfiles,
-                                   char *prompt,char *defext);
+                                   char *prompt,char *defext,int for_writing);
 void willusgui_background_bitmap_blit(WILLUSGUIWINDOW *win,WILLUSBITMAP *bmp);
 void *willusgui_semaphore_create(char *name);
 void willusgui_semaphore_release(void *semaphore);

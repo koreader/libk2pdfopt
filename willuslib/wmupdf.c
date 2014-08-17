@@ -1741,11 +1741,26 @@ static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_text_page
                 {
                 fz_text_style *style=NULL;
                 int char_num;
-
+/*
+printf("Span:\n");
+printf("    len=%d, cap=%d\n",span->len,span->cap);
+printf("    min=(%d,%d)\n",(int)span->min.x,(int)span->min.y);
+printf("    max=(%d,%d)\n",(int)span->max.x,(int)span->max.y);
+printf("    wmode=%d\n",span->wmode);
+printf("    asmax=%g, dsmin=%g\n",span->ascender_max,span->descender_min);
+printf("    bbox=(%g,%g) - (%g,%g)\n",span->bbox.x0,span->bbox.y0,span->bbox.x1,span->bbox.y1);
+printf("    baseoff=%g\n",span->base_offset);
+printf("    spacing=%g\n",span->spacing);
+printf("    column=%d\n",span->column);
+printf("    colwidth=%g\n",span->column_width);
+printf("    align=%d\n",span->align);
+printf("    indent=%g\n",span->indent);
+*/
                 for (char_num=0;char_num<span->len;char_num++)
                     {
                     fz_text_char *ch;
                     fz_rect rect;
+                    double dx,dy;
                     WTEXTCHAR textchar;
 
                     ch=&span->text[char_num];
@@ -1764,6 +1779,32 @@ static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_text_page
                     textchar.xp=ch->p.x;
                     textchar.yp=ch->p.y;
                     textchar.ucs=ch->c;
+                    /*
+                    ** Strange behavior in one particular PDF (modul1.pdf) file lead to this...
+                    ** MuPDF bugzilla #695362:
+                    ** "Incorrect structured-text character bounding boxes and character values"
+                    ** Filed 13 July 2014
+                    */
+                    dx=textchar.x2-textchar.x1;
+                    if (fabs(dx)>3000.)
+                        {
+                        if (fabs(textchar.x1-textchar.xp) < fabs(textchar.x2-textchar.xp))
+                            textchar.x2 = textchar.x1 + dx/1000.;
+                        else
+                            textchar.x1 = textchar.x2 - dx/1000.;
+                        }
+                    dy=textchar.y2-textchar.y1;
+                    if (fabs(dy)>3000.)
+                        {
+                        if (fabs(textchar.y1-textchar.yp) < fabs(textchar.y2-textchar.yp))
+                            textchar.y2 = textchar.y1 + dy/1000.;
+                        else
+                            textchar.y1 = textchar.y2 - dy/1000.;
+                        }
+/*
+printf("Char %4d: (%7.1f,%7.1f) - (%7.1f,%7.1f) (%7.1f,%7.1f)\n",
+ch->c,textchar.x1,textchar.y1,textchar.x2,textchar.y2,textchar.xp,textchar.yp);
+*/
                     if (boundingbox==0 || wtc->n<=0)
                         wtextchars_add_wtextchar(wtc,&textchar);
                     else

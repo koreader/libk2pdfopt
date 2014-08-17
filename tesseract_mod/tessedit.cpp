@@ -230,11 +230,19 @@ bool Tesseract::init_tesseract_lang_data(
 
   // Load Cube objects if necessary.
   if (tessedit_ocr_engine_mode == OEM_CUBE_ONLY) {
-    ASSERT_HOST(init_cube_objects(false, &tessdata_manager));
+    /* willus mod */
+    // ASSERT_HOST(init_cube_objects(false, &tessdata_manager));
+    if (!init_cube_objects(false,&tessdata_manager))
+        return false;
+    /* end willus mod */
     if (tessdata_manager_debug_level)
       tprintf("Loaded Cube w/out combiner\n");
   } else if (tessedit_ocr_engine_mode == OEM_TESSERACT_CUBE_COMBINED) {
-    ASSERT_HOST(init_cube_objects(true, &tessdata_manager));
+    /* willus mod */
+    // ASSERT_HOST(init_cube_objects(true, &tessdata_manager));
+    if (!init_cube_objects(true,&tessdata_manager))
+      return false;
+    /* end willus mod */
     if (tessdata_manager_debug_level)
       tprintf("Loaded Cube with combiner\n");
   }
@@ -325,6 +333,9 @@ int Tesseract::init_tesseract(
 
       if (!loaded_primary) {
         if (result < 0) {
+          /* willus mod */
+          return -1;
+          /* end willu mod */
           tprintf("Failed loading language '%s'\n", lang_str);
         } else {
           if (tessdata_manager_debug_level)
@@ -335,6 +346,10 @@ int Tesseract::init_tesseract(
         }
       } else {
         if (result < 0) {
+          /* willus mod */
+          delete tess_to_init;
+          return -1;
+          /* end willu mod */
           tprintf("Failed loading language '%s'\n", lang_str);
           delete tess_to_init;
         } else {

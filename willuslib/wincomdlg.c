@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -51,11 +51,13 @@
 **
 ** If must_exist!=0, the file must already exist.
 **
+** If for_writing is non-zero, calls GetSaveFileName().
+**
 ** Returns 1 for success, 0 for cancel.
 **
 */
 int wincomdlg_get_filename(char *filename,int maxlen,char *filter,char *title,char *defext,
-                           int multiselect,int must_exist)
+                           int multiselect,int must_exist,int for_writing)
 
     {
     OPENFILENAME *fn,_fn;
@@ -76,7 +78,7 @@ int wincomdlg_get_filename(char *filename,int maxlen,char *filter,char *title,ch
     fn->lpstrInitialDir=NULL;
     fn->lpstrTitle=title;
     fn->Flags = 0;
-    if (multiselect)
+    if (!for_writing && multiselect)
         fn->Flags |= OFN_ALLOWMULTISELECT | OFN_EXPLORER;
     if (must_exist)
         fn->Flags |= OFN_FILEMUSTEXIST;
@@ -89,7 +91,7 @@ int wincomdlg_get_filename(char *filename,int maxlen,char *filter,char *title,ch
     fn->pvReserved=NULL;
     fn->dwReserved=0;
     fn->FlagsEx=0;
-    return(GetOpenFileName(fn));
+    return(for_writing ? GetSaveFileName(fn) : GetOpenFileName(fn));
     }
 
 

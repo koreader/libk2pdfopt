@@ -2,7 +2,7 @@
 ** wrapbmp.c    Functions to store individual word bitmaps into a collecting
 **              bitmap for text re-flow.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -476,8 +476,10 @@ k2printf("Bitmap is %d x %d (baseline=%d)\n",wrapbmp->bmp.width,wrapbmp->bmp.hei
     ** This means that word wrapping can't use the pageinfo structure for now.
     */
     {
+    ADDED_REGION_INFO added_region;
     int npr;
     double gap;
+
     npr=masterinfo->mandatory_region_gap;
     gap=masterinfo->page_region_gap_in;
     /*
@@ -492,8 +494,21 @@ aprintf(ANSI_RED "mi->mandatory_region_gap temp change to %d by wrap_flush." ANS
 #if (WILLUSDEBUGX & 1)
 printf("wrapbmp_flush calling bmpregion_add() w/bbox.rowheight=%d\n",region.bbox.rowheight);
 #endif
-    bmpregion_add(&region,k2settings,masterinfo,0,0,0,-1.0,just,2,
-                  0xf,wrapbmp->bmp.height-1-wrapbmp->base,-1);
+    added_region.region=&region;
+    added_region.firstrow=0;
+    added_region.lastrow=region.textrows.n-1;
+    added_region.allow_text_wrapping=0;
+    added_region.trim_flags=0;
+    added_region.allow_vertical_breaks=0;
+    added_region.force_scale=-1.0;
+    added_region.justification_flags=just;
+    added_region.caller_id=2;
+    /* added_region.mark_flags=0xf; */
+    added_region.rowbase_delta = wrapbmp->bmp.height-1-wrapbmp->base;
+    added_region.region_is_centered = -1;
+    added_region.notes=0;
+    added_region.count=0;
+    bmpregion_add(&added_region,k2settings,masterinfo);
     /*
     ** Restore masterinfo->mandatory_region_gap
     */

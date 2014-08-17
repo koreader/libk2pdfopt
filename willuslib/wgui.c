@@ -1264,11 +1264,12 @@ void willusgui_window_set_redraw(WILLUSGUIWINDOW *window,int status)
 **         e.g. "PDF files\0*.pdf\0DJVU files\0*.djvu\0\0"
 */
 int willusgui_file_select_dialog(char *buf,int maxlen,char *allowedfiles,
-                                   char *prompt,char *defext)
+                                   char *prompt,char *defext,int for_writing)
 
     {
 #ifdef MSWINGUI
-    return(wincomdlg_get_filename(buf,maxlen,allowedfiles,prompt,defext,1,1));
+    return(wincomdlg_get_filename(buf,maxlen,allowedfiles,prompt,defext,for_writing ? 0 : 1,
+                                  for_writing ? 0 : 1,for_writing));
 #else
     return(0);
 #endif

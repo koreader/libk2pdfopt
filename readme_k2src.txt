@@ -1,7 +1,7 @@
 K2pdfopt build help.
 http://willus.com
 Original: 7 September 2012
-Last updated: 14 Jun 2014 (v2.18)
+Last updated: 25 Jul 2014 (v2.21)
 
 This "read me" file describes the source code distribution for k2pdfopt.
 
@@ -46,7 +46,7 @@ NOTE 4 below).
     4.  JBIG2Dec 0.11 (jbig2dec.sourceforge.net)
     5.  OpenJPEG 2.0.0 (www.openjpeg.org)
     6.  FreeType 2.5.3 (freetype.sourceforge.net/index2.html)
-    7.  Mupdf 1.4 (mupdf.com) -- SEE NOTE 1.
+    7.  Mupdf 1.5 (mupdf.com) -- SEE NOTE 1.
 
     TO INCLUDE DjVuLibre LIBRARY (search for HAVE_DJVU in k2pdfopt.c)
     -----------------------------------------------------------------

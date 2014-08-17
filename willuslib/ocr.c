@@ -37,6 +37,7 @@ static int  not_usually_after_r(int c0);
 void ocrword_init(OCRWORD *word)
 
     {
+    word->cpos=NULL;
     word->text=NULL;
     }
 
@@ -46,6 +47,7 @@ void ocrword_free(OCRWORD *word)
     {
     static char *funcname="ocrword_free";
 
+    willus_mem_free((double **)&word->cpos,funcname);
     willus_mem_free((double **)&word->text,funcname);
     }
 
@@ -55,6 +57,80 @@ void ocrwords_init(OCRWORDS *words)
     {
     words->word=NULL;
     words->n=words->na=0;
+    }
+
+
+/*
+** allocates new memory
+*/
+void ocrword_copy(OCRWORD *dst,OCRWORD *src)
+
+    {
+    int memsize;
+    static char *funcname="ocrword_copy";
+
+    (*dst)=(*src);
+    dst->text=NULL;
+    dst->cpos=NULL;
+    memsize=sizeof(double)*src->n;
+    willus_mem_alloc_warn((void **)&dst->text,strlen(src->text)+1,funcname,10);
+    strcpy(dst->text,src->text);
+    if (src->cpos!=NULL)
+        {
+        willus_mem_alloc_warn((void **)&dst->cpos,memsize,funcname,10);
+        memcpy(dst->cpos,src->cpos,memsize);
+        }
+    }
+
+
+/*
+** Truncate word to chars from text[i1..i2]
+*/
+void ocrword_truncate(OCRWORD *word,int i1,int i2)
+
+    {
+    int i,n;
+    int *u;
+    double w0,scale;
+    static char *funcname="ocrword_truncate";
+
+    n=word->n;
+    if (i1<0)
+        i1=0;
+    if (i2>n-1)
+        i2=n-1;
+    if (i2<i1)
+        {
+        word->n=0;
+        word->w0=0.;
+        word->w=0;
+        return;
+        }
+    w0=word->w0;
+    /* Fix text */
+    willus_mem_alloc_warn((void **)&u,n*sizeof(int),funcname,10);
+    utf8_to_unicode(u,word->text,n);
+    unicode_to_utf8(word->text,&u[i1],i2-i1+1); 
+    willus_mem_free((double **)&u,funcname);
+    /* Fix length */
+    word->n=i2-i1+1;
+    if (word->cpos==NULL)
+        return;
+    /* Fix width */
+    word->w0 = word->cpos[i2]-(i1==0?0.:word->cpos[i1-1]);
+    scale = word->w/w0;
+    word->w = (int)(scale*word->w0+.5);
+    /* Fix left position and subsequent positions */
+    if (i1>0)
+        {
+        double x0;
+
+        x0=word->cpos[i1-1];
+        word->x0 += x0;
+        word->c += (int)(x0*scale+.5);
+        for (i=i1;i<=i2;i++)
+            word->cpos[i-i1]=word->cpos[i]-x0;
+        }
     }
 
 
@@ -128,10 +204,11 @@ void ocrwords_add_word(OCRWORDS *words,OCRWORD *word)
 
     {
     static char *funcname="ocrwords_add_word";
+    int i;
 
     if (words->n>=words->na)
         {
-        int i,newsize;
+        int newsize;
       
         newsize = words->na<512 ? 1024 : words->na*2;
         willus_mem_realloc_robust_warn((void **)&words->word,newsize*sizeof(OCRWORD),
@@ -144,6 +221,17 @@ void ocrwords_add_word(OCRWORDS *words,OCRWORD *word)
     words->word[words->n].text=NULL;
     willus_mem_alloc_warn((void **)&words->word[words->n].text,strlen(word->text)+1,funcname,10);
     strcpy(words->word[words->n].text,word->text);
+    /* Copy char positions */
+    words->word[words->n].n=utf8_to_unicode(NULL,word->text,1000000);
+    if (word->cpos!=NULL)
+        {
+        willus_mem_alloc_warn((void **)&words->word[words->n].cpos,
+                       words->word[words->n].n*sizeof(double),funcname,10);
+        for (i=0;i<words->word[words->n].n;i++)
+            words->word[words->n].cpos[i] = word->cpos[i];
+        }
+    else
+        words->word[words->n].cpos=NULL;
     words->n++;
     }
 

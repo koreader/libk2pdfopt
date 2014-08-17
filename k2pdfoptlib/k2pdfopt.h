@@ -22,27 +22,35 @@
 #define __K2PDFOPT_H__
 /*
 ** WILLUSDEBUGX flags:
-** 0x0001 = Generic
-** 0x0002 = breakinfo row analysis
-** 0x0004 = word wrapping
-** 0x0008 = word wrapping II
-** 0x0010 = hyphens
-** 0x0020 = OCR
-** 0x0040 = crop boxes
-** 0x0080 = column divider
-** 0x0100 = breakinfo_find_doubles
-** 0x0200 = 512 = gaps between big regions
-** 0x0400 = 1024 = MuPDF "virtual" OCR
-** 0x0800 = Put back "internal_gap" tracking (obsolete)
-** 0x1000 = find text words
-** 0x2000 = GUI
-** 0x4000 = Keep console for GUI debugging
-** 0x8000 = vertical line detection
+** 0x00001 = Generic
+** 0x00002 = breakinfo row analysis
+** 0x00004 = word wrapping
+** 0x00008 = word wrapping II
+** 0x00010 = hyphens
+** 0x00020 = OCR
+** 0x00040 = crop boxes
+** 0x00080 = column divider
+** 0x00100 = breakinfo_find_doubles
+** 0x00200 = 512 = gaps between big regions
+** 0x00400 = 1024 = MuPDF "virtual" OCR
+** 0x00800 = Put back "internal_gap" tracking (obsolete)
+** 0x01000 = find text words / word gaps
+** 0x02000 = GUI
+** 0x04000 = Keep console for GUI debugging
+** 0x08000 = vertical line detection
+** 0x10000 = OCR II (v2.15 mod)
+** 0x20000 = margin detection debug
+** 0x40000 = notes debug
+** 0x80000 = settings2cmd
+** 0x100000 = memory debug
+**
+** 0x80000000 = Fake Mupdf
 **
 */
 
-/* #define WILLUSDEBUGX 0x4000 */
 /*
+#define WILLUSDEBUGX 0x100000
+#define WILLUSDEBUGX 32
 #define WILLUSDEBUGX 0xfff
 #define WILLUSDEBUG
 */
@@ -128,6 +136,7 @@
 #define UNITS_CM          2
 #define UNITS_SOURCE      3
 #define UNITS_TRIMMED     4
+#define UNITS_OCRLAYER    5
 
 #define DEFAULT_WIDTH 560
 #define DEFAULT_HEIGHT 735
@@ -165,6 +174,24 @@ typedef struct
     int n;
     } K2CROPBOXES;
 
+
+/*
+** K2NOTES/K2NOTESET tracks pages where there are notes in the margins
+*/
+typedef struct
+    {
+    char pagelist[256];
+    double left,right;
+    } K2NOTES;
+
+#define MAXK2NOTES 16
+
+typedef struct
+    {
+    K2NOTES notes[MAXK2NOTES];
+    int n;
+    } K2NOTESET;
+
 /*
 ** K2PDFOPT_SETTINGS stores user settings that affect the document processing.
 */
@@ -178,6 +205,7 @@ typedef struct
     /* GUI */
     int gui;
     int guimin;
+    int restore_last_settings;
 #endif
 
     double cdthresh;
@@ -192,6 +220,8 @@ typedef struct
     int show_usage;
     int src_left_to_right;
     int src_whitethresh;
+    int src_paintwhite; /* Paint everything above src_whitethresh white */
+    int text_only; /* Do not send figures to output file */
 
     /* OCR */
 #ifdef HAVE_OCR_LIB
@@ -200,10 +230,19 @@ typedef struct
 #ifdef HAVE_TESSERACT_LIB
     char dst_ocr_lang[64];
 #endif
+    /*
+    ** 1=show source
+    ** 2=show OCR layer text
+    ** 4=show boxes
+    ** 8=use spaces
+    ** 16=use optimized spaces
+    ** 32=sort OCR text
+    */
     int dst_ocr_visibility_flags;
     int ocr_max_columns;
     double ocr_max_height_inches;
     OCRWORDS dst_ocrwords;
+    int sort_ocr_text;
 #endif
 
     int dst_dpi;
@@ -236,11 +275,15 @@ typedef struct
     int dst_landscape;
     char dst_opname_format[128];
     int src_autostraighten;
+    /*
     double dst_mar;
     double dst_martop;
     double dst_marbot;
     double dst_marleft;
     double dst_marright;
+    */
+    K2CROPBOX dstmargins;
+    K2CROPBOX dstmargins_org;
     int pad_left;
     int pad_right;
     int pad_bottom;
@@ -249,10 +292,13 @@ typedef struct
     double min_column_gap_inches;
     double max_column_gap_inches; // max gap between columns
     double min_column_height_inches;
+    K2CROPBOX srccropmargins;
+    /*
     double mar_top;
     double mar_bot;
     double mar_left;
     double mar_right;
+    */
     double max_region_width_inches; /* Max viewable width (device width minus margins) */
     int max_columns;
     double column_gap_range;
@@ -260,8 +306,7 @@ typedef struct
     double column_row_gap_height_in;
     double row_split_fom;  /* Used by breakinfo_find_doubles() */
     int text_wrap;
-    double word_spacing;
-    int auto_word_spacing; /* Used by KOReader */
+    double word_spacing; /* Negative for auto */
     double display_width_inches; /* Device width = dst_width / dst_dpi */
     char pagelist[1024];
     char bpl[2048];  /* Page break list--see -bpl option */
@@ -269,7 +314,7 @@ typedef struct
     char toclist[2048];
     char tocsavefile[MAXFILENAMELEN];
     int column_fitted;
-    double lm_org,bm_org,tm_org,rm_org,dpi_org;
+    double dpi_org;
     double contrast_max;
     double dst_gamma;
     int dst_negative;
@@ -292,6 +337,7 @@ typedef struct
     int src_grid_overlap_percentage;
     int src_grid_order; /* 0=down then across, 1=across then down */
     K2CROPBOXES cropboxes; /* Crop boxes */
+    K2NOTESET noteset;
     /*
     ** Preview options
     */
@@ -418,7 +464,7 @@ typedef struct
     double srcdpih;
     int srcrot;    /* deg */
     POINT2D coords[3];     /* [0]=top left corner of source page bitmap (pixels) */
-                           /* [1]=top left corner of wrapbmp bitmap (pixels) */
+                           /* [1]=top left corner of wrapbmp (dest) bitmap (pixels) */
                            /* [2]=width,height of region (pixels) */
     } WRECTMAP;
 
@@ -551,6 +597,27 @@ typedef struct
     } MASTERINFO;
 
 /*
+** Used by bmpregion_add() and some other functions to specify parameters
+** controlling how the source region is added to the destination document.
+*/
+typedef struct
+    {
+    BMPREGION *region;
+    int firstrow;
+    int lastrow;
+    int allow_text_wrapping;
+    int trim_flags;
+    int allow_vertical_breaks;
+    double force_scale;
+    int justification_flags;
+    int caller_id;
+    int rowbase_delta;
+    int region_is_centered;
+    int notes;
+    int count;
+    } ADDED_REGION_INFO;
+
+/*
 ** DEVPROFILE contains data that describes an e-book
 ** (screen width, display resolution, etc.)
 */
@@ -577,6 +644,7 @@ typedef struct
 void k2pdfopt_proc_wildarg(K2PDFOPT_SETTINGS *k2settings,char *arg,int process,
                            K2PDFOPT_OUTPUT *k2out);
 void wpdfboxes_echo(WPDFBOXES *boxes,FILE *out);
+void overwrite_set(int status);
 
 /* k2sys.c */
 void k2sys_init(void);
@@ -611,13 +679,12 @@ int  get_ttyrows(void);
 /* bmpregion.c */
 int  bmpregion_row_black_count(BMPREGION *region,int r0);
 int  bmpregion_col_black_count(BMPREGION *region,int c0);
-#if (defined(WILLUSDEBUGX) || defined(WILLUSDEBUG))
 void bmpregion_write(BMPREGION *region,char *filename);
-#endif
 void bmpregion_row_histogram(BMPREGION *region);
 int  bmpregion_is_clear(BMPREGION *region,int *row_black_count,int *col_black_count,
                         int *pixel_count_array,int rpc,double gt_in);
-void bmpregion_trim_to_crop_margins(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings);
+void bmpregion_trim_to_crop_margins(BMPREGION *region,MASTERINFO *masterinfo,
+                                    K2PDFOPT_SETTINGS *k2settings);
 int  bmpregion_column_height_and_gap_test(BMPREGION *column,BMPREGION *region,
                                         K2PDFOPT_SETTINGS *k2settings,
                                         int r1,int r2,int cmid);
@@ -632,6 +699,8 @@ int  bmpregion_is_centered(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,int i
 void bmpregion_get_white_margins(BMPREGION *region);
 void bmpregion_find_textrows(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                              int dynamic_aperture,int remove_small_rows);
+void bmpregion_fill_row_threshold_array(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
+                                        int dynamic_aperture,int *rowthresh,int *rhmean_pixels);
 void bmpregion_one_row_find_textwords(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                                       int add_to_dbase);
 void textrow_echo(TEXTROW *textrow,FILE *out);
@@ -646,6 +715,7 @@ void textrow_echo(TEXTROW *textrow,FILE *out);
 typedef struct
     {
     BMPREGION bmpregion;
+    int notes;
     int fullspan;
     int level;
     } PAGEREGION;
@@ -658,7 +728,8 @@ void pageregions_init(PAGEREGIONS *regions);
 void pageregions_free(PAGEREGIONS *regions);
 void pageregions_delete_one(PAGEREGIONS *regions,int index);
 void pageregions_insert(PAGEREGIONS *dst,int index,PAGEREGIONS *src);
-void pageregions_add_pageregion(PAGEREGIONS *regions,BMPREGION *bmpregion,int level,int fullspane);
+void pageregions_add_pageregion(PAGEREGIONS *regions,BMPREGION *bmpregion,int level,int fullspan,
+                                int notes);
 void pageregion_free(PAGEREGION *region);
 void pageregion_init(PAGEREGION *region);
 void pageregion_copy(PAGEREGION *dst,PAGEREGION *src);
@@ -679,7 +750,7 @@ void textrows_compute_row_gaps(TEXTROWS *textrows,int r2);
 void textrows_sort_by_gap(TEXTROWS *textrows);
 void textrows_sort_by_row_position(TEXTROWS *textrows);
 void textrows_find_doubles(TEXTROWS *textrows,int *rowthresh,BMPREGION *region,
-                           K2PDFOPT_SETTINGS *k2settings,int maxsize);
+                           K2PDFOPT_SETTINGS *k2settings,int maxsize,int dynamic_aperture);
 void textrows_remove_small_rows(TEXTROWS *textrows,K2PDFOPT_SETTINGS *k2settings,
                                 double fracrh,double fracgap,BMPREGION *region);
 void textrow_determine_type(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,int index);
@@ -709,17 +780,15 @@ void k2proc_init_one_document(void);
 void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                                MASTERINFO *masterinfo,int level,int pages_done);
 void pageregions_find_columns(PAGEREGIONS *pageregions_sorted,BMPREGION *srcregion,
-                              K2PDFOPT_SETTINGS *k2settings,int  maxlevels);
-void bmpregion_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
-                   MASTERINFO *masterinfo,int allow_text_wrapping,
-                   int trim_flags,int allow_vertical_breaks,
-                   double force_scale,int justify_flags,int caller_id,
-                   int mark_flags,int rowbase_delta,int region_is_centered);
+                              K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo,
+                              int  maxlevels);
+void bmpregion_add(ADDED_REGION_INFO *params,K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo);
 double line_spacing_from_font_size(double lcheight,double h5050,double capheight);
 
 
 /* k2settings.c */
 void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings);
+K2NOTES *page_has_notes_margin(K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo);
 void k2pdfopt_conversion_init(K2PDFOPT_CONVERSION *k2conv);
 void k2pdfopt_conversion_close(K2PDFOPT_CONVERSION *k2conv);
 void k2pdfopt_settings_copy(K2PDFOPT_SETTINGS *dst,K2PDFOPT_SETTINGS *src);
@@ -734,14 +803,11 @@ void k2pdfopt_settings_set_region_widths(K2PDFOPT_SETTINGS *k2settings);
 int k2settings_gap_override(K2PDFOPT_SETTINGS *k2settings);
 void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
                          BMPREGION *region,MASTERINFO *masterinfo,int trimmed);
-int devsize_pixels(double user_size,int user_units,double source_size_in,
-                   double trimmed_size_in,double dst_dpi,int flags);
-
 
 /* k2mark.c */
 void publish_marked_page(PDFFILE *mpdf,WILLUSBITMAP *src,int src_dpi);
-void mark_source_page(K2PDFOPT_SETTINGS *k2settings,BMPREGION *region0,
-                      int caller_id,int mark_flags);
+void mark_source_page(K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo,
+                      BMPREGION *region,int caller_id,int mark_flags);
 
 /* wrapbmp.c */
 void wrapbmp_init(WRAPBMP *wrapbmp,int color);
@@ -784,6 +850,12 @@ int masterinfo_get_next_output_page(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2
                                     int flushall,WILLUSBITMAP *bmp,double *bmpdpi,
                                     int *size_reduction,void *ocrwords);
 int masterinfo_should_flush(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings);
+void get_dest_margins(int *margins_pixels,K2PDFOPT_SETTINGS *k2settings,double dpi,
+                      int width_pixels,int height_pixels);
+void masterinfo_get_margins(double *margins_inches,K2CROPBOX *cbox,MASTERINFO *masterinfo,
+                            BMPREGION *region);
+void masterinfo_convert_to_source_pixels(MASTERINFO *masterinfo,LINE2D *userrect,int *units,
+                                        POINT2D *pagedims_inches,double dpi,LINE2D *trimrect_in);
 
 /* k2publish.c */
 void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int flushall);
@@ -792,7 +864,8 @@ void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int
 void k2ocr_init(K2PDFOPT_SETTINGS *k2settings);
 void k2ocr_end(K2PDFOPT_SETTINGS *k2settings);
 #ifdef HAVE_OCR_LIB
-void k2ocr_ocrwords_fill_in_ex(OCRWORDS *words,BMPREGION *region,K2PDFOPT_SETTINGS *k2settings);
+void k2ocr_ocrwords_fill_in_ex(MASTERINFO *masterinfo,OCRWORDS *words,BMPREGION *region,
+                               K2PDFOPT_SETTINGS *k2settings);
 #endif
 
 /* pagelist.c */
@@ -806,8 +879,8 @@ int    bmp_get_one_document_page(WILLUSBITMAP *src,K2PDFOPT_SETTINGS *k2pdfopt,
                               int src_type,char *filename,
                               int pageno,double dpi,int bpp,FILE *out);
 double bmp_orientation(WILLUSBITMAP *bmp);
-void   bmp_clear_outside_crop_border(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,
-                                   K2PDFOPT_SETTINGS *k2settings);
+void   bmp_clear_outside_crop_border(MASTERINFO *masterinfo,WILLUSBITMAP *src,
+                                     WILLUSBITMAP *srcgrey,K2PDFOPT_SETTINGS *k2settings);
 double bmp_inflections_vertical(WILLUSBITMAP *srcgrey,int ndivisions,int delta,int *wthresh);
 double bmp_inflections_horizontal(WILLUSBITMAP *srcgrey,int ndivisions,int delta,int *wthresh);
 void   bmp_detect_vertical_lines(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,double dpi,
@@ -817,10 +890,14 @@ void   bmp_detect_vertical_lines(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,double dpi
                                       int debug,int verbose);
 void   bmp_adjust_contrast(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,
                            K2PDFOPT_SETTINGS *k2settings,int *white);
+void   bmp_paint_white(WILLUSBITMAP *bmpgray,WILLUSBITMAP *bmp,int white_thresh);
 
 /* k2mem.c */
 void willus_dmem_alloc_warn(int index,void **ptr,int size,char *funcname,int exitcode);
 void willus_dmem_free(int index,double **ptr,char *funcname);
+#if (WILLUSDEBUGX & 0x100000)
+void willus_dmem_check(void);
+#endif
 
 /* devprofiles.c */
 int         devprofiles_count(void);
@@ -923,8 +1000,6 @@ int  k2gui_alertbox(int retval,char *title,char *message);
 void k2gui_get_custom_name(int index,char *name,int maxlen);
 void k2gui_get_custom_options(int index,K2PDFOPT_SETTINGS *k2settings,
                               STRBUF *extra);
-void k2gui_get_settings(int index,K2PDFOPT_SETTINGS *k2settings,STRBUF *extra);
-void k2gui_save_settings(int index,K2PDFOPT_SETTINGS *k2settings,STRBUF *extra);
 int  k2gui_wait_for_conversion_dialog_box_messages(void);
 int  k2gui_vprintf(FILE *f,char *fmt,va_list args);
 void k2gui_set_files_completed(int nfiles,char *message);
@@ -954,7 +1029,9 @@ int  k2gui_previewing(void);
 
 /* k2gui_cbox.c */
 int  k2gui_cbox_converting(void);
+void k2gui_okay(char *title,char *fmt,...);
 int  k2gui_yesno(char *title,char *fmt,...);
+int  k2gui_yes_no_all(char *title,char *fmt,...);
 void k2gui_cbox_do_conversion(K2GUI *k2gui0);
 void k2gui_cbox_final_print(void);
 void k2gui_cbox_terminate_conversion(void);
@@ -990,7 +1067,7 @@ void k2gui_osdep_main_repaint(int changing);
 /* k2settings2cmd.c */
 int  k2settings_sprintf(STRBUF *cmdline,K2PDFOPT_SETTINGS *k2settings,char *fmt,...);
 void k2pdfopt_settings_get_cmdline(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
-                                   K2PDFOPT_SETTINGS *src);
+                                   K2PDFOPT_SETTINGS *src,STRBUF *nongui);
 #endif /* K2GUI */
 
 #endif /* __K2PDFOPT_H__ */

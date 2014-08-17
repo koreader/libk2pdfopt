@@ -44,9 +44,17 @@ int bmp_get_one_document_page(WILLUSBITMAP *src,K2PDFOPT_SETTINGS *k2settings,
         status=0;
         if (k2settings->usegs<=0)
             {
+#if (WILLUSDEBUGX & 0x80000000)
+printf("\a\a\n\n\n\n\n\n\n\n\n   ****** FAKING MUPDF--IGNORING SOURCE DOCUMENT!!  *****\n\n\n\n\n\n\n");
+status=bmp_read(src,"out.png",NULL);
+if (status==0 && bpp!=24)
+bmp_convert_to_grayscale(src);
+return(status);
+#else
             status=bmpmupdf_pdffile_to_bmp(src,filename,pageno,dpi*k2settings->document_scale_factor,bpp);
             if (!status || k2settings->usegs<0)
                 return(status);
+#endif
             }
         /* Switch to Postscript since MuPDF failed */
         if (k2settings->usegs==0)
@@ -174,8 +182,8 @@ exit(10);
 /*
 ** src is only allocated if dst_color != 0
 */
-void bmp_clear_outside_crop_border(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,
-                                   K2PDFOPT_SETTINGS *k2settings)
+void bmp_clear_outside_crop_border(MASTERINFO *masterinfo,WILLUSBITMAP *src,
+                                   WILLUSBITMAP *srcgrey,K2PDFOPT_SETTINGS *k2settings)
 
     {
     int i,n;
@@ -183,9 +191,10 @@ void bmp_clear_outside_crop_border(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,
 
     region=&_region;
     bmpregion_init(region);
-    region->bmp = srcgrey;
+    region->bmp = k2settings->dst_color ? src : srcgrey;
+    region->bmp8 = srcgrey;
     region->dpi = k2settings->src_dpi;
-    bmpregion_trim_to_crop_margins(region,k2settings);
+    bmpregion_trim_to_crop_margins(region,masterinfo,k2settings);
     n=region->c1;
     for (i=0;i<srcgrey->height;i++)
         {
@@ -674,6 +683,8 @@ bmp_write(bmp,"out2.png",stdout,95);
 wfile_written_info("out2.png",stdout);
 exit(10);
 */
+    /* v2.20--fix memory leak here */
+    bmp_free(tmp);
     }
 
 
@@ -912,4 +923,30 @@ printf("   done.\n");
         }
     willus_dmem_free(26,(double **)&c1,funcname);
     return(1);
+    }
+
+
+/*
+** bmpgray must be 8-bit grayscale.  bmp can be either 8-bit or 24-bit.
+*/
+void bmp_paint_white(WILLUSBITMAP *bmpgray,WILLUSBITMAP *bmp,int white_thresh)
+
+    {
+    int i,bpp;
+
+    bpp=bmp->bpp==24 ? 3 : 1;
+    for (i=0;i<bmpgray->height;i++)
+        {
+        unsigned char *pgray,*p;
+        int j;
+
+        pgray=bmp_rowptr_from_top(bmpgray,i);
+        p=bmp_rowptr_from_top(bmp,i);
+        for (j=0;j<bmpgray->width;j++,pgray++,p+=bpp)
+            if ((*pgray) >= white_thresh)
+                {
+                (*pgray) = 255;
+                memset(p,255,bpp);
+                }
+        }
     }

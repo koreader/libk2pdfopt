@@ -543,32 +543,30 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
             int i,na;
 
             defmar=-1.0;
-            if (defmar<0. && k2settings->mar_left>=0.)
-                defmar=k2settings->mar_left;
-            if (defmar<0. && k2settings->mar_top>=0.)
-                defmar=k2settings->mar_top;
-            if (defmar<0. && k2settings->mar_right>=0.)
-                defmar=k2settings->mar_right;
-            if (defmar<0. && k2settings->mar_bot>=0.)
-                defmar=k2settings->mar_bot;
+            for (i=0;i<4;i++)
+                if (defmar<0. && k2settings->srccropmargins.box[i]>=0.)
+                    {
+                    defmar=k2settings->srccropmargins.box[i];
+                    break;
+                    }
             if (defmar<0.)
                 defmar=0.25;
             na=userinput_float("Inches of source border to ignore",defmar,v,4,0.,10.,
                           "Enter one value or left,top,right,bottom values comma-separated.");
             if (na<0)
                 return(na);
-            i=0;
-            k2settings->mar_left=v[i];
-            if (i<na-1)
-                i++;
-            k2settings->mar_top=v[i];
-            if (i<na-1)
-                i++;
-            k2settings->mar_right=v[i];
-            if (i<na-1)
-                i++;
-            k2settings->mar_bot=v[i];
-            strbuf_sprintf(usermenu,"-m %g,%g,%g,%g",k2settings->mar_left,k2settings->mar_top,k2settings->mar_right,k2settings->mar_bot);
+            if (na==0)
+                {
+                v[0]=defmar;
+                na=1;
+                }
+            for (i=0;i<4;i++)
+                k2settings->srccropmargins.box[0]=v[i<na?i:na-1];
+            strbuf_sprintf(usermenu,"-m %g,%g,%g,%g",
+                           k2settings->srccropmargins.box[0],
+                           k2settings->srccropmargins.box[1],
+                           k2settings->srccropmargins.box[2],
+                           k2settings->srccropmargins.box[3]);
             }
         else if (!stricmp(buf,"mo"))
             {
@@ -598,23 +596,30 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
             {
             double v[4];
             int i,na;
-            na=userinput_float("Output device margin",k2settings->dst_mar,v,4,0.,10.,
+            double dst_mar;
+
+            for (dst_mar=0.,i=0;i<4;i++)
+                if (k2settings->dstmargins.box[i]>=0.)
+                    {
+                    dst_mar=k2settings->dstmargins.box[i];
+                    break;
+                    }
+            na=userinput_float("Output device margin",dst_mar,v,4,0.,10.,
                           "Enter one value or left,top,right,bottom values comma-separated.");
             if (na<0)
                 return(na);
-            i=0;
-            k2settings->dst_marleft=v[i];
-            if (i<na-1)
-                i++;
-            k2settings->dst_martop=v[i];
-            if (i<na-1)
-                i++;
-            k2settings->dst_marright=v[i];
-            if (i<na-1)
-                i++;
-            k2settings->dst_marbot=v[i];
+            if (na==0)
+                {
+                v[0]=dst_mar;
+                na=1;
+                }
+            for (i=0;i<4;i++)
+                k2settings->dstmargins.box[i]=v[i<na?i:na-1];
             strbuf_sprintf(usermenu,"-om %g,%g,%g,%g",
-                             k2settings->dst_marleft,k2settings->dst_martop,k2settings->dst_marright,k2settings->dst_marbot);
+                             k2settings->dstmargins.box[0],
+                             k2settings->dstmargins.box[1],
+                             k2settings->dstmargins.box[2],
+                             k2settings->dstmargins.box[3]);
             }
         else if (!stricmp(buf,"o"))
             {
