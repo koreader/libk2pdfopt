@@ -47,6 +47,10 @@ void k2pdfopt_part_bmp(KOPTContext *kctx) {
 	masterinfo = &_masterinfo;
 	/* Initialize settings */
 	k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
+	for (i=0;i<4;i++)
+		k2settings->dstmargins.box[i]=.0;
+	k2settings->text_wrap=0;
+	k2settings->src_trim=0;
 	k2pdfopt_settings_sanity_check(k2settings);
 	/* Init master output structure */
 	masterinfo_init(masterinfo, k2settings);
