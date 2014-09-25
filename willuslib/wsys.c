@@ -303,7 +303,7 @@ int wsys_wpid_status(int pid)
 void wsys_sleep(int secs)
 
     {
-#ifdef WIN32
+#if (defined(WIN32) && !defined(MINGW))
     win_sleep(secs*1000);
 #else
     sleep(secs);
@@ -314,7 +314,7 @@ void wsys_sleep(int secs)
 char *wsys_full_exe_name(char *s)
 
     {
-#if (defined(WIN32) || defined(WIN64))
+#if ((defined(WIN32) || defined(WIN64)) && !defined(MINGW))
     return(win_full_exe_name(s));
 #else
     if (!wfile_is_symlink_ex("/proc/self/exe",s))
@@ -338,7 +338,7 @@ void wsys_append_nul_redirect(char *s)
 int wsys_which(char *exactname,char *exename)
 
     {
-#ifdef WIN32
+#if (defined(WIN32) && !defined(MINGW))
     return(win_which(exactname,exename));
 #else
 #if (defined(LINUX) || defined(UNIXPURE))
@@ -353,7 +353,7 @@ int wsys_which(char *exactname,char *exename)
 int wsys_most_recent_in_path(char *exename,char *wildcard)
 
     {
-#ifdef WIN32
+#if (defined(WIN32) && !defined(MINGW))
     return(win_most_recent_in_path(exename,wildcard));
 #else
 #if (defined(LINUX) || defined(UNIXPURE))
@@ -381,7 +381,7 @@ void wsys_computer_name(char *name,int maxlen)
 void wsys_enter_to_exit(char *mesg)
 
     {
-#if (defined(WIN32) || defined(WIN64))
+#if ((defined(WIN32) || defined(WIN64)) && !defined(MINGW))
     if (win_has_own_window())
 #endif
         {

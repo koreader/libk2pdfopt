@@ -34,9 +34,9 @@ else
 endif
 
 STATIC_CC= $(CC)
-DYNAMIC_CC= $(CC) -fPIC
+DYNAMIC_CC= $(CC) $(if $(WIN32),,-fPIC)
 STATIC_CXX= $(CXX)
-DYNAMIC_CXX= $(CXX) -fPIC
+DYNAMIC_CXX= $(CXX) $(if $(WIN32),,-fPIC)
 TARGET_CC= $(STATIC_CC)
 TARGET_DYNCC= $(DYNAMIC_CC)
 TARGET_CXX= $(STATIC_CXX)
@@ -48,7 +48,7 @@ ifeq (static,$(BUILDMODE))
 endif
 TARGET_SONAME= libk2pdfopt.so.$(MAJVER)
 TARGET_DYLIBPATH=
-TARGET_XSHLDFLAGS= -shared -fPIC -Wl,-soname,$(TARGET_SONAME)
+TARGET_XSHLDFLAGS= -shared $(if $(WIN32),,-fPIC) -Wl,-soname,$(TARGET_SONAME)
 TARGET_ASHLDFLAGS= $(TARGET_XSHLDFLAGS) $(TARGET_DYLIBPATH) $(TARGET_FLAGS) $(TARGET_SHLDFLAGS)
 TARGET_XLIBS= -lm
 TARGET_ALIBS= $(TARGET_XLIBS) $(LIBS) $(TARGET_LIBS)
@@ -56,46 +56,56 @@ TARGET_ALIBS= $(TARGET_XLIBS) $(LIBS) $(TARGET_LIBS)
 K2PDFOPT_A= libk2pdfopt.a
 K2PDFOPT_SO= $(TARGET_SONAME)
 
-LEPTONICA_LIB= liblept.so
-TESSERACT_LIB= libtesseract.so
-K2PDFOPT_LIB= libk2pdfopt.so.$(MAJVER)
+LEPTONICA_LIB= liblept$(if $(WIN32),-3.dll,.so)
+TESSERACT_LIB= libtesseract$(if $(WIN32),-3.dll,.so)
+K2PDFOPT_LIB= libk2pdfopt$(if $(WIN32),-$(MAJVER).dll,.so.$(MAJVER))
 
 ##############################################################################
 # Object file rules.
 ##############################################################################
 %.o: %.c
 	@echo "BUILD    $@"
-	@$(TARGET_CC) $(CFLAGS) -c $(if $(ANDROID),-DANDROID,) \
+	@$(TARGET_CC) $(CFLAGS) -c -DK2PDFOPT_KINDLEPDFVIEWER $(if $(ANDROID),-DANDROID,) \
 		-I$(MOD_INC) -I$(WILLUSLIB_DIR) -I$(K2PDFOPTLIB_DIR) -o $@ $<
-	@$(TARGET_DYNCC) $(CFLAGS) -c $(if $(ANDROID),-DANDROID,) \
+	@$(TARGET_DYNCC) $(CFLAGS) -c -DK2PDFOPT_KINDLEPDFVIEWER $(if $(ANDROID),-DANDROID,) \
 		-I$(MOD_INC) -I$(WILLUSLIB_DIR) -I$(K2PDFOPTLIB_DIR) -o $(@:.o=_dyn.o) $<
 
 ##############################################################################
 # Target file rules.
 ##############################################################################
 $(LEPTONICA_LIB):
-	cd $(LEPTONICA_DIR) && ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
+	cd $(LEPTONICA_DIR) && ./configure $(if $(EMULATE_READER),,--host $(HOST)) \
+		--prefix=$(CURDIR)/$(LEPTONICA_DIR) \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(LEPT_CFLAGS)' \
 		LDFLAGS='-Wl,-rpath-link,$(LEPT_PNG_DIR) -Wl,-rpath,'libs' $(LEPT_LDFLAGS)' \
-		LIBS='-lz -lm' \
 		--disable-static --enable-shared \
-		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff \
-		&& $(MAKE) --silent CFLAGS='$(LEPT_CFLAGS)'
+		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff
+	# fix cannot find library -lc on mingw-w64
+	cd $(LEPTONICA_DIR) && sed -i "s|archive_cmds_need_lc='yes'|archive_cmds_need_lc='no'|" config.status
+	cd $(LEPTONICA_DIR) && $(MAKE) CFLAGS='$(LEPT_CFLAGS)' install
+ifdef WIN32
+	cp -a $(LEPTONICA_DIR)/src/.libs/liblept-3.dll ./
+else
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept.so* ./
+endif
 
 $(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cp $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/
 	-cd $(TESSERACT_DIR) && \
 		patch -N -p1 < ../tesseract_mod/baseapi.cpp.patch
-	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
+	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure $(if $(EMULATE_READER),,--host=$(HOST)) \
 		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
+		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED -DUSE_STD_NAMESPACE -D__MSW32__  -DWIN32 -DMINGW32',) \
 		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
 		LDFLAGS='-Wl,-rpath-link,$(LEPT_PNG_DIR) -Wl,-rpath,\$$$$ORIGIN $(LEPT_LDFLAGS)' \
-		LIBS='-lz -lm' \
-		--with-extra-libraries=$(CURDIR) \
+		--with-extra-libraries=$(CURDIR)/$(LEPTONICA_DIR)/lib \
 		--disable-static --enable-shared --disable-graphics \
-		&& $(MAKE) --silent
+		&& $(MAKE)
+ifdef WIN32
+	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract-3.dll ./
+else
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract.so* ./
+endif
 
 tesseract_capi: $(TESSERACT_MOD)/tesscapi.cpp $(TESSERACT_LIB)
 	$(TARGET_CXX) $(CXXFLAGS) -c $(TESSCAPI_CFLAGS) -o $(TESSERACT_API_O) $<
@@ -108,7 +118,9 @@ $(K2PDFOPT_LIB): $(K2PDFOPT_O) tesseract_capi
 	$(CXX) $(TARGET_ASHLDFLAGS) -Wl,-rpath,'libs' -o $@ \
 		$(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS) \
 		$(MUPDF_LIB) $(TESSERACT_LIB) $(LEPTONICA_LIB)
+ifndef WIN32
 	ln -sf $(K2PDFOPT_LIB) libk2pdfopt.so
+endif
 
 all: $(TESSERACT_LIB) $(LEPTONICA_LIB) $(K2PDFOPT_LIB)
 
@@ -116,10 +128,11 @@ clean:
 	rm -rf *.o
 	rm -rf *.a
 	rm -rf *.so*
+	rm -rf *.dll
 	cd $(WILLUSLIB_DIR) && rm -rf *.o
 	cd $(K2PDFOPTLIB_DIR) && rm -rf *.o
 	cd $(TESSERACT_MOD) && rm -rf *.o
-	cd $(LEPTONICA_DIR) && make clean
-	cd $(TESSERACT_DIR) && make clean
+	cd $(LEPTONICA_DIR) && make distclean
+	cd $(TESSERACT_DIR) && make distclean
 
 .PHONY: clean

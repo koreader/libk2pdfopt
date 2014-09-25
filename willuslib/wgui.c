@@ -29,7 +29,7 @@
 #include <ctype.h>
 #include <time.h>
 
-#if (!defined(MSWINGUI) && (defined(WIN32) || defined(WIN64)))
+#if (!defined(MSWINGUI) && (defined(WIN32) || defined(WIN64)) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
 #define MSWINGUI
 #endif
 

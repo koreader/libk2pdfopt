@@ -22,7 +22,7 @@
 
 #include "willus.h"
 
-#if (defined(WIN32) || defined(WIN64))
+#if ((defined(WIN32) || defined(WIN64)) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
 
 #include <windows.h>
 #include <stdio.h>

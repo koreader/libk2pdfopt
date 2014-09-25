@@ -848,7 +848,7 @@ void compress_done(FILE* f, compress_handle *h);
 size_t compress_write(FILE* f, compress_handle h, const void *buf, size_t size);
 
 /* win.c */
-#ifdef WIN32
+#if (defined(WIN32) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
 void *win_activewin(void);
 void *win_hinstance(void);
 char *win_full_exe_name(char *s);
@@ -941,12 +941,12 @@ int win_has_own_window(void);
 #endif
 
 /* winshell.c */
-#ifdef WIN32
+#if (defined(WIN32) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
 int win_resolve_shortcut(char *shortcut,char *target,int maxlen);
 #endif
 
 /* winmbox.c */
-#ifdef WIN32
+#if (defined(WIN32) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
 int winmbox_message_box(void *parent,char *title,char *message,char *button1,
                         char *button2,char *button3,char *inbuf,int maxlen,
                         int fontsize_pixels,int maxwidth_pixels,int rgbcolor,
@@ -973,7 +973,7 @@ void winmbox_button_draw(void *hdc0,void *rect0,int state,int basecolorrgb,
 #endif
 
 /* winbmp.c */
-#ifdef WIN32
+#if (defined(WIN32) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
 int  win_clipboard_to_bmp(WILLUSBITMAP *bmp,FILE *out);
 int  win_emf_dims(char *filename,double *width_in,double *height_in);
 int  win_emf_to_bmp(wmetafile *wmf,int dpi,WILLUSBITMAP *bmp,FILE *out);
@@ -992,7 +992,7 @@ void win_icons_from_exe(void **iconr,void **smalliconr);
 #endif
 
 /* wincomdlg.c */
-#ifdef WIN32
+#if (defined(WIN32) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
 int wincomdlg_get_filename(char *filename,int maxlen,char *filter,char *title,char *defext,
                            int multiselect,int must_exist,int for_writing);
 #endif

@@ -100,7 +100,7 @@
 #endif
 
 /* Compile w/Windows GUI? */
-#if (defined(WIN32) || defined(WIN64))
+#if ((defined(WIN32) || defined(WIN64)) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
 #define HAVE_K2GUI
 #endif
 
