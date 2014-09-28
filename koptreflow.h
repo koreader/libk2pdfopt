@@ -18,8 +18,8 @@
  **
  */
 
-#ifndef _KOPTREEFLOW_H
-#define _KOPTRREFLOW_H
+#ifndef _KOPTREFLOW_H
+#define _KOPTREFLOW_H
 
 #include "k2pdfopt.h"
 #include "context.h"

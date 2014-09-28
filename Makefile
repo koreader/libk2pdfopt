@@ -96,8 +96,9 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		patch -N -p1 < ../tesseract_mod/baseapi.cpp.patch
 	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q \
 		$(if $(EMULATE_READER),,--host=$(HOST)) \
-		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
-		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED -DUSE_STD_NAMESPACE -D__MSW32__  -DWIN32 -DMINGW32',) \
+		CXX='$(strip $(CCACHE) $(CXX))' \
+		CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
+		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED',) \
 		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
 		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
 		--with-extra-libraries=$(CURDIR)/$(LEPTONICA_DIR)/lib \
