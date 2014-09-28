@@ -74,15 +74,16 @@ K2PDFOPT_LIB= libk2pdfopt$(if $(WIN32),-$(MAJVER).dll,.so.$(MAJVER))
 # Target file rules.
 ##############################################################################
 $(LEPTONICA_LIB):
-	cd $(LEPTONICA_DIR) && ./configure $(if $(EMULATE_READER),,--host $(HOST)) \
+	cd $(LEPTONICA_DIR) && ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
 		--prefix=$(CURDIR)/$(LEPTONICA_DIR) \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(LEPT_CFLAGS)' \
-		LDFLAGS='-Wl,-rpath-link,$(LEPT_PNG_DIR) -Wl,-rpath,'libs' $(LEPT_LDFLAGS)' \
+		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,"libs" $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
 		--disable-static --enable-shared \
 		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff
 	# fix cannot find library -lc on mingw-w64
 	cd $(LEPTONICA_DIR) && sed -i "s|archive_cmds_need_lc='yes'|archive_cmds_need_lc='no'|" config.status
-	cd $(LEPTONICA_DIR) && $(MAKE) CFLAGS='$(LEPT_CFLAGS)' install
+	cd $(LEPTONICA_DIR) && $(MAKE) CFLAGS='$(LEPT_CFLAGS)' \
+		install --silent >/dev/null 2>&1
 ifdef WIN32
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept-3.dll ./
 else
@@ -93,14 +94,15 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cp $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/
 	-cd $(TESSERACT_DIR) && \
 		patch -N -p1 < ../tesseract_mod/baseapi.cpp.patch
-	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure $(if $(EMULATE_READER),,--host=$(HOST)) \
+	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q \
+		$(if $(EMULATE_READER),,--host=$(HOST)) \
 		CXX='$(strip $(CCACHE) $(CXX))' CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
 		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED -DUSE_STD_NAMESPACE -D__MSW32__  -DWIN32 -DMINGW32',) \
 		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
-		LDFLAGS='-Wl,-rpath-link,$(LEPT_PNG_DIR) -Wl,-rpath,\$$$$ORIGIN $(LEPT_LDFLAGS)' \
+		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
 		--with-extra-libraries=$(CURDIR)/$(LEPTONICA_DIR)/lib \
 		--disable-static --enable-shared --disable-graphics \
-		&& $(MAKE)
+		&& $(MAKE) --silent >/dev/null 2>&1
 ifdef WIN32
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract-3.dll ./
 else
