@@ -64,7 +64,18 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	printf("source page (%d,%d) - (%d,%d)\n",region->c1,region->r1,region->c2,region->r2);
 	printf("source page bgcolor %d\n", region->bgcolor);
 	bmpregion_trim_margins(region,k2settings,0xf);
-	margin = kctx->margin*k2settings->dst_dpi/4;
+	margin = kctx->margin*k2settings->dst_dpi;
+	/*
+	 * Suppose when page is zoomed to k level at fit to content width zoom mode,
+	 * the content width is a, the device screen width is w,
+	 * and the request margin size is m, x pixels are added as page margin.
+	 * Then the following equations should be satisified:
+	 * 1. k*(a + 2x) = w
+	 * 2. 2*x*k = m
+	 * which should be solved to x = m*a/(w-m)/2
+	*/
+	margin = margin*(region->c2 - region->c1)/(kctx->dev_width - margin)/2;
+
 	kctx->bbox.x0 = (float)region->c1 - margin;
 	kctx->bbox.y0 = (float)region->r1 - margin;
 	kctx->bbox.x1 = (float)region->c2 + margin;
