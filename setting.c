@@ -42,6 +42,7 @@ void k2pdfopt_settings_init_from_koptcontext(K2PDFOPT_SETTINGS *k2settings, KOPT
     k2settings->dst_userheight = 800;
     k2settings->dst_width = k2settings->dst_userwidth;
     k2settings->dst_height = k2settings->dst_userheight;
+    k2settings->dst_ocr = 0;
     k2settings->dst_color = 0;
     k2settings->use_crop_boxes = 0;
     k2settings->defect_size_pts = 1.0;
