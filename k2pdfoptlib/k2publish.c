@@ -30,7 +30,7 @@ void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int
 #ifdef HAVE_MUPDF_LIB
     static WTEXTCHARS *wtcs=NULL;
     static WTEXTCHARS _wtcs;
-    static int pageno=0;
+    /* static int pageno=0; */
 #endif
     WILLUSBITMAP _bmp,*bmp;
     double bmpdpi;
@@ -181,7 +181,7 @@ printf("Back from pdffile_add_bitmap_with_ocrwords.\n");
 /*
 {
 static int count=1;
-char filename[256];
+char filename[MAXFILENAMELEN];
 sprintf(filename,"page%04d.png",count++);
 bmp_write(bmp,filename,stdout,100);
 }

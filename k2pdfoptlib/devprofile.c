@@ -21,12 +21,16 @@
 #include "k2pdfopt.h"
 
 
-static DEVPROFILE devprof[8] =
+static DEVPROFILE devprof[10] =
     {
     {"Kindle 1-5","k2",560,735,167,0,1,{0,0,3,4}},
     {"Kindle DX","dx",800,1180,167,0,1,{0,0,0,0}},
     /* v2.02:  Changed kpw to 658 x 889 based on e-mail feedback, 9-15-13 */
     {"Kindle Paperwhite","kpw",658,889,212,0,1,{0,0,3,4}},
+    /* v2.31:  Added PW2 based on user feedback and Voyage */
+    /* Voyage = 1072 x 1448--guessed at viewable PDF resolution */
+    {"Kindle Paperwhite 2","kp2",710,960,212,0,1,{0,0,3,4}},
+    {"Kindle Voyage","kv",996,1332,300,0,1,{0,0,3,4}},
     {"Nook Simple Touch","nookst",552,725,167,0,1,{0,0,0,0}},
     {"Kobo Touch","kbt",600,730,167,0,1,{0,0,3,4}},
     {"Kobo Glo","kbg",758,942,213,0,1,{0,0,3,4}},

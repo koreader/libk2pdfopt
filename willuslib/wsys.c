@@ -236,7 +236,7 @@ int wsys_win32_api(void)
         return((_emx_rev>>16)==2);
     else
         return(0);
-#elif (defined(WIN32))
+#elif (defined(HAVE_WIN32_API))
         return(1);
 #else
     return(0);
@@ -254,7 +254,7 @@ int wsys_win32_api(void)
 int wsys_wpid_status(int pid)
 
     {
-#ifdef WIN32
+#ifdef HAVE_WIN32_API
     HANDLE prochandle;
     prochandle = OpenProcess(PROCESS_QUERY_INFORMATION,0,pid);
     if (prochandle==NULL)
@@ -296,14 +296,14 @@ int wsys_wpid_status(int pid)
 #else
     return(WPID_UNKNOWN);
 #endif /* UNIX */
-#endif /* WIN32 */
+#endif /* HAVE_WIN32_API */
     }
 
 
 void wsys_sleep(int secs)
 
     {
-#ifdef WIN32
+#ifdef HAVE_WIN32_API
     win_sleep(secs*1000);
 #else
     sleep(secs);
@@ -314,7 +314,7 @@ void wsys_sleep(int secs)
 char *wsys_full_exe_name(char *s)
 
     {
-#if (defined(WIN32) || defined(WIN64))
+#ifdef HAVE_WIN32_API
     return(win_full_exe_name(s));
 #else
     if (!wfile_is_symlink_ex("/proc/self/exe",s))
@@ -338,7 +338,7 @@ void wsys_append_nul_redirect(char *s)
 int wsys_which(char *exactname,char *exename)
 
     {
-#ifdef WIN32
+#ifdef HAVE_WIN32_API
     return(win_which(exactname,exename));
 #else
 #if (defined(LINUX) || defined(UNIXPURE))
@@ -353,7 +353,7 @@ int wsys_which(char *exactname,char *exename)
 int wsys_most_recent_in_path(char *exename,char *wildcard)
 
     {
-#ifdef WIN32
+#ifdef HAVE_WIN32_API
     return(win_most_recent_in_path(exename,wildcard));
 #else
 #if (defined(LINUX) || defined(UNIXPURE))
@@ -368,7 +368,7 @@ int wsys_most_recent_in_path(char *exename,char *wildcard)
 void wsys_computer_name(char *name,int maxlen)
 
     {
-#ifdef WIN32
+#ifdef HAVE_WIN32_API
     int n;
     n=maxlen;
     GetComputerName(name,(LPDWORD)&n);
@@ -381,7 +381,7 @@ void wsys_computer_name(char *name,int maxlen)
 void wsys_enter_to_exit(char *mesg)
 
     {
-#if (defined(WIN32) || defined(WIN64))
+#ifdef HAVE_WIN32_API
     if (win_has_own_window())
 #endif
         {
@@ -399,7 +399,7 @@ void wsys_enter_to_exit(char *mesg)
 int wsys_filename_8dot3(char *dst,char *src,int maxlen)
 
     {
-#if (defined(WIN32) || defined(WIN64))
+#ifdef HAVE_WIN32_API
     return(GetShortPathName(src,dst,maxlen));
 #else
     strncpy(dst,src,maxlen-1);
@@ -528,7 +528,7 @@ static int wsys_decimal_is_period(void)
 int wsys_set_envvar(char *varname,char *value,int system)
 
     {
-#if (defined(WIN32) || defined(WIN64))
+#ifdef HAVE_WIN32_API
     int status;
     HKEY newkey;
 #else
@@ -537,7 +537,7 @@ int wsys_set_envvar(char *varname,char *value,int system)
     int assign;
 #endif
 
-#if (!defined(WIN32) && !defined(WIN64))
+#if (!defined(HAVE_WIN32_API))
     /* Linux / OSX */
     assign=1;
     if (value[0]=='\0')
@@ -585,7 +585,7 @@ int wsys_get_envvar_ex(char *varname,char *value,int maxlen)
 
     {
     char *p;
-#if (defined(WIN32) || defined(WIN64))
+#ifdef HAVE_WIN32_API
     int i,status;
     HKEY newkey;
     

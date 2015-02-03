@@ -128,7 +128,7 @@ void wrapbmp_add(WRAPBMP *wrapbmp,BMPREGION *region,K2PDFOPT_SETTINGS *k2setting
     {
     WILLUSBITMAP *tmp,_tmp;
     int i,rh,th,bw,new_base,h2,bpp,width0;
-// static char filename[256];
+// static char filename[MAXFILENAMELEN];
 
 #if (WILLUSDEBUGX & 205)
 k2printf("@wrapbmp->add %d x %d (w=%d).\n",region->c2-region->c1+1,region->r2-region->r1+1,wrapbmp->bmp.width);
@@ -177,7 +177,7 @@ k2printf("    colgap=%d, line_spacing=%d, rowbase=%d, row gap=%d\n",colgap,regio
 #if (WILLUSDEBUGX & 4)
 {
 static int bcount=0;
-char filename[256];
+char filename[MAXFILENAMELEN];
 sprintf(filename,"out%05d.png",bcount++);
 bmpregion_write(region,filename);
 }
@@ -343,7 +343,7 @@ printf("      New bitmap = %d x %d\n",tmp->width,tmp->height);
 #if (WILLUSDEBUGX & 4)
 {
 static int rcount=0;
-char filename[256];
+char filename[MAXFILENAMELEN];
 sprintf(filename,"result%03d.png",rcount++);
 bmp_write(tmp,filename,stdout,100);
 }
@@ -394,7 +394,7 @@ void wrapbmp_flush(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
     /*
     int gap,nomss,dh;
     */
-// char filename[256];
+// char filename[MAXFILENAMELEN];
 
 #if (WILLUSDEBUGX & 4)
 k2printf("@wrapbmp_flush()\n");
@@ -419,7 +419,7 @@ k2printf("    Past width check\n");
 #endif
 /*
 {
-char filename[256];
+char filename[MAXFILENAMELEN];
 int i;
 static int bcount=0;
 for (i=0;i<wrapbmp->bmp.height;i++)
@@ -585,7 +585,7 @@ k2printf("    ch=%d, c2=%d, r1=%d, r2=%d\n",wrapbmp->hyphen.ch,wrapbmp->hyphen.c
 #if (WILLUSDEBUGX & 16)
 {
 static int count=1;
-char filename[256];
+char filename[MAXFILENAMELEN];
 sprintf(filename,"be%04d.png",count);
 bmp_write(&wrapbmp->bmp,filename,stdout,100);
 sprintf(filename,"ae%04d.png",count);

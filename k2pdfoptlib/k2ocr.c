@@ -30,6 +30,9 @@ static void k2ocr_ocrwords_fill_in(MASTERINFO *masterinfo,OCRWORDS *words,BMPREG
                                    K2PDFOPT_SETTINGS *k2settings);
 static void ocrword_fillin_mupdf_info(OCRWORD *word,BMPREGION *region);
 #endif
+
+/* Functions to support extracting text from PDF using MuPDF lib */
+#ifdef HAVE_MUPDF_LIB
 static void k2ocr_ocrwords_get_from_ocrlayer(MASTERINFO *masterinfo,OCRWORDS *words,
                                              BMPREGION *region,K2PDFOPT_SETTINGS *k2settings);
 static int ocrword_map_to_bitmap(OCRWORD *word,MASTERINFO *masterinfo,BMPREGION *region,
@@ -38,6 +41,7 @@ static int wrectmap_srcword_inside(WRECTMAP *wrectmap,OCRWORD *word,BMPREGION *r
 static void wtextchars_group_by_words(WTEXTCHARS *wtcs,OCRWORDS *words,
                                       K2PDFOPT_SETTINGS *k2settings);
 static void wtextchars_add_one_row(WTEXTCHARS *wtcs,int i0,int i1,OCRWORDS *words);
+#endif
 
 
 void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
@@ -175,7 +179,9 @@ printf("Call #1. k2ocr_ocrwords_fill_in\n");
         ** If using built-in source-file OCR layer, don't need to scan bitmap
         ** for text rows.
         */
+#if (WILLUSDEBUGX & 32)
 printf("\nwrectmaps->n=%d, dst_ocr='%c'\n",region->wrectmaps->n,k2settings->dst_ocr);
+#endif
         if (k2settings->dst_ocr!='m' || region->wrectmaps->n!=1)
             bmpregion_find_textrows(&pageregions->pageregion[i].bmpregion,k2settings,0,1);
         pageregions->pageregion[i].bmpregion.wrectmaps = region->wrectmaps;
@@ -211,7 +217,7 @@ k2printf("@ocrwords_fill_in...\n");
 #endif
 /*
 {
-char filename[256];
+char filename[MAXFILENAMELEN];
 count++;
 sprintf(filename,"out%03d.png",count);
 bmp_write(src,filename,stdout,100);
@@ -224,11 +230,13 @@ bmp_write(src,filename,stdout,100);
 #if (WILLUSDEBUGX & 32)
 k2printf("    %d row%s of text, dst_ocr='%c'\n",region->textrows.n,region->textrows.n==1?"":"s",k2settings->dst_ocr);
 #endif
+#if (defined(HAVE_MUPDF_LIB))
     if (k2settings->dst_ocr=='m')
         {
         k2ocr_ocrwords_get_from_ocrlayer(masterinfo,words,region,k2settings);
         return;
         }
+#endif
     /* Go text row by text row */
     for (i=0;i<region->textrows.n;i++)
         {
@@ -280,7 +288,7 @@ printf("dst_ocr='%c', ocrtessstatus=%d\n",k2settings->dst_ocr,k2ocr_tess_status)
 {
 static int counter=1;
 int i;
-char filename[256];
+char filename[MAXFILENAMELEN];
 WILLUSBITMAP *bmp,_bmp;
 bmp=&_bmp;
 bmp_init(bmp);
@@ -316,7 +324,7 @@ fflush(stdout);
                                           textwords->textrow[j].c2,
                                           textwords->textrow[j].r2,3,0,1,NULL);
 #ifdef HAVE_GOCR_LIB
-            else if (k2settings->dst_ocr=='g')
+            else if (k2settings->dst_ocr=='g' || k2settings->dst_ocr=='t')
 #endif
 #endif
 #ifdef HAVE_GOCR_LIB
@@ -338,7 +346,7 @@ printf("..");
 fflush(stdout);
 if (wordbuf[0]!='\0')
 {
-char filename[256];
+char filename[MAXFILENAMELEN];
 FILE *f;
 sprintf(filename,"word%04d.txt",counter);
 f=fopen(filename,"wb");
@@ -458,6 +466,7 @@ printf("Word: (%5.1f,%5.1f) = %5.1f x %5.1f (page %2d)\n",word->x0,word->y0,word
 ** In a contiguous rectangular region that is mapped to the PDF source file,
 ** find rows of text assuming a single column of text.
 */
+#if (defined(HAVE_MUPDF_LIB))
 static void k2ocr_ocrwords_get_from_ocrlayer(MASTERINFO *masterinfo,OCRWORDS *dwords,
                                              BMPREGION *region,K2PDFOPT_SETTINGS *k2settings)
 
@@ -535,7 +544,7 @@ fprintf(f,"//nc\n");
 #endif
 
     /* Map word PDF positions (in source file) to destination bitmap pixels */
-    /* I'm not sure this will work entirely correctly with left-to-right text */
+    /* I'm not sure this will work entirely correctly with right-to-left text */
 #if (WILLUSDEBUGX & 0x10000)
 printf("words->n=%d\n",words->n);
 #endif
@@ -549,7 +558,7 @@ printf("words->n=%d\n",words->n);
             int n,dn;
 
             /*
-            ** Make copy of since the function call below can modify the value inside "word"
+            ** Make copy since the function call below can modify the value inside "word"
             */
             word=&_word;
             ocrword_copy(word,&words->word[i]); /* Allocates new memory */
@@ -615,6 +624,13 @@ printf("ALL DONE.\n");
 ** Determine pixel locations of OCR word on source bitmap region.
 ** Return 1 if any part of word is within region, 0 if not.
 **
+** If returns 1, then:
+**
+**     wrectmaps->wrectmap[(*index)] is the region containing the word
+**
+**     (*i2) gets the index of the "last" letter of the word which is still within
+**        the wrectmaps->wrectmap[(*index)].
+**
 ** WARNING:  Contents of "word" may be modified.
 **
 */
@@ -645,6 +661,9 @@ printf("wrectmaps->n = %d\n",wrectmaps->n);
 
 /*
 ** WARNING:  Contents of "word" may be modified.
+**
+** If 1 is returned, (*index2) gets the index to the "last" letter of the word that 
+** is still within the wrectmap.
 */
 static int wrectmap_srcword_inside(WRECTMAP *wrectmap,OCRWORD *word,BMPREGION *region,int *index2)
 
@@ -898,3 +917,4 @@ static void wtextchars_add_one_row(WTEXTCHARS *wtcs,int i0,int i1,OCRWORDS *word
     willus_dmem_free(41,(double **)&word.text,funcname);
     willus_dmem_free(40,(double **)&u16str,funcname);
     }
+#endif /* HAVE_MUPDF_LIB */

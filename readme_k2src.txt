@@ -1,7 +1,7 @@
 K2pdfopt build help.
 http://willus.com
 Original: 7 September 2012
-Last updated: 25 Jul 2014 (v2.21)
+Last updated: 27 Dec 2014 (v2.31)
 
 This "read me" file describes the source code distribution for k2pdfopt.
 
@@ -19,7 +19,7 @@ K2pdfopt Source Files
    library dependencies (HAVE_XXX_LIB) and whether or not the MS Windows
    GUI is compiled in (HAVE_K2GUI).
 
-3. willus.com general-purpose C library (34 C files + 1 header file) in
+3. willus.com general-purpose C library (35 C files + 1 header file) in
    willuslib subfolder.
    Compile all C files in this subfolder and build them into libwillus.a.
    Near the top of willus.h are #defines which control third-party
@@ -44,9 +44,9 @@ NOTE 4 below).
     TO INCLUDE MuPDF LIBRARY (search for HAVE_MUPDF in k2pdfopt.c)
     --------------------------------------------------------------
     4.  JBIG2Dec 0.11 (jbig2dec.sourceforge.net)
-    5.  OpenJPEG 2.0.0 (www.openjpeg.org)
+    5.  OpenJPEG 2.1.0 (www.openjpeg.org)
     6.  FreeType 2.5.3 (freetype.sourceforge.net/index2.html)
-    7.  Mupdf 1.5 (mupdf.com) -- SEE NOTE 1.
+    7.  Mupdf 1.6 (mupdf.com) -- SEE NOTE 1.
 
     TO INCLUDE DjVuLibre LIBRARY (search for HAVE_DJVU in k2pdfopt.c)
     -----------------------------------------------------------------
@@ -96,7 +96,7 @@ Notes
    to build the project without using these files (I do not use them).
    
 
-Build Steps for k2pdfopt on Windows (gcc 4.8.3)
+Build Steps for k2pdfopt on Windows (gcc 4.9.2)
 -----------------------------------------------
 My compile steps with gcc (MinGW) are as follows (assuming all the libraries are built
 to libxxx.a files in d:\3rdparty_lib and headers are in d:\3rdparty_include):

@@ -9,7 +9,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -283,9 +283,9 @@ int render_clipped_triangle(POINT2D *clippath,int *nc,
     {
     TRIANGLE2D _tri,*tri;
     double  xmin,xmax;
-    static POINT2D vertex[10],cp[4];
-    static int     clipedge[10],vin[4];
-    static double  position[10];
+    static POINT2D vertex[13],cp[4];
+    static int     clipedge[13],vin[4];
+    static double  position[13];
     int     iv,nv,i,j,ic;
     double  x,y;
 

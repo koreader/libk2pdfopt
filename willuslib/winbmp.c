@@ -22,7 +22,7 @@
 
 #include "willus.h"
 
-#ifdef WIN32
+#ifdef HAVE_WIN32_API
 
 #include <windows.h>
 /* #include <process.h> */
@@ -437,12 +437,14 @@ void bmp_blit_to_hdc_ex(WILLUSBITMAP *bmp,void *hdc,int x0,int y0,int width,int 
     */
     if (bmp->bpp==8)
         {
+        RGBQUAD *rgb;
+        rgb=&bmi->bmiColors[0];
         for (i=0;i<256;i++)
             {
-            bmi->bmiColors[i].rgbRed   = bmp->red[i];
-            bmi->bmiColors[i].rgbGreen = bmp->green[i];
-            bmi->bmiColors[i].rgbBlue  = bmp->blue[i];
-            bmi->bmiColors[i].rgbReserved = 0;
+            rgb[i].rgbRed   = bmp->red[i];
+            rgb[i].rgbGreen = bmp->green[i];
+            rgb[i].rgbBlue  = bmp->blue[i];
+            rgb[i].rgbReserved = 0;
             }
         bmp8_win32_palette_set(bmp);
         if (bmp8_palette!=NULL)
@@ -577,12 +579,16 @@ int bmp_get_bmp(WILLUSBITMAP *bmp,void *handle,int x0,int y0)
         }
     /* Extract the palette (seems to work) */
     if (bmp->bpp==8)
+        {
+        RGBQUAD *rgb;
+        rgb=&bmi->bmiColors[0];
         for (i=0;i<256;i++)
             {
-            bmp->red[i]   = bmi->bmiColors[i].rgbRed;
-            bmp->green[i] = bmi->bmiColors[i].rgbGreen;
-            bmp->blue[i]  = bmi->bmiColors[i].rgbBlue;
+            bmp->red[i]   = rgb[i].rgbRed;
+            bmp->green[i] = rgb[i].rgbGreen;
+            bmp->blue[i]  = rgb[i].rgbBlue;
             }
+        }
 
     /* Clean up */
     DeleteDC(memDC);
@@ -795,4 +801,4 @@ static HBITMAP bmp_to_from_winbmp(WILLUSBITMAP *bmp,HBITMAP hBitmap_src)
 
 
 #endif
-/* WIN32 */
+/* HAVE_WIN32_API */

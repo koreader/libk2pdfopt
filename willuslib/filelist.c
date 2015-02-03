@@ -70,7 +70,6 @@ static void filelist_realloc(FILELIST *fl,int len);
 void filelist_convert_symlink_sizes(FILELIST *fl)
 
     {
-#ifndef WIN32
     int i;
 
     for (i=0;i<fl->n;i++)
@@ -89,7 +88,6 @@ void filelist_convert_symlink_sizes(FILELIST *fl)
                 fl->entry[i].date = newdate;
             }
         }
-#endif
     }
             
 
@@ -1034,7 +1032,7 @@ int filelist_create_zipfile(FILELIST *fl,char *zipfile,FILE *out)
     strcpy(zipfileabs,zipfile);
     wfile_make_absolute(zipfileabs);
     if (wfile_status(zipfileabs)==1)
-        remove(zipfileabs);
+        wfile_remove_utf8(zipfileabs);
     if (wfile_status(zipfileabs)!=0)
         {
         nprintf(out,"make zipfile:  %s already exists.\n",zipfileabs);
@@ -1062,7 +1060,7 @@ int filelist_create_zipfile(FILELIST *fl,char *zipfile,FILE *out)
 #endif
     system(cmd);
     wfile_set_wd(curdir);
-    remove(tmpfile);
+    wfile_remove_utf8(tmpfile);
     if (wfile_status(zipfileabs)!=1)
         {
         nprintf(out,"make zipfile:  File %s not created.\n",zipfileabs);
@@ -1149,13 +1147,14 @@ index,dirname,include_only[0],recursive,dirstoo);
     count=0;
     for (s=wfile_findfirst(wildspec,&wf);s;s=wfile_findnext(&wf))
         {
-        int fstatus,is_archive;
+        int fstatus,is_archive,symlink;
 
         if (!strcmp(wf.basename,".") || !strcmp(wf.basename,".."))
             continue;
         fstatus=wfile_status(wf.fullname);
         is_archive=wfile_is_archive(wf.fullname);
-        if (fstatus==2 && (dirstoo!=1 || recursive))
+        symlink=(wf.attr&WFILE_SYMLINK);
+        if (fstatus==2 && !symlink && (dirstoo!=1 || recursive))
             continue;
         /* If archive file and we want to look into archives, then skip it. */
         if (is_archive && recursive>1)
@@ -1166,7 +1165,7 @@ index,dirname,include_only[0],recursive,dirstoo);
 */
         /* Regular file includes sym link to regular file or broken symlink */
         if (fstatus!=2 && !wfile_is_regular_file(wf.fullname)
-              && (fstatus!=0 || !wfile_is_symlink(wf.fullname)))
+              && (fstatus!=0 || !symlink))
             continue;
         filelist_conditionally_add_file(fl,&wf,include_only,exclude,&i,&count);
         }
@@ -1187,9 +1186,12 @@ index,dirname,include_only[0],recursive,dirstoo);
         if (wf.attr & WFILE_SYMLINK)
             {
             /* Store the dir sym link if requested. */
-            if (dirstoo==1 || dirstoo==2 || dirstoo==3)
-                filelist_conditionally_add_file(fl,&wf,include_only,exclude,
-                                                   &i,&count);
+            /* 10-17-2014:  Always include symlink */
+            /* if (dirstoo==1 || dirstoo==2 || dirstoo==3) */
+            /* (File is added in previous loop above.) */
+            /*
+            filelist_conditionally_add_file(fl,&wf,include_only,exclude,&i,&count);
+            */
             continue;
             }
         strcpy(unique,wf.fullname);
@@ -1268,7 +1270,7 @@ static int filelist_recursive_archive_add(FILELIST *dst,int index,
         filelist_fill_from_archive_ex(fl2,f,0,0,NULL,NULL,NULL);
         }
     wzclose(f);
-    remove(tempname);
+    wfile_remove_utf8(tempname);
     /* Recursively add internal archives */
     if (recursive==3)
         {
@@ -1293,7 +1295,7 @@ static int filelist_recursive_archive_add(FILELIST *dst,int index,
                     wfile_makedir(tempdir);
                     wfile_basespec(basename,fl2->entry[i].name);
                     wfile_fullname(temparch,tempdir,basename);
-                    dest=fopen(temparch,"wb");
+                    dest=wfile_fopen_utf8(temparch,"wb");
                     if (dest!=NULL)
                         {
                         int c;
@@ -1342,7 +1344,7 @@ void filelist_date_recursively(FILELIST *fl)
         char s1[MAXFILENAMELEN];
         char spec[MAXFILENAMELEN];
 
-        if (!(fl->entry[i].attr & WFILE_DIR))
+        if ((fl->entry[i].attr&WFILE_DIR) && !(fl->entry[i].attr&WFILE_SYMLINK))
             continue;
         wfile_fullname(s1,fl->entry[i].name,"*");
         wfile_fullname(spec,fl->dir,s1);
@@ -1432,9 +1434,9 @@ static void filelist_conditionally_add_file(FILELIST *fl,wfile *wf,
             entry.attr |= WFILE_DIR;
             entry.size = 0;
             }
+#endif
         if (wfile_is_symlink(wf->fullname))
             entry.attr |= WFILE_SYMLINK;
-#endif
         filelist_add_entry(fl,&entry);
         (*index) = (*index) + 1;
         (*count) = (*count) + 1;
@@ -1471,6 +1473,19 @@ void filelist_zero_seconds(FILELIST *fl)
         fl->entry[i].date.tm_sec  = 0;
         }
     /* If was sorted by date, reset the sort flag */
+    if (fl->sorted==2)
+        fl->sorted=0;
+    }
+
+
+void filelist_round_seconds(FILELIST *fl)
+
+    {
+    int i;
+
+    for (i=0;i<fl->n;i++)
+        if (fl->entry[i].date.tm_sec&1)
+            wfile_date_add_seconds(&fl->entry[i].date,1.01);
     if (fl->sorted==2)
         fl->sorted=0;
     }
@@ -1691,7 +1706,7 @@ int filelist_fill_from_zip(FILELIST *fl,char *zipfile,char *wildspec)
         return(-1);
     filelist_fill_from_archive(fl,f,0,0);
     wzclose(f);
-    remove(tempname);
+    wfile_remove_utf8(tempname);
     filelist_keep_only_fast(fl,wildspec);
     return(0);
     }
@@ -1750,10 +1765,12 @@ int filelist_fill_from_archive_ex(FILELIST *fl,WZFILE *f,int append,int dirstoo,
         entry.date.tm_isdst= -1;
         /* Avoid mktime() returning -1, which will crash the system */
         maxyr = floor(pow(2.,sizeof(time_t)*8.)/3600./24./365.24225)-1.;
+        /*
         if (entry.date.tm_year < 70 || entry.date.tm_year > maxyr)
             fprintf(stderr,"File '%s' has date year of %d (adjusted to %d)!\n",
                    filename,entry.date.tm_year+1900,
                    entry.date.tm_year<70 ? 1970 : (int)(maxyr+1900));
+        */
         if (entry.date.tm_year < 70)
             entry.date.tm_year = 70;
         if (entry.date.tm_year > maxyr)
@@ -2247,7 +2264,7 @@ int filelist_write_to_file(FILELIST *fl,char *filename)
     FILE *f;
     int i;
 
-    f=fopen(filename,"wb");
+    f=wfile_fopen_utf8(filename,"wb");
     if (f==NULL)
         return(-1);
     if (fwrite(fl,1,sizeof(FILELIST),f)<sizeof(FILELIST))
@@ -2282,7 +2299,7 @@ int filelist_read_from_file(FILELIST *fl,char *filename)
     int i;
     static char *funcname="filelist_read_from_file";
 
-    f=fopen(filename,"rb");
+    f=wfile_fopen_utf8(filename,"rb");
     if (f==NULL)
         return(-1);
     if (fread(fl,1,sizeof(FILELIST),f)<sizeof(FILELIST))
@@ -2491,4 +2508,15 @@ void filelist_remove_files_larger_than(FILELIST *fl,double bytes)
             }
         }
     fl->n=j;
+    }
+
+
+void filelist_reslash(FILELIST *fl)
+
+    {
+    int i;
+
+    wfile_reslash(fl->dir);
+    for (i=0;i<fl->n;i++)
+        wfile_reslash(fl->entry[i].name);
     }

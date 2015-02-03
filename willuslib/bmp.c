@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -248,7 +248,7 @@ int bmp_write_ico(WILLUSBITMAP *bmp,char *filename,FILE *out)
     while (nb&3)
         nb--;
     nb*=bmp->height;
-    f=fopen(filename,"wb");
+    f=wfile_fopen_utf8(filename,"wb");
     a[0]=a[1]=a[2]=a[3]=0;
     fwrite(a,1,2,f);
     a[0]=1;
@@ -397,7 +397,7 @@ static int bmp8_write(WILLUSBITMAP *bmap,char *filename,FILE *out)
     insert_int32lsbmsb(&a[34],bytewidth*bmap->height);
     insert_int32lsbmsb(&a[38],0x1274); /* pixels per meter */
     insert_int32lsbmsb(&a[42],0x1274);
-    f=fopen(filename,"wb");
+    f=wfile_fopen_utf8(filename,"wb");
     if (f==NULL)
         {
         if (out!=NULL)
@@ -460,7 +460,7 @@ static int bmp24_write(WILLUSBITMAP *bmap,char *filename,FILE *out)
     insert_int32lsbmsb(&a[34],bytewidth*bmap->height);
     insert_int32lsbmsb(&a[38],0x1274); /* pixels per meter */
     insert_int32lsbmsb(&a[42],0x1274);
-    f=fopen(filename,"wb");
+    f=wfile_fopen_utf8(filename,"wb");
     if (f==NULL)
         {
         if (out!=NULL)
@@ -499,7 +499,7 @@ int bmp_png_info(char *filename,int *width,int *height,int *bpp,FILE *out)
     int     color_type,bppel;
     png_uint_32 wid,hght;
 
-    f=fopen(filename,"rb");
+    f=wfile_fopen_utf8(filename,"rb");
     if (f==NULL)
         {
         if (out!=NULL)
@@ -577,7 +577,7 @@ int bmp_read_png(WILLUSBITMAP *bmp,char *filename,FILE *out)
     FILE *f;
     int     status;
 
-    f=fopen(filename,"rb");
+    f=wfile_fopen_utf8(filename,"rb");
     if (f==NULL)
         {
         nprintf(out,"Cannot open file %s for PNG input.\n",filename);
@@ -779,7 +779,7 @@ int bmp_write_png(WILLUSBITMAP *bmp,char *filename,FILE *out)
     FILE    *f;
     int     status;
 
-    f=fopen(filename,"wb");
+    f=wfile_fopen_utf8(filename,"wb");
     if (f==NULL)
         {
         if (out!=NULL)
@@ -906,7 +906,7 @@ int bmp_write_jpeg(WILLUSBITMAP *bmp,char *filename,int quality,FILE *out)
     FILE *f;
     int status;
 
-    f=fopen(filename,"wb");
+    f=wfile_fopen_utf8(filename,"wb");
     if (f==NULL)
         {
         if (out!=NULL)
@@ -997,7 +997,7 @@ int bmp_jpeg_info(char *filename,int *width,int *height,int *bpp)
     struct my_error_mgr jerr;
     FILE  *infile;
 
-    infile=fopen(filename,"rb");
+    infile=wfile_fopen_utf8(filename,"rb");
     if (infile==NULL)
         {
         fprintf(stderr,"Cannot open JPEG file %s for input.\n",filename);
@@ -1035,7 +1035,7 @@ int bmp_read_jpeg(WILLUSBITMAP *bmp,char *filename,FILE *out)
     FILE *infile;
     int     status;
 
-    infile=fopen(filename,"rb");
+    infile=wfile_fopen_utf8(filename,"rb");
     if (infile==NULL)
         {
         if (out!=NULL)
@@ -1670,7 +1670,7 @@ int bmp_read(WILLUSBITMAP *bmap,char *filename,FILE *out)
             return(bmp_jasper_read(bmap,filename,out));
         }
 #endif
-    f=fopen(filename,"rb");
+    f=wfile_fopen_utf8(filename,"rb");
     if (f==NULL)
         {
         if (out!=NULL)
@@ -1731,7 +1731,7 @@ int bmp_bmp_info(char *filename,int *width,int *height,int *bpp,FILE *out)
     long    filelen;
 
 
-    f=fopen(filename,"rb");
+    f=wfile_fopen_utf8(filename,"rb");
     if (f==NULL)
         {
         if (out!=NULL)
@@ -1776,7 +1776,7 @@ int bmp_read_bmp8(WILLUSBITMAP *bmap,char *filename,FILE *out)
     static char palette[1024];
 
 
-    f=fopen(filename,"rb");
+    f=wfile_fopen_utf8(filename,"rb");
     if (f==NULL)
         {
         if (out!=NULL)
@@ -1900,7 +1900,7 @@ int bmp_read_bmp24(WILLUSBITMAP *bmap,char *filename,FILE *out)
     long    filelen,bytewidth,bw32,totalbytes;
 
 
-    f=fopen(filename,"rb");
+    f=wfile_fopen_utf8(filename,"rb");
     if (f==NULL)
         {
         if (out!=NULL)
@@ -3439,7 +3439,7 @@ int bmp_jpeg_get_comments(char *filename,char **memptr,FILE *out)
     char   *buf;
     static char *funcname="bmp_jpeg_get_comments";
 
-    f=fopen(filename,"rb");
+    f=wfile_fopen_utf8(filename,"rb");
     if (f==NULL)
         {
         nprintf(out,"Cannot open jpeg file %s for getting comments.\n",
@@ -3499,14 +3499,14 @@ int bmp_jpeg_set_comments(char *filename,char *buf,FILE *out)
     static char *peof="Premature EOF in JPEG file %s!\n";
 
     wfile_abstmpnam(tempfile);
-    f=fopen(filename,"rb+");
+    f=wfile_fopen_utf8(filename,"rb+");
     if (f==NULL)
         {
         nprintf(out,"Cannot open jpeg file %s for putting comments.\n",
                 filename);
         return(-1);
         }
-    t=fopen(tempfile,"wb");
+    t=wfile_fopen_utf8(tempfile,"wb");
     if (t==NULL)
         {
         fclose(f);
@@ -3518,7 +3518,7 @@ int bmp_jpeg_set_comments(char *filename,char *buf,FILE *out)
         {
         nprintf(out,"File %s is < 2 bytes.\n",filename);
         fclose(t);
-        remove(tempfile);
+        wfile_remove_utf8(tempfile);
         fclose(f);
         return(-3);
         }
@@ -3527,7 +3527,7 @@ int bmp_jpeg_set_comments(char *filename,char *buf,FILE *out)
         nprintf(out,"First two bytes of file %s aren't JPEG-like, = %04X\n",
                 filename,i);
         fclose(t);
-        remove(tempfile);
+        wfile_remove_utf8(tempfile);
         fclose(f);
         return(-4);
         }
@@ -3546,7 +3546,7 @@ int bmp_jpeg_set_comments(char *filename,char *buf,FILE *out)
             {
             nprintf(out,"Ending key not found in JPEG file %s.\n",filename);
             fclose(t);
-            remove(tempfile);
+            wfile_remove_utf8(tempfile);
             fclose(f);
             return(-6);
             }
@@ -3567,7 +3567,7 @@ int bmp_jpeg_set_comments(char *filename,char *buf,FILE *out)
                 {
                 nprintf(out,peof,filename);
                 fclose(t);
-                remove(tempfile);
+                wfile_remove_utf8(tempfile);
                 fclose(f);
                 return(-8);
                 }
@@ -3589,7 +3589,7 @@ int bmp_jpeg_set_comments(char *filename,char *buf,FILE *out)
                     {
                     nprintf(out,peof,filename);
                     fclose(t);
-                    remove(tempfile);
+                    wfile_remove_utf8(tempfile);
                     fclose(f);
                     return(-10);
                     }
@@ -3616,22 +3616,22 @@ int bmp_jpeg_set_comments(char *filename,char *buf,FILE *out)
         {
         nprintf(out,peof,filename);
         fclose(t);
-        remove(tempfile);
+        wfile_remove_utf8(tempfile);
         return(-13);
         }
     if (fclose(t))
         {
         nprintf(out,werr,tempfile);
-        remove(tempfile);
+        wfile_remove_utf8(tempfile);
         return(-14);
         }
-    if (remove(filename))
+    if (wfile_remove_utf8(filename))
         {
         nprintf(out,"Error removing file %s, which is to be replaced by file %s.\n"
                     "File %s not removed!\n",filename,tempfile);
         return(-15);
         }
-    if (rename(tempfile,filename))
+    if (wfile_rename_utf8(tempfile,filename))
         {
         nprintf(out,"Error renaming file %s to %s!\n"
                     "Temporary file %s not deleted!\n",
@@ -4244,7 +4244,7 @@ double bmp_autostraighten(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,int white,doub
     f=NULL;
     if (debug)
         {
-        f=fopen("straighten_metrics.ep",rpc==1?"w":"a");
+        f=wfile_fopen_utf8("straighten_metrics.ep",rpc==1?"w":"a");
         nprintf(f,"/sa l \"src page %d\" 2\n",rpc);
         }
     stepsize=.05;

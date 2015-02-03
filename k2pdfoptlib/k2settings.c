@@ -20,6 +20,8 @@
 
 #include "k2pdfopt.h"
 
+static int k2settings_color_type(char *s);
+
 
 void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
 
@@ -172,6 +174,17 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
 #ifdef HAVE_K2GUI
     k2settings->restore_last_settings=-1;
 #endif
+
+    /* v2.22 */
+    k2settings->dst_fgcolor[0]='\0';
+    k2settings->dst_bgcolor[0]='\0';
+    k2settings->dst_fgtype=0;
+    k2settings->dst_bgtype=0;
+
+    /* v2.31 */
+#ifdef HAVE_GHOSTSCRIPT
+    k2settings->ppgs=0;
+#endif
     }
 
 
@@ -260,6 +273,18 @@ void k2pdfopt_settings_quick_sanity_check(K2PDFOPT_SETTINGS *k2settings)
         k2settings->use_crop_boxes=0;
 
     /*
+    ** v2.22: If -colorfg or -colorbg not grayscale, turn color output on.
+    */
+    k2settings->dst_fgtype = k2settings_color_type(k2settings->dst_fgcolor);
+    k2settings->dst_bgtype = k2settings_color_type(k2settings->dst_bgcolor);
+    if (k2settings->dst_fgtype==2 || k2settings->dst_bgtype==2)
+        k2settings->dst_color=1;
+
+    /* v2.22: If previewing a native PDF, turn color output on. */
+    if (!k2settings->dst_color && k2settings->use_crop_boxes && k2settings->preview_page!=0)
+        k2settings->dst_color=1;
+
+    /*
     ** If OCR is on, can't use crop boxes
     */
 #ifdef HAVE_OCR_LIB
@@ -268,6 +293,15 @@ void k2pdfopt_settings_quick_sanity_check(K2PDFOPT_SETTINGS *k2settings)
 #endif
     }
 
+
+double k2pdfopt_settings_gamma(K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    if (!k2settings->dst_color && k2settings->use_crop_boxes && k2settings->preview_page!=0)
+        return(1.0);
+    return(k2settings->dst_gamma);
+    }
+    
 
 /*
 ** Check / adjust k2pdfopt user input settings.
@@ -546,6 +580,32 @@ int k2settings_gap_override(K2PDFOPT_SETTINGS *k2settings)
            || (k2settings->src_grid_cols > 0 && k2settings->src_grid_rows > 0));
     }
 
+
+static int k2settings_color_type(char *s)
+
+    {
+    int c;
+
+    if (s[0]=='\0')
+        return(0);
+    /* Is it a bitmap? */
+    if (wfile_status(s)==1)
+        {
+        WILLUSBITMAP *bmp,_bmp;
+        int status;
+
+        bmp=&_bmp;
+        bmp_init(bmp);
+        status=bmp_read(bmp,s,NULL);
+        bmp_free(bmp);
+        if (!status)
+            return(3);
+        }
+    c=hexcolor(s);
+    if (((c&0xff0000)>>16)==((c&0xff00)>>8) && ((c&0xff00)>>8)==(c&0xff))
+        return(1);
+    return(2);
+    }
 /*
 void k2cropbox_set_default_values(K2CROPBOX *cbox,double value,int units)
 

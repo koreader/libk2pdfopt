@@ -251,7 +251,7 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
         }
     else
         minus_check(cmdline,nongui,"-ui",&src->query_user,dst->query_user);
-    if (dst->erase_vertical_lines==2)
+    /* v2.31--fixed "evl" arg processing */
     integer_check(cmdline,dst->erase_vertical_lines==2?nongui:NULL,"-evl",
                   &src->erase_vertical_lines,dst->erase_vertical_lines);    
     double_check(cmdline,nongui,"-vls",&src->vertical_line_spacing,dst->vertical_line_spacing);
@@ -308,6 +308,9 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
     minus_inverse(cmdline,NULL,"-r",&src->src_left_to_right,dst->src_left_to_right);
     minus_check(cmdline,nongui,"-hy",&src->hyphen_detect,dst->hyphen_detect);
     minus_check(cmdline,NULL,"-ls",&src->dst_landscape,dst->dst_landscape);
+#ifdef HAVE_GHOSTSCRIPT
+    minus_check(cmdline,NULL,"-ppgs",&src->ppgs,dst->ppgs);
+#endif
     string_check(cmdline,nongui,"-o",src->dst_opname_format,dst->dst_opname_format);
 #ifdef HAVE_OCR_LIB
     string_check(cmdline,nongui,"-ocrout",src->ocrout,dst->ocrout);
@@ -440,6 +443,8 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
     double_check(cmdline,nongui,"-comax",&src->column_offset_max,dst->column_offset_max);
     integer_check(cmdline,NULL,"-col",&src->max_columns,dst->max_columns);
     string_check(cmdline,NULL,"-p",src->pagelist,dst->pagelist);
+    string_check(cmdline,nongui,"-colorfg",src->dst_fgcolor,dst->dst_fgcolor);
+    string_check(cmdline,nongui,"-colorbg",src->dst_bgcolor,dst->dst_bgcolor);
     string_check(cmdline,nongui,"-bpl",src->bpl,dst->bpl);
     string_check(cmdline,nongui,"-toclist",src->toclist,dst->toclist);
     string_check(cmdline,nongui,"-tocsave",src->tocsavefile,dst->tocsavefile);

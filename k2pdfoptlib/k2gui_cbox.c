@@ -332,7 +332,7 @@ printf("k2conv->k2settings=%p\n",&k2conv->k2settings);
 ** Test for Franco Vivona (Ittiandro).  Put in delay to see if it helps the
 ** conversion not crash.
 */
-#if (defined(WIN32) || defined(WIN64))
+#ifdef HAVE_WIN32_API
 win_sleep(500);
 #endif
 
@@ -659,7 +659,7 @@ void k2gui_cbox_set_files_completed(int nfiles,char *message)
 void k2gui_cbox_set_pages_completed(int n,char *message)
 
     {
-    char buf[256];
+    char buf[MAXFILENAMELEN+80]; /* More room, v2.22 */
     int color;
     double progress;
 

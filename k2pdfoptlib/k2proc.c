@@ -242,7 +242,7 @@ aprintf(ANSI_RED "mi->mandatory_region_gap changed to %d by source_page_add." AN
 if (notes_region)
 {
 static int count=1;
-char buf[256];
+char buf[MAXFILENAMELEN];
 sprintf(buf,"notes%04d.png",count);
 bmpregion_write(notes_region,buf);
 sprintf(buf,"main%04d.png",count);
@@ -865,7 +865,7 @@ k2printf("tw=%d, region_width_inches=%g, max_region_width_inches=%g\n",added_reg
 #if (WILLUSDEBUGX & 1)
 {
 /*
-char buf[256];
+char buf[MAXFILENAMELEN];
 static int count=0;
 sprintf(buf,"atomic%04d.png",count++);
 bmpregion_write(newregion,buf);
@@ -1029,7 +1029,7 @@ gotone++;
 /*
 {
 static int nn=0;
-char filename[256];
+char filename[MAXFILENAMELEN];
 sprintf(filename,"xxx%02d.png",nn++);
 bmp_write(tmp,filename,stdout,100);
 }
@@ -1693,7 +1693,7 @@ static void bmpregion_vertically_break(BMPREGION *region,K2PDFOPT_SETTINGS *k2se
 /*
 {
 static int vreg=1;
-char filename[256];
+char filename[MAXFILENAMELEN];
 sprintf(filename,"vreg%04d.png",vreg++);
 k2printf("\n\n@bmpregion_vertically_break.\n\n");
 k2printf("    region to analyze = (%d,%d) - (%d,%d)\n",region->c1,region->r1,region->c2,region->r2);

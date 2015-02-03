@@ -40,6 +40,17 @@ LRESULT CALLBACK k2mswingui_process_messages(HWND hwnd,UINT iMsg,WPARAM wParam,L
 #endif
 
 
+short *k2gui_osdep_wide_cmdline(void)
+
+    {
+#ifdef MSWINGUI
+    return((short *)GetCommandLineW());
+#else
+    return(NULL);
+#endif
+    }
+
+
 void k2gui_osdep_init(K2GUI *k2gui0) /* ,void *hinst,void *hprevinst) */
 
     {
@@ -376,12 +387,11 @@ LRESULT CALLBACK k2mswingui_process_messages(HWND hwnd,UINT iMsg,WPARAM wParam,L
     WILLUSGUIMESSAGE *message,_message;
     static int gotmw=0;
 
+/*
 if (iMsg!=WM_MOUSEFIRST && iMsg!=WM_SETCURSOR && iMsg!=WM_NCHITTEST 
                         && iMsg!=WM_NCMOUSEMOVE && iMsg!=WM_TIMER)
-/*
 printf("MAINWIN: iMsg = 0x%X, wParam=0x%X, lParam=0x%X\n",(int)iMsg,(int)wParam,(int)lParam);
 */
-
     message=&_message;
     if (k2gui->mainwin.handle==NULL)
         k2gui->mainwin.handle=hwnd;
@@ -563,8 +573,6 @@ break;
                     }
 /*
 printf("k2gui_osdep WM_COMMAND, code=%d, cindex=%d, child_id=%d\n",code,control!=NULL?i:-1,child_id);
-*/
-/*
 if (code==EN_KILLFOCUS || code==BN_KILLFOCUS || LBN_KILLFOCUS || CBN_KILLFOCUS)
 printf("Got killfocus.\n");
 */
@@ -693,6 +701,28 @@ printf("code=%d, control->index=%d\n",code,control->index);
 */
             message->guiaction = WILLUSGUIACTION_CONTROL_PRESS;
             k2gui_process_message(message);
+            return(DefWindowProc(hwnd,iMsg,wParam,lParam));
+            }
+        case WM_CONTEXTMENU:
+            {
+            int i;
+            HWND childwin;
+            WILLUSGUICONTROL *control;
+
+            childwin = (HWND)wParam;
+            control=NULL;
+            for (i=0;i<k2gui->ncontrols;i++)
+                if (k2gui->control[i].handle == childwin)
+                    {
+                    control = &k2gui->control[i];
+                    break;
+                    }
+            if (control!=NULL)
+                {
+                message->control=control;
+                message->guiaction = WILLUSGUIACTION_CONTEXTMENU;
+                k2gui_process_message(message);
+                }
             return(DefWindowProc(hwnd,iMsg,wParam,lParam));
             }
 /*

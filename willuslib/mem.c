@@ -132,7 +132,7 @@ int willus_mem_realloc_robust_warn(void **ptr,int newsize,int oldsize,char *name
 int willus_mem_alloc(double **ptr,long size,char *name)
 
     {
-#if (defined(WIN32) && !defined(__DMC__))
+#if (defined(HAVE_WIN32_API) && !defined(__DMC__))
     unsigned long memsize;
     memsize = (unsigned long)size;
 #ifdef USEGLOBAL
@@ -273,7 +273,7 @@ void willus_mem_debug_update(char *s)
 int willus_mem_realloc(double **ptr,long newsize,char *name)
 
     {
-#if (defined(WIN32) && !defined(__DMC__))
+#if (defined(HAVE_WIN32_API) && !defined(__DMC__))
     unsigned long memsize;
     void *newptr;
 #else
@@ -281,7 +281,7 @@ int willus_mem_realloc(double **ptr,long newsize,char *name)
     void *newptr;
 #endif
 
-#if (defined(WIN32) && !defined(__DMC__))
+#if (defined(HAVE_WIN32_API) && !defined(__DMC__))
     memsize=(unsigned long)newsize;
 #else
     memsize=(size_t)newsize;
@@ -290,7 +290,7 @@ int willus_mem_realloc(double **ptr,long newsize,char *name)
         return(0);
     if ((*ptr)==NULL)
         return(willus_mem_alloc(ptr,newsize,name));
-#if (defined(WIN32) && !defined(__DMC__))
+#if (defined(HAVE_WIN32_API) && !defined(__DMC__))
 #ifdef USEGLOBAL
     newptr = (void *)GlobalReAlloc((void *)(*ptr),memsize,GMEM_MOVEABLE);
     if (newptr==NULL)
@@ -354,7 +354,7 @@ int willus_mem_realloc(double **ptr,long newsize,char *name)
 int willus_mem_realloc_robust(double **ptr,long newsize,long oldsize,char *name)
 
     {
-#if (defined(WIN32) && !defined(__DMC__))
+#if (defined(HAVE_WIN32_API) && !defined(__DMC__))
     unsigned long memsize;
     void *newptr;
 #else
@@ -367,7 +367,7 @@ int willus_mem_realloc_robust(double **ptr,long newsize,long oldsize,char *name)
 #endif
 #endif // NOMEMDEBUG
 
-#if (defined(WIN32) && !defined(__DMC__))
+#if (defined(HAVE_WIN32_API) && !defined(__DMC__))
     memsize=(unsigned long)newsize;
 #else
     memsize=(size_t)newsize;
@@ -376,7 +376,7 @@ int willus_mem_realloc_robust(double **ptr,long newsize,long oldsize,char *name)
         return(0);
     if ((*ptr)==NULL || oldsize<=0)
         return(willus_mem_alloc(ptr,newsize,name));
-#if (defined(WIN32) && !defined(__DMC__))
+#if (defined(HAVE_WIN32_API) && !defined(__DMC__))
 #ifdef USEGLOBAL
     newptr = (void *)GlobalReAlloc((void *)(*ptr),memsize,GMEM_MOVEABLE);
 #else
@@ -476,7 +476,7 @@ void willus_mem_free(double **ptr,char *name)
             }
 #endif
 #endif // NOMEMDEBUG
-#if (defined(WIN32) && !defined(__DMC__))
+#if (defined(HAVE_WIN32_API) && !defined(__DMC__))
 #ifdef USEGLOBAL
         GlobalFree((void *)(*ptr));
 #else

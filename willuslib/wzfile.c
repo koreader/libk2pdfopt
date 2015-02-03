@@ -396,14 +396,19 @@ WZFILE *wzopen(char *filename,char *mode)
 #endif
     char mode2[16];
     char modestd[16];
-    int i,j,compress;
+    int i,j;
+#ifdef HAVE_Z_LIB
+    int compress;
 
     compress=0;
+#endif
     for (i=j=0;i<15 && mode[i]!='\0';i++)
         if (mode[i]!='z')
             modestd[j++]=mode[i];
+#ifdef HAVE_Z_LIB
         else
             compress=1;
+#endif
     modestd[j]='\0';
     strcpy(mode2,modestd);
     for (i=0;mode2[i]!='\0' && mode2[i]!='b';i++);
@@ -417,14 +422,14 @@ WZFILE *wzopen(char *filename,char *mode)
         if (p==NULL)
             {
             wzfile_convert_to_uncompressed_name(newname,filename);
-            p=(void *)fopen(newname,modestd);
+            p=(void *)wfile_fopen_utf8(newname,modestd);
             type=0;
             }
         }
     else
         {
 #endif
-        p=(void *)fopen(filename,modestd);
+        p=(void *)wfile_fopen_utf8(filename,modestd);
         type=0;
 #ifdef HAVE_Z_LIB
         if (p==NULL)

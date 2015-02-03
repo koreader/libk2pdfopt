@@ -318,7 +318,7 @@ k2printf("@masterinfo_add_bitmap.  dst->bpp=%d, src->bpp=%d, src=%d x %d\n",mast
 /*
 {
 static int count=0;
-static char filename[256];
+static char filename[MAXFILENAMELEN];
 
 k2printf("    @masterinfo_add_bitmap...\n");
 sprintf(filename,"src%05d.png",count++);
@@ -608,7 +608,7 @@ printf("%3d. '%s'\n",k,k2settings->dst_ocrwords.word[k].text);
 {
 static int count=0;
 /*
-char filename[256];
+char filename[MAXFILENAMELEN];
 int ht;
 ht=masterinfo->bmp.height;
 masterinfo->bmp.height=masterinfo->rows;
@@ -1090,8 +1090,11 @@ exit(10);
     }
 
     /* Gamma correct */
-    if (fabs(k2settings->dst_gamma-1.0)>.001)
-        bmp_gamma_correct(bmp1,bmp1,k2settings->dst_gamma);
+    {
+    double gamma;
+    if (fabs((gamma=k2pdfopt_settings_gamma(k2settings))-1.0)>.001)
+        bmp_gamma_correct(bmp1,bmp1,gamma);
+    }
 
     /* Sharpen */
     if (k2settings->dst_sharpen)
@@ -1102,10 +1105,6 @@ exit(10);
         bmp_sharpen(bmp1,&tmp);
         bmp_free(&tmp);
         }
-
-    /* Inverse */
-    if (k2settings->dst_negative)
-        bmp_invert(bmp1);
 
     /* Pad and mark bmp1 -> bmp */
     bmp_pad_and_mark(bmp,bmp1,k2settings,ltotheight,ldpi,ocrwords);
@@ -1134,6 +1133,19 @@ exit(10);
 #endif
         bmp_rotate_right_angle(bmp,90);
         }
+
+
+    /* Inverse -- moved to after pad and mark (was before), v2.22 */
+    if (k2settings->dst_negative)
+        bmp_invert(bmp);
+
+    /* Fix colors */
+    if (k2settings->dst_fgtype!=0 || k2settings->dst_bgtype!=0)
+        {
+        bmp_change_colors(bmp,k2settings->dst_fgcolor,k2settings->dst_fgtype,
+                              k2settings->dst_bgcolor,k2settings->dst_bgtype);
+        }
+
 
     /* Write sequence of OCR'd words if debugging */
 #ifndef K2PDFOPT_KINDLEPDFVIEWER
@@ -1412,6 +1424,8 @@ dstmar_pixels[3]);
     /* Can't save grayscale as JPEG yet. */
     if (dst->bpp==8 && k2settings->jpeg_quality>=0)
         bmp_promote_to_24(dst);
+    bytespp=dst->bpp==8?1:3;
+    /* v2.22:  Fix marking of corners for 24-bit bitmap */
     if (k2settings->mark_corners)
         {
         unsigned char *p;
@@ -1420,17 +1434,33 @@ dstmar_pixels[3]);
             {
             p=bmp_rowptr_from_top(dst,pt);
             if (pl<dst->width)
-                p[pl]=0;
+                {
+                int k;
+                for (k=0;k<bytespp;k++)
+                    p[pl*bytespp+k]=0;
+                }
             if (pr<dst->width)
-                p[dst->width-1-pr]=0;
+                {
+                int k;
+                for (k=0;k<bytespp;k++)
+                    p[(dst->width-1-pr)*bytespp+k]=0;
+                }
             }
         if (pb<dst->height)
             {
             p=bmp_rowptr_from_top(dst,dst->height-1-pb);
             if (pl<dst->width)
-                p[pl]=0;
+                {
+                int k;
+                for (k=0;k<bytespp;k++)
+                    p[pl*bytespp+k]=0;
+                }
             if (pr<dst->width)
-                p[dst->width-1-pr]=0;
+                {
+                int k;
+                for (k=0;k<bytespp;k++)
+                    p[(dst->width-1-pr)*bytespp+k]=0;
+                }
             }
         }
     }
@@ -1452,7 +1482,7 @@ static void bmp_fully_justify(WILLUSBITMAP *jbmp,WILLUSBITMAP *src,
 
 /*
 {
-char filename[256];
+char filename[MAXFILENAMELEN];
 count++;
 sprintf(filename,"out%03d.png",count);
 bmp_write(src,filename,stdout,100);
@@ -1737,7 +1767,7 @@ k2printf("@breakpoint, mi->rows=%d, maxsize=%d\n",masterinfo->rows,maxsize);
 k2printf("    fit_to_page=%d\n",(int)masterinfo->fit_to_page);
 {
 static int count=1;
-char filename[256];
+char filename[MAXFILENAMELEN];
 sprintf(filename,"page%04d.png",count++);
 bmp_write(&masterinfo->bmp,filename,stdout,100);
 }
@@ -1889,7 +1919,7 @@ k2printf("@breakpoint, mi->rows=%d, maxsize=%d\n",masterinfo->rows,maxsize);
 k2printf("    fit_to_page=%d\n",(int)masterinfo->fit_to_page);
 {
 static int count=1;
-char filename[256];
+char filename[MAXFILENAMELEN];
 sprintf(filename,"page%04d.png",count++);
 bmp_write(&masterinfo->bmp,filename,stdout,100);
 }
@@ -1942,7 +1972,7 @@ fabs((double)scanheight/masterinfo->rows-1.));
 /*
 {
 static int count=1;
-char filename[256];
+char filename[MAXFILENAMELEN];
 printf("regiondpi = %d\n",region.dpi);
 bmpregion_write(&region,"region.png");
 sprintf(filename,"page%04d.png",count);

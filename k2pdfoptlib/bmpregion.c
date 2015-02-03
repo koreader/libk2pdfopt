@@ -705,7 +705,7 @@ void bmpregion_hyphen_detect(BMPREGION *region,int hyphen_detect,int left_to_rig
 
 #if (WILLUSDEBUGX & 16)
 static int count=0;
-char pngfile[256];
+char pngfile[MAXFILENAMELEN];
 FILE *out;
 
 count++;
@@ -1423,7 +1423,7 @@ printf("    wordspacing=%g\n",k2settings->word_spacing);
 #endif
 #if (WILLUSDEBUGX & 0x1000)
 {
-char filename[256];
+char filename[MAXFILEENAMELEN];
 rn++;
 /*
 if (rn==3)
@@ -1486,7 +1486,7 @@ printf("Region #%d\n",rn);
     printf("dr=%d\n",dr);
     {
     static int count=0;
-    char fname[256];
+    char fname[MAXFILENAMELEN];
     sprintf(fname,"row%04d.png",count+1);
     bmpregion_write(newregion,fname);
 #endif

@@ -28,6 +28,8 @@ static int vert_line_erase(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,WILLUSBITMAP *tm
                     int row0,int col0,double tanth,double minheight_in,
                     /*double minwidth_in,*/ double maxwidth_in,int white_thresh,
                     double dpi,int erase_vertical_lines);
+static int gscale(unsigned char *p);
+static int not_close(int c1,int c2);
 
 
 int bmp_get_one_document_page(WILLUSBITMAP *src,K2PDFOPT_SETTINGS *k2settings,
@@ -63,7 +65,7 @@ return(status);
             k2settings->usegs=1;
             }
 #endif
-#ifdef HAVE_GHOSTSCRIPT_LIB
+#ifdef HAVE_GHOSTSCRIPT
         if (willusgs_init(stdout) < 0)
             {
             k2sys_enter_to_exit(k2settings);
@@ -949,4 +951,146 @@ void bmp_paint_white(WILLUSBITMAP *bmpgray,WILLUSBITMAP *bmp,int white_thresh)
                 memset(p,255,bpp);
                 }
         }
+    }
+
+
+/* Added in v2.22 -- -colorfg and -colorbg options */
+void bmp_change_colors(WILLUSBITMAP *bmp,char *colorfg,int fgtype,char *colorbg,int bgtype)
+
+    {
+    int change_only_gray;
+    int fg[3],bg[3],kmax,r;
+    WILLUSBITMAP *bgbmp,_bgbmp;
+    WILLUSBITMAP *fgbmp,_fgbmp;
+    int statbg,statfg;
+
+    if (bgtype==3)
+        {
+        bgbmp=&_bgbmp;
+        bmp_init(bgbmp);
+        statbg=bmp_read(bgbmp,colorbg[0]=='!'?&colorbg[1]:colorbg,NULL);
+        if (statbg<0)
+            {
+            bmp_free(bgbmp);
+            bgbmp=NULL;
+            }
+        }
+    else
+        bgbmp=NULL;
+    if (fgtype==3)
+        {
+        fgbmp=&_fgbmp;
+        bmp_init(fgbmp);
+        statfg=bmp_read(fgbmp,colorfg[0]=='!'?&colorfg[1]:colorfg,NULL);
+        if (statfg<0)
+            {
+            bmp_free(fgbmp);
+            fgbmp=NULL;
+            }
+        }
+    else
+        fgbmp=NULL;
+    change_only_gray = (colorfg[0]=='!' || colorbg[0]=='!');
+    if (fgbmp==NULL)
+        {
+        int fgc;
+        fgc=colorfg[0]=='\0' ? 0 : hexcolor(colorfg);
+        fg[0]=(fgc&0xff0000)>>16;
+        fg[1]=(fgc&0xff00)>>8;
+        fg[2]=(fgc&0xff);
+        }
+    if (bgbmp==NULL)
+        {
+        int bgc;
+        bgc=colorbg[0]=='\0' ? 0xffffff : hexcolor(colorbg);
+        bg[0]=(bgc&0xff0000)>>16;
+        bg[1]=(bgc&0xff00)>>8;
+        bg[2]=(bgc&0xff);
+        }
+    kmax = bmp->bpp>>3;
+    if (kmax>3)
+        kmax=3;
+    if (kmax<1)
+        kmax=1;
+    /* Make sure tiling bitmaps match bitness / grayscale of master */
+    if (kmax==1)
+        {
+        if (fgbmp!=NULL && !bmp_is_grayscale(fgbmp))
+            bmp_convert_to_grayscale(fgbmp);
+        if (bgbmp!=NULL && !bmp_is_grayscale(bgbmp))
+            bmp_convert_to_grayscale(bgbmp);
+        }
+    else
+        {
+        if (fgbmp!=NULL && fgbmp->bpp!=24)
+            bmp_promote_to_24(fgbmp);
+        if (bgbmp!=NULL && bgbmp->bpp!=24)
+            bmp_promote_to_24(bgbmp);
+        }
+    for (r=0;r<bmp->height;r++)
+        {
+        unsigned char *p;
+        unsigned char *pfg;
+        unsigned char *pbg;
+        int j;
+        p=bmp_rowptr_from_top(bmp,r);
+        pfg = fgbmp==NULL ? NULL : bmp_rowptr_from_top(fgbmp,r%fgbmp->height);
+        pbg = bgbmp==NULL ? NULL : bmp_rowptr_from_top(bgbmp,r%bgbmp->height);
+        for (j=0;j<bmp->width;j++)
+            {
+            int k;
+            if (change_only_gray && kmax==3 && !gscale(p))
+                {
+                p+=kmax;
+                continue;
+                }
+            for (k=0;k<kmax;k++,p++)
+                {
+                int x,fgc,bgc;
+
+                x = p[0];
+                fgc = pfg==NULL ? fg[k] : pfg[(j%fgbmp->width)*kmax+k];
+                bgc = pbg==NULL ? bg[k] : pbg[(j%bgbmp->width)*kmax+k];
+                x = fgc + x*(bgc-fgc)/255;
+                p[0] = x;
+                }
+            }
+        }
+    if (bgbmp!=NULL)
+        bmp_free(bgbmp);
+    if (fgbmp!=NULL)
+        bmp_free(fgbmp);
+    }
+
+
+static int gscale(unsigned char *p)
+
+    {
+    int c1,c2;
+
+    c1=p[0];
+    c2=p[1];
+    if (not_close(c1,c2))
+        return(0);
+    c2=p[2];
+    if (not_close(c1,c2))
+        return(0);
+    c1=p[1];
+    if (not_close(c1,c2))
+        return(0);
+    return(1);
+    }
+
+
+static int not_close(int c1,int c2)
+
+    {
+    int cm,dc,pd;
+
+    cm=(c1+c2)>>1;
+    dc=abs(c1-c2);
+    if (cm<20)
+        return(dc>5);
+    pd=100*dc/cm;
+    return(pd>5);
     }
