@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -48,6 +48,7 @@
 ** WILLUS_X86:   Any Intel/AMD processor
 ** WILLUS_X863264:  Any 32-bit or 64-bit Intel or AMD processor
 ** BIGENDIAN: If ints/floats are stored big-endian (essentially non-Intel/AMD)
+** HAVE_WIN32_API:  If Win32 API calls are available
 **
 ** Digital Mars:  __DM__ or __DMC__ in newer versions.
 ** Intel:  __INTEL_COMPILER
@@ -102,7 +103,7 @@ typedef double  real;
 #define DJEMX
 #endif
 
-#if (!defined(MINGW) && defined(__MINGW32__))
+#if (!defined(MINGW) && (defined(__MINGW32__) || defined(__MINGW64__)))
 #define MINGW
 #endif
 
@@ -182,15 +183,20 @@ typedef double  real;
 #endif
 #endif
 
-#ifdef ANDROID
-#undef WILLUS_HAVE_FILE64
-#endif
 
 #if (defined(__linux) || defined(linux) || defined(__linux__))
 #define LINUX
 #if (defined(WILLUS_HAVE_FILE64) && !defined(_off64_t))
 #define _off64_t __off64_t
 #endif
+#endif
+
+#if (defined(NO_WIN32_API) && defined(HAVE_WIN32_API))
+#undef HAVE_WIN32_API
+#endif
+
+#if (!defined(NO_WIN32_API) && !defined(HAVE_WIN32_API) && (defined(WIN32) || defined(WIN64)) && defined(WILLUS_X863264))
+#define HAVE_WIN32_API
 #endif
 
 
@@ -230,11 +236,9 @@ typedef double  real;
 #ifndef HAVE_JPEG_LIB
 #define HAVE_JPEG_LIB
 #endif
-*/
 #ifndef HAVE_MUPDF_LIB
 #define HAVE_MUPDF_LIB
 #endif
-/*
 #ifndef HAVE_GHOSTSCRIPT
 #define HAVE_GHOSTSCRIPT
 #endif
@@ -292,6 +296,11 @@ typedef double  real;
 #include <stdarg.h>
 
 #define MAXFILENAMELEN 512
+/*
+** My somewhat arbitrary limits
+*/
+#define MAXUTF8PATHLEN  4096
+#define MAXUTF16PATHLEN 4096
 
 /* ansi.c */
 #ifndef __ANSI_H__
@@ -639,9 +648,21 @@ int structtm_from_datetime(struct tm *date,char *datetime);
 int structtm_from_date(struct tm *date,char *datestr);
 int structtm_from_time(struct tm *date,char *time);
 char *wstrtok(char *s,char *t);
+int wide_is_ascii(short *s);
+int utf8_is_ascii(char *s);
+int wide_is_legal_ascii_filename(short *s);
+int wide_strlen(short *s);
+void wide_strcpy(short *d,short *s);
+char  *wide_to_char(char *d,short *s);
+short *char_to_wide(short *d,char *s);
 int utf8_to_unicode(int *d,char *s,int maxlen);
 int utf8_length(int *s,int n);
 char *unicode_to_utf8(char *d,int *s,int n);
+int utf8_to_utf16_alloc(void **d,char *s);
+int utf16_to_utf8_alloc(void **d,short *s);
+int utf8_to_utf16(short *d,char *s,int maxlen);
+int utf16_to_utf8(char *d,short *s,int maxlen);
+int hexcolor(char *s);
 
 
 #ifdef WIN32
@@ -765,6 +786,7 @@ void wfile_zipex_cleanup(void);
 void wfile_basepath(char *dst,const char *src);
 void wfile_basespec(char *dst,char *src);
 void wfile_addwild(char *dst,char *src);
+void wfile_addslash(char *dst);
 void wfile_goodpath(char *dst,char *src);
 void wfile_expandname(char *expanded,char *filename);
 void wfile_noslash(char *dst,char *src);
@@ -805,6 +827,9 @@ int wfile_find_file(char *fullname,char *basename,char *folderlist[],char *drive
                     int checkpath,int cwd,int exedir,char *envdir);
 int wfile_smartfind(char *fullname,char *basename,char *folder,int recursive);
 void wfile_remove_file_plus_parent_dir(char *tempfile);
+FILE *wfile_fopen_utf8(char *filename,char *mode);
+int wfile_remove_utf8(char *filename);
+int wfile_rename_utf8(char *filename1,char *filename2);
 
 /* wzfile.c */
 typedef struct
@@ -848,7 +873,7 @@ void compress_done(FILE* f, compress_handle *h);
 size_t compress_write(FILE* f, compress_handle h, const void *buf, size_t size);
 
 /* win.c */
-#if (defined(WIN32) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
+#ifdef HAVE_WIN32_API
 void *win_activewin(void);
 void *win_hinstance(void);
 char *win_full_exe_name(char *s);
@@ -867,6 +892,8 @@ int process_launch_ex(char *command,char *cmdlineopts,int inherits,
                       int detached,char *pwd,int flags,int *pnum);
 int detail_process(char *exename,char *cmdlineopts,int inherits,
                    int swflags,int dwflags,int cflags,char *pwd);
+int win_createprocess_utf8(char *exename,char *cmdline,int inherits,int cflags,
+                           char *pwd,void *si,void *pi);
 int process_done(int *exitcode);
 int process_done_ex(int procnum,int *exitcode);
 int win_terminate_process(int procnum);
@@ -938,15 +965,23 @@ int win_set_path(char *path,int syspath);
 int win_registry_search(char *data,int maxlen,char *basename,char *keyroot,int recursive);
 int win_get_user_and_domain(char *szUser,int maxlen,char *szDomain,int maxlen2);
 int win_has_own_window(void);
+int win_symlink(char *linkname,char *target,int maxlen,int *linksize);
+int win_textout(void *hdc,int x,int y,char *s);
+int win_textout_utf8(void *hdc,int x,int y,char *s);
+int win_gettextextentpoint_utf8(void *hdc,char *s,long *dx,long *dy);
+int win_close_handle(void *handle);
+void *win_shared_handle_utf8(char *filename);
 #endif
 
 /* winshell.c */
-#if (defined(WIN32) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
-int win_resolve_shortcut(char *shortcut,char *target,int maxlen);
+#ifdef HAVE_WIN32_API
+int win_resolve_shortcut(void *shortcut,void *target,int maxlen,int wide);
+int winshell_get_foldername(char *foldername,char *title);
+int winshell_get_foldernamew(short *foldername,char *title);
 #endif
 
 /* winmbox.c */
-#if (defined(WIN32) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
+#ifdef HAVE_WIN32_API
 int winmbox_message_box(void *parent,char *title,char *message,char *button1,
                         char *button2,char *button3,char *inbuf,int maxlen,
                         int fontsize_pixels,int maxwidth_pixels,int rgbcolor,
@@ -973,7 +1008,7 @@ void winmbox_button_draw(void *hdc0,void *rect0,int state,int basecolorrgb,
 #endif
 
 /* winbmp.c */
-#if (defined(WIN32) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
+#ifdef HAVE_WIN32_API
 int  win_clipboard_to_bmp(WILLUSBITMAP *bmp,FILE *out);
 int  win_emf_dims(char *filename,double *width_in,double *height_in);
 int  win_emf_to_bmp(wmetafile *wmf,int dpi,WILLUSBITMAP *bmp,FILE *out);
@@ -992,9 +1027,11 @@ void win_icons_from_exe(void **iconr,void **smalliconr);
 #endif
 
 /* wincomdlg.c */
-#if (defined(WIN32) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
+#ifdef HAVE_WIN32_API
 int wincomdlg_get_filename(char *filename,int maxlen,char *filter,char *title,char *defext,
                            int multiselect,int must_exist,int for_writing);
+int wincomdlg_get_filenamew(short *filename,int maxlen,char *filter,char *title,char *defext,
+                            int multiselect,int must_exist,int for_writing);
 #endif
 
 /* wsys.c */
@@ -1101,6 +1138,7 @@ int filelist_fill_from_disk_1(FILELIST *fl,char *filespec,
 int filelist_create_zipfile(FILELIST *fl,char *zipfile,FILE *out);
 void filelist_date_recursively(FILELIST *fl);
 void filelist_zero_seconds(FILELIST *fl);
+void filelist_round_seconds(FILELIST *fl);
 void filelist_adjust_archive_datestamps_for_dst(FILELIST *fl,char *zipfile);
 int filelist_write_tar_list(FILELIST *fl,char *filename);
 int filelist_fill_from_zip(FILELIST *fl,char *zipfile,char *wildspec);
@@ -1126,6 +1164,7 @@ int filelist_use_file(char *fullname,char *include_only[],char *exclude[]);
 int filelist_dir_excluded(char *dirname,char *include_only[],char *exclude[]);
 int filelist_dir_name_match(char *pattern,char *dirname);
 void filelist_remove_files_larger_than(FILELIST *fl,double bytes);
+void filelist_reslash(FILELIST *fl);
 
 /* linux.c */
 int linux_which(char *exactname,char *exename);
@@ -1381,15 +1420,8 @@ int  wpdfoutline_fill_in_blank_dstpages(WPDFOUTLINE *outline,int pageno);
 WPDFOUTLINE *wpdfoutline_read_from_text_file(char *filename);
 int  wpdf_docenc_from_utf8(char *dst,char *src_utf8,int maxlen);
 
-#ifdef HAVE_MUPDF_LIB
-/* bmpmupdf.c */
-/* Mupdf / bitmap functions */
-int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double dpi,int bpp);
-int bmpmupdf_pdffile_width_and_height(char *filename,int pageno,double *width_in,double *height_in);
-#endif /* HAVE_MUPDF_LIB */
-
-/* wmupdf.c */
-/* Mupdf support functions */
+/* wpdf.c */
+/* PDF file support functions--no depedence on MuPDF */
 typedef struct
     {
     int pageno;
@@ -1442,7 +1474,6 @@ typedef struct
     double srcpage_fine_rot_deg; /* Ignored by wmupdf_remake_pdf */
     WPDFBOXES boxes;
     } WPDFPAGEINFO;
-
 /*
 ** Positions are from upper left corner of page
 */
@@ -1463,23 +1494,15 @@ typedef struct
     int sorted;
     } WTEXTCHARS;
 
-
-#ifdef HAVE_MUPDF_LIB
-int  wmupdf_numpages(char *filename);
 void wpdfboxes_init(WPDFBOXES *boxes);
 void wpdfboxes_free(WPDFBOXES *boxes);
 void wpdfboxes_insert_box(WPDFBOXES *boxes,WPDFBOX *box,int index);
 void wpdfboxes_add_box(WPDFBOXES *boxes,WPDFBOX *box);
 void wpdfboxes_delete(WPDFBOXES *boxes,int n);
+void wpdfbox_unrotate(WPDFBOX *box,double deg);
+void wpdfbox_determine_original_source_position(WPDFBOX *box);
 void wpdfpageinfo_sort(WPDFPAGEINFO *pageinfo);
-int  wmupdf_info_field(char *infile,char *label,char *buf,int maxlen);
-void wmupdf_scale_source_boxes(WPDFPAGEINFO *pageinfo,double doc_scale_factor);
-int  wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_forms,
-                       WPDFOUTLINE *wpdfoutline,FILE *out);
-/* Character position map */
-int  wtextchars_fill_from_page(WTEXTCHARS *wtc,char *filename,int pageno,char *password);
-int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char *password,
-                                 int boundingbox);
+void wpdfpageinfo_scale_source_boxes(WPDFPAGEINFO *pageinfo,double doc_scale_factor);
 void wtextchars_init(WTEXTCHARS *wtc);
 void wtextchars_free(WTEXTCHARS *wtc);
 void wtextchars_clear(WTEXTCHARS *wtc);
@@ -1490,6 +1513,26 @@ void wtextchars_text_inside(WTEXTCHARS *src,char **text,double x1,double y1,doub
 void wtextchars_sort_vertically_by_position(WTEXTCHARS *wtc,int type);
 void wtextchars_sort_horizontally_by_position(WTEXTCHARS *wtc);
 void wtextchar_array_sort_horizontally_by_position(WTEXTCHAR *x,int n);
+
+
+/* bmpmupdf.c */
+/* Mupdf / bitmap functions */
+#ifdef HAVE_MUPDF_LIB
+int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double dpi,int bpp);
+int bmpmupdf_pdffile_width_and_height(char *filename,int pageno,double *width_in,double *height_in);
+#endif /* HAVE_MUPDF_LIB */
+
+/* wmupdf.c */
+/* Mupdf support functions */
+#ifdef HAVE_MUPDF_LIB
+int  wmupdf_numpages(char *filename);
+int  wmupdf_info_field(char *infile,char *label,char *buf,int maxlen);
+int  wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_forms,
+                       WPDFOUTLINE *wpdfoutline,FILE *out);
+/* Character position map */
+int  wtextchars_fill_from_page(WTEXTCHARS *wtc,char *filename,int pageno,char *password);
+int  wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char *password,
+                                 int boundingbox);
 WPDFOUTLINE *wpdfoutline_read_from_pdf_file(char *filename);
 #endif /* HAVE_MUPDF_LIB */
 
@@ -1563,6 +1606,7 @@ void strbuf_dsprintf_no_space(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
 #define WILLUSGUIACTION_DESTROY          24
 #define WILLUSGUIACTION_DROPFILES        25
 #define WILLUSGUIACTION_CREATE           26
+#define WILLUSGUIACTION_CONTEXTMENU      27
 
 #define WILLUSGUICONTROL_ATTRIB_INACTIVE    0x0001
 #define WILLUSGUICONTROL_ATTRIB_READONLY    0x0002
@@ -1663,7 +1707,6 @@ int  willusgui_font_is_calibri(void);
 */
 void willusgui_font_init(WILLUSGUIFONT *font);
 void willusgui_start_browser(char *link);
-int  willusgui_control_gettext(WILLUSGUICONTROL *control,char *buf,int maxlen);
 int  willusgui_control_get_checked(WILLUSGUICONTROL *control);
 void willusgui_control_set_checked(WILLUSGUICONTROL *control,int checked);
 int  willusgui_control_dropdownlist_get_selected_item(WILLUSGUICONTROL *control,char *buf);
@@ -1681,6 +1724,8 @@ void *willusgui_control_handle_with_focus(void);
 void willusgui_window_set_redraw(WILLUSGUIWINDOW *window,int status);
 int  willusgui_file_select_dialog(char *buf,int maxlen,char *allowedfiles,
                                    char *prompt,char *defext,int for_writing);
+int willusgui_file_select_dialogw(short *buf,int maxlen,char *allowedfiles,
+                               char *prompt,char *defext,int for_writing);
 void willusgui_background_bitmap_blit(WILLUSGUIWINDOW *win,WILLUSBITMAP *bmp);
 void *willusgui_semaphore_create(char *name);
 void willusgui_semaphore_release(void *semaphore);

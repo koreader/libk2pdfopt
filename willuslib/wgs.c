@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2014  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -130,7 +130,10 @@ int willusgs_read_pdf_or_ps_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,doub
     return(0);
     }
 
-
+/*
+** Source file can be PS or PDF
+** Google "ps2pdf options" to see more about these options.
+*/
 int willusgs_ps_to_pdf(char *dstfile,char *srcfile,int firstpage,int lastpage,FILE *out)
 
     {
@@ -144,17 +147,20 @@ int willusgs_ps_to_pdf(char *dstfile,char *srcfile,int firstpage,int lastpage,FI
     for (i=0;i<16;i++)
         argv[i]=&argdata[i][0];
     i=0;
+    /* -dSAFER reduces security risk from malicious PS/PDF files */
     strcpy(argv[i++],"-dSAFER");
     strcpy(argv[i++],"-dBATCH");
     strcpy(argv[i++],"-q");
     strcpy(argv[i++],"-dNOPAUSE");
     strcpy(argv[i++],"-sDEVICE=pdfwrite");
+    strcpy(argv[i++],"-dPDFSETTINGS=/prepress");
     if (firstpage>0)
         sprintf(argv[i++],"-dFirstPage=%d",firstpage);
     if (lastpage>0)
         sprintf(argv[i++],"-dLastPage=%d",lastpage);
     argv[i++]=&argtemp[0]; 
     sprintf(argtemp,"-sOutputFile=%s",dstfile);
+    /* CompatibilityLevel=1.4 is the default--google ps2pdf options */
 /*
     strcpy(argv[i++],"-dCompatibilityLevel=1.4");
     strcpy(argv[i++],"-c");

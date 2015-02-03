@@ -29,7 +29,7 @@
 #include <ctype.h>
 #include <time.h>
 
-#if (!defined(MSWINGUI) && (defined(WIN32) || defined(WIN64)) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
+#if (!defined(MSWINGUI) && defined(HAVE_WIN32_API))
 #define MSWINGUI
 #endif
 
@@ -79,7 +79,9 @@ void willusgui_init(void)
     winhandlepairs_init(&whpairs);
     willusgui_global_instance=NULL;
     icontrol=NULL;
+#ifdef MSWINGUI
     willusgui_set_ime_notify(0);
+#endif
     }
 
 
@@ -110,6 +112,21 @@ void willusgui_open_file(char *filename)
     char cmdopts[512];
     int procnum;
 
+    if (wfile_status(filename)==0)
+        {
+        char *message;
+        int len;
+        static char *funcname="willusgui_open_file";
+        static int bcolors[3]={0x6060b0,0xf0f0f0,0xf0f0f0};
+
+        len=strlen(filename);
+        willus_mem_alloc_warn((void **)&message,len+80,funcname,10);
+        sprintf(message,"Cannot open %s!",filename);
+        willusgui_message_box(NULL,"Error",message,"*&OK",NULL,NULL,
+                           NULL,0,24,640,0xe0e0e0,bcolors,NULL,1);
+        willus_mem_free((double **)&message,funcname);
+        return;
+        }
     sprintf(cmd,"cmd");
     sprintf(cmdopts,"/c start \"\" \"%s\"",filename);
     process_launch_ex(cmd,cmdopts,1,1,NULL,6,&procnum);
@@ -159,7 +176,7 @@ void willusgui_window_text_render(WILLUSGUIWINDOW *win,WILLUSGUIFONT *font,char 
         SetBkMode(hdc,TRANSPARENT);
     SetTextAlign(hdc,alignment);
     SetTextColor(hdc,fgcolor);
-    TextOut(hdc,x0,y0 + (vc ? font->size/3:0),text,strlen(text));
+    win_textout_utf8((void *)hdc,x0,y0 + (vc ? font->size/3:0),text);
     ReleaseDC((HWND)win->handle,hdc);
 #endif
     }
@@ -176,7 +193,7 @@ void willusgui_window_text_extents(WILLUSGUIWINDOW *win,WILLUSGUIFONT *font,char
     SIZE sz;
     hdc=GetDC((HWND)win->handle);
     SelectObject(hdc,font->handle);
-    GetTextExtentPoint(hdc,string,strlen(string),&sz);
+    win_gettextextentpoint_utf8((void *)hdc,string,&sz.cx,&sz.cy);
     ReleaseDC((HWND)win->handle,hdc);
     rect->left=0;
     rect->right=sz.cx;
@@ -290,7 +307,7 @@ void willusgui_window_draw_rect_outline(WILLUSGUIWINDOW *win,WILLUSGUIRECT *rect
     DeleteObject(brush);
 #endif
     }
-    
+
 
 void willusgui_set_instance(void *instanceptr)
 
@@ -336,6 +353,7 @@ void willusgui_control_create(WILLUSGUICONTROL *control)
     static int new_classes_already_setup=0;
     static char *eclass2="Edit2";
     static char *eclass3="Edit3";
+    static char *funcname="willusgui_control_create";
 
     if (!new_classes_already_setup)
         {
@@ -362,23 +380,33 @@ void willusgui_control_create(WILLUSGUICONTROL *control)
             if (control->attrib & WILLUSGUICONTROL_ATTRIB_MULTISELECT)
                 flags |= (LBS_MULTIPLESEL | LBS_EXTENDEDSEL);
             flags &= (~LBS_SORT);
-            control->handle = CreateWindow("listbox",control->name,flags,
+            {
+            short *wname;
+            utf8_to_utf16_alloc((void **)&wname,control->name);
+            control->handle = CreateWindowW(L"listbox",(LPWSTR)wname,flags,
                                    control->rect.left,control->rect.top,
                                    control->rect.right-control->rect.left+1,
                                    control->rect.bottom-control->rect.top+1,
                                    control->parent->handle,(HMENU)(size_t)(control->index),
                                    (HINSTANCE)willusgui_global_instance,NULL);
+            willus_mem_free((double **)&wname,funcname);
+            }
             SendMessage(control->handle,WM_SETFONT,(WPARAM)control->font.handle,1);
             break;
         case WILLUSGUICONTROL_TYPE_DROPDOWNLIST:
             flags = WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST;
             flags &= (~CBS_SORT);
-            control->handle = CreateWindow("combobox",control->name,flags,
+            {
+            short *wname;
+            utf8_to_utf16_alloc((void **)&wname,control->name);
+            control->handle = CreateWindowW(L"combobox",(LPWSTR)wname,flags,
                                    control->rect.left,control->rect.top,
                                    control->rect.right-control->rect.left+1,
                                    control->rect.bottom-control->rect.top+1,
                                    control->parent->handle,(HMENU)(size_t)(control->index),
                                    (HINSTANCE)willusgui_global_instance,NULL);
+            willus_mem_free((double **)&wname,funcname);
+            }
             SendMessage(control->handle,WM_SETFONT,(WPARAM)control->font.handle,1);
             break;
         case WILLUSGUICONTROL_TYPE_BUTTON:
@@ -593,7 +621,17 @@ void willusgui_control_set_text(WILLUSGUICONTROL *control,char *text)
 
     {
 #ifdef MSWINGUI
-    SendMessage((HWND)control->handle,WM_SETTEXT,(WPARAM)0,(LPARAM)(text==NULL?"":text));
+    if (text==NULL || utf8_is_ascii(text))
+        SendMessage((HWND)control->handle,WM_SETTEXT,(WPARAM)0,(LPARAM)(text==NULL?"":text));
+    else
+        {
+        short *sw;
+        static char *funcname="willusgui_control_set_text";
+
+        utf8_to_utf16_alloc((void **)&sw,text);
+        SendMessageW((HWND)control->handle,WM_SETTEXT,(WPARAM)0,(LPARAM)sw);
+        willus_mem_free((double **)&sw,funcname);
+        }
 #endif
     }
 
@@ -602,7 +640,13 @@ void willusgui_control_get_text(WILLUSGUICONTROL *control,char *text,int maxlen)
 
     {
 #ifdef MSWINGUI
-    SendMessage((HWND)control->handle,WM_GETTEXT,(WPARAM)maxlen,(LPARAM)text);
+    short *sw;
+    static char *funcname="willusgui_control_get_text";
+
+    willus_mem_alloc_warn((void **)&sw,sizeof(short)*(maxlen+1),funcname,10);
+    SendMessageW((HWND)control->handle,WM_GETTEXT,(WPARAM)maxlen,(LPARAM)sw);
+    utf16_to_utf8(text,sw,maxlen-1);
+    willus_mem_free((double **)&sw,funcname);
 #else
     text[0]='\0';
 #endif
@@ -778,7 +822,8 @@ printf("    maxwidth=%d\n",(int)maxwidth_pixels);
 printf("    color=%06X\n",rgbcolor);
 printf("    left,right,top,bottom=%d,%d,%d,%d\n",
 */
-    return(winmbox_message_box_ex2((HWND)parent->handle,title,message,
+    return(winmbox_message_box_ex2((HWND)(parent==NULL?GetDesktopWindow():parent->handle),
+                               title,message,
                                button1,button2,button3,
                                inbuf,maxlen,fontsize_pixels,maxwidth_pixels,
                                rgbcolor,NULL,NULL,bcolors,(void *)(rect==NULL?NULL:&winrect),
@@ -1005,21 +1050,6 @@ void willusgui_start_browser(char *link)
 
 
 /*
-** Get text associated with a window or control.
-** Returns the length of the text string.
-*/
-int willusgui_control_gettext(WILLUSGUICONTROL *control,char *buf,int maxlen)
-
-    {
-#ifdef MSWINGUI
-    return(SendMessage((HWND)control->handle,WM_GETTEXT,(WPARAM)maxlen,(LPARAM)buf));
-#else
-    return(0);
-#endif
-    }
-
-
-/*
 ** Return 1 if checkbox is checked, 0 if not.
 */
 int willusgui_control_get_checked(WILLUSGUICONTROL *control)
@@ -1061,7 +1091,20 @@ int willusgui_control_dropdownlist_get_selected_item(WILLUSGUICONTROL *control,c
     index=SendMessage((HWND)control->handle,CB_GETCURSEL,0,0);
     if (index==CB_ERR)
         return(0);
-    return(SendMessage((HWND)control->handle,CB_GETLBTEXT,index,(LPARAM)buf) != CB_ERR);
+    {
+    short *sw;
+    static char *funcname="willusgui_control_dropdownlist_get_selected_item";
+    int status;
+
+    willus_mem_alloc_warn((void **)&sw,sizeof(short)*1024,funcname,10);
+    status=(SendMessageW((HWND)control->handle,CB_GETLBTEXT,index,(LPARAM)sw) != CB_ERR);
+    if (status)
+        utf16_to_utf8(buf,sw,511);
+    else
+        buf[0]='\0';
+    willus_mem_free((double **)&sw,funcname);
+    return(status);
+    }
 #else
     return(0);
 #endif
@@ -1093,7 +1136,22 @@ int willusgui_control_listbox_select_item(WILLUSGUICONTROL *control,char *string
     if (control->type != WILLUSGUICONTROL_TYPE_LISTBOX && control->type != WILLUSGUICONTROL_TYPE_DROPDOWNLIST)
         return(-1);
 #ifdef MSWINGUI
-    return(SendMessage((HWND)control->handle,control->type==WILLUSGUICONTROL_TYPE_LISTBOX ? LB_SELECTSTRING : CB_SELECTSTRING,-1,(LPARAM)string));
+    {
+    int status;
+
+    if (utf8_is_ascii(string))
+        status=SendMessage((HWND)control->handle,control->type==WILLUSGUICONTROL_TYPE_LISTBOX ? LB_SELECTSTRING : CB_SELECTSTRING,-1,(LPARAM)string);
+    else
+        {
+        short *sw;
+        static char *funcname="willusgui_control_listbox_select_item";
+
+        utf8_to_utf16_alloc((void **)&sw,string);
+        status=SendMessageW((HWND)control->handle,control->type==WILLUSGUICONTROL_TYPE_LISTBOX ? LB_SELECTSTRING : CB_SELECTSTRING,-1,(LPARAM)sw);
+        willus_mem_free((double **)&sw,funcname);
+        }
+    return(status);
+    }
 #else
     return(-1);
 #endif
@@ -1110,7 +1168,7 @@ void willusgui_control_listbox_clear(WILLUSGUICONTROL *control)
     SendMessage((HWND)control->handle,control->type==WILLUSGUICONTROL_TYPE_LISTBOX ? LB_RESETCONTENT : CB_RESETCONTENT,0,0);
 #endif
     }
-    
+
 
 /*
 ** Works for listbox or dropdownlist
@@ -1121,10 +1179,20 @@ void willusgui_control_listbox_add_item(WILLUSGUICONTROL *control,char *text)
     if (control->type != WILLUSGUICONTROL_TYPE_LISTBOX && control->type != WILLUSGUICONTROL_TYPE_DROPDOWNLIST)
         return;
 #ifdef MSWINGUI
-    SendMessage((HWND)control->handle,control->type==WILLUSGUICONTROL_TYPE_LISTBOX ? LB_ADDSTRING : CB_ADDSTRING,0,(LPARAM)text);
+    if (utf8_is_ascii(text))
+        SendMessage((HWND)control->handle,control->type==WILLUSGUICONTROL_TYPE_LISTBOX ? LB_ADDSTRING : CB_ADDSTRING,0,(LPARAM)text);
+    else
+        {
+        short *sw;
+        static char *funcname="willusgui_control_listbox_add_item";
+
+        utf8_to_utf16_alloc((void **)&sw,text);
+        SendMessageW((HWND)control->handle,control->type==WILLUSGUICONTROL_TYPE_LISTBOX ? LB_ADDSTRING : CB_ADDSTRING,0,(LPARAM)sw);
+        willus_mem_free((double **)&sw,funcname);
+        }
 #endif
     }
-    
+
 
 /*
 ** Gets text from selected item index in a list box.  Returns length of string.
@@ -1137,12 +1205,23 @@ int willusgui_control_listbox_get_item_text(WILLUSGUICONTROL *control,int index,
     if (control->type != WILLUSGUICONTROL_TYPE_LISTBOX)
         return(-1);
 #ifdef MSWINGUI
-    return(SendMessage((HWND)control->handle,LB_GETTEXT,index,(LPARAM)buf));
+    {
+    int status;
+    short *sw;
+    static char *funcname="willusgui_control_listbox_get_item_text";
+
+    willus_mem_alloc_warn((void **)&sw,sizeof(short)*MAXUTF16PATHLEN,funcname,10);
+    buf[0]='\0';
+    status=SendMessageW((HWND)control->handle,LB_GETTEXT,index,(LPARAM)sw);
+    utf16_to_utf8(buf,sw,511);
+    willus_mem_free((double **)&sw,funcname);
+    return(status);
+    }
 #else
     return(-1);
 #endif
     }
-    
+
 
 /*
 ** Return pointer to array of file names dropped onto window.
@@ -1155,29 +1234,30 @@ int willusgui_control_listbox_get_item_text(WILLUSGUICONTROL *control,int index,
 ** Use willusgui_release_dropped_files() to release the memory.
 */
 char **willusgui_get_dropped_files(void *dropptr)
-            
+
     {
 #ifdef MSWINGUI
     char **ptr;
     int i,n;
     static char *funcname="willusgui_get_dropped_files";
 
-    n=DragQueryFile((HDROP)dropptr,0xffffffff,NULL,0);
+    n=DragQueryFileW((HDROP)dropptr,0xffffffff,NULL,0);
     willus_mem_alloc_warn((void **)&ptr,sizeof(char *)*(n+1),funcname,10);
-    if (ptr==NULL)
-        return(ptr);
     for (i=0;i<=n;i++)
         ptr[i]=NULL;
     for (i=0;i<n;i++)
         {
-        char buf[512],buf2[512];
-        DragQueryFile((HDROP)dropptr,i,buf,511);
-        while (win_resolve_shortcut(buf,buf2,511))
-            strcpy(buf,buf2);
-        willus_mem_alloc_warn((void **)&ptr[i],strlen(buf)+1,funcname,10);
+        short buf[MAXFILENAMELEN],buf2[MAXFILENAMELEN];
+        int u8len;
+
+        DragQueryFileW((HDROP)dropptr,i,(WCHAR *)buf,MAXFILENAMELEN-1);
+        while (win_resolve_shortcut(buf,buf2,MAXFILENAMELEN-1,1))
+            wide_strcpy(buf,buf2);
+        u8len=utf16_to_utf8(NULL,buf,MAXUTF8PATHLEN);
+        willus_mem_alloc_warn((void **)&ptr[i],u8len+1,funcname,10);
         if (ptr[i]==NULL)
             return(ptr);
-        strcpy(ptr[i],buf);
+        utf16_to_utf8(ptr[i],buf,u8len);
         }
     return(ptr);
 #else
@@ -1264,12 +1344,37 @@ void willusgui_window_set_redraw(WILLUSGUIWINDOW *window,int status)
 **         e.g. "PDF files\0*.pdf\0DJVU files\0*.djvu\0\0"
 */
 int willusgui_file_select_dialog(char *buf,int maxlen,char *allowedfiles,
-                                   char *prompt,char *defext,int for_writing)
+                              char *prompt,char *defext,int for_writing)
 
     {
 #ifdef MSWINGUI
+    short *filename;
+    int status;
+    static char *funcname="willusgui_file_select_dialog";
+
+    willus_mem_alloc_warn((void **)&filename,(maxlen+1)*sizeof(short),funcname,10);
+    status=wincomdlg_get_filenamew(filename,maxlen,allowedfiles,prompt,defext,for_writing ? 0 : 1,
+                                   for_writing ? 0 : 1,for_writing);
+    utf16_to_utf8(buf,filename,maxlen-1);
+    willus_mem_free((double **)&filename,funcname);
+    return(status);
+    /*
     return(wincomdlg_get_filename(buf,maxlen,allowedfiles,prompt,defext,for_writing ? 0 : 1,
                                   for_writing ? 0 : 1,for_writing));
+    */
+#else
+    return(0);
+#endif
+    }
+
+
+int willusgui_file_select_dialogw(short *buf,int maxlen,char *allowedfiles,
+                               char *prompt,char *defext,int for_writing)
+
+    {
+#ifdef MSWINGUI
+    return(wincomdlg_get_filenamew(buf,maxlen,allowedfiles,prompt,defext,for_writing ? 0 : 1,
+                                   for_writing ? 0 : 1,for_writing));
 #else
     return(0);
 #endif
@@ -1452,7 +1557,7 @@ static int winhandlepairs_find_control_index(WINHANDLEPAIRS *pairs,void *oshandl
     while (i2-i1>1)
         {
         int inew;
- 
+
         inew=(i1+i2)/2;
         if (pairs->pair[inew].oshandle==oshandle)
             return(inew);
@@ -1471,9 +1576,9 @@ static void winhandlepairs_sort(WINHANDLEPAIRS *pairs)
     int top,n1,n;
     WINHANDLEPAIR x0;
     WINHANDLEPAIR *x;
-    
+
     if (pairs->sorted)
-        return; 
+        return;
     n=pairs->n;
     if (n<2)
         {
@@ -1615,19 +1720,6 @@ void willusgui_sbitmap_proc(void *handle,int message,int wparam,void *lparam)
     }
 
 
-static int ime_notify_status=0;
-void willusgui_set_ime_notify(int status)
-
-    {
-#ifdef MSWINGUI
-    if (status==0)
-        ime_notify_status=status;
-    else
-        ime_notify_status++;
-#endif
-    }
-
-
 /*
 ** Custom / Subclass callback functions for MS-Windows
 */
@@ -1649,7 +1741,7 @@ LRESULT CALLBACK willusgui_sbitmap_proc_internal(HWND hwnd,UINT message,WPARAM w
     static int mx0,my0,mx,my;
     int hscroll,vscroll;
     WILLUSGUICONTROL *control;
-	
+
 /*
 printf("@willusgui_sbitmap_proc...message=0x%04x\n",message);
 */
@@ -1667,70 +1759,70 @@ printf("@willusgui_sbitmap_proc...message=0x%04x\n",message);
 /*
 printf("hscroll=%d, vscroll=%d\n",hscroll,vscroll);
 */
-	switch (message) 
+	switch (message)
         {
         case WM_CREATE:
             break;
-        case WM_SIZE: 
-            { 
-            int xNewSize; 
-            int yNewSize; 
+        case WM_SIZE:
+            {
+            int xNewSize;
+            int yNewSize;
 
-            xNewSize = LOWORD(lParam); 
-            yNewSize = HIWORD(lParam); 
-            /* 
-            ** The horizontal scrolling range is defined by 
-            ** (bitmap_width) - (client_width). The current horizontal 
-            ** scroll value remains within the horizontal scrolling range. 
+            xNewSize = LOWORD(lParam);
+            yNewSize = HIWORD(lParam);
+            /*
+            ** The horizontal scrolling range is defined by
+            ** (bitmap_width) - (client_width). The current horizontal
+            ** scroll value remains within the horizontal scrolling range.
             */
             if (hscroll)
                 {
-                xMaxScroll = max(control->bmp.width-xNewSize, 0); 
-                xCurrentScroll = min(xCurrentScroll, xMaxScroll); 
-                si.cbSize = sizeof(si); 
-                si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS; 
-                si.nMin   = xMinScroll; 
+                xMaxScroll = max(control->bmp.width-xNewSize, 0);
+                xCurrentScroll = min(xCurrentScroll, xMaxScroll);
+                si.cbSize = sizeof(si);
+                si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS;
+                si.nMin   = xMinScroll;
                 si.nMax   = control->bmp.width;
-                si.nPage  = xNewSize; 
-                si.nPos   = xCurrentScroll; 
-                SetScrollInfo(hwnd, SB_HORZ, &si, TRUE); 
+                si.nPage  = xNewSize;
+                si.nPos   = xCurrentScroll;
+                SetScrollInfo(hwnd, SB_HORZ, &si, TRUE);
                 }
 
-            /* 
-            ** The vertical scrolling range is defined by 
-            ** (bitmap_height) - (client_height). The current vertical 
-            ** scroll value remains within the vertical scrolling range. 
+            /*
+            ** The vertical scrolling range is defined by
+            ** (bitmap_height) - (client_height). The current vertical
+            ** scroll value remains within the vertical scrolling range.
             */
             if (vscroll)
                 {
-                yMaxScroll = max(control->bmp.height - yNewSize, 0); 
-                yCurrentScroll = min(yCurrentScroll, yMaxScroll); 
-                si.cbSize = sizeof(si); 
-                si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS; 
-                si.nMin   = yMinScroll; 
+                yMaxScroll = max(control->bmp.height - yNewSize, 0);
+                yCurrentScroll = min(yCurrentScroll, yMaxScroll);
+                si.cbSize = sizeof(si);
+                si.fMask  = SIF_RANGE | SIF_PAGE | SIF_POS;
+                si.nMin   = yMinScroll;
                 si.nMax   = control->bmp.height;
-                si.nPage  = yNewSize; 
-                si.nPos   = yCurrentScroll; 
-                SetScrollInfo(hwnd, SB_VERT, &si, TRUE); 
+                si.nPage  = yNewSize;
+                si.nPos   = yCurrentScroll;
+                SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
                 }
-            break; 
-            } 
- 
-        case WM_PAINT: 
-            { 
-            PRECT prect; 
+            break;
+            }
+
+        case WM_PAINT:
+            {
+            PRECT prect;
             PAINTSTRUCT ps;
             int w,h,x1,y1;
 /*
 printf("@sbitmap WM_PAINT.\n");
 */
 
-            BeginPaint(hwnd, &ps); 
-            prect = &ps.rcPaint; 
+            BeginPaint(hwnd, &ps);
+            prect = &ps.rcPaint;
             /*
-            ** If the window has been resized and the user has 
-            ** captured the screen, use the following call to 
-            ** BitBlt to paint the window's client area. 
+            ** If the window has been resized and the user has
+            ** captured the screen, use the following call to
+            ** BitBlt to paint the window's client area.
             */
             w=prect->right-prect->left+1;
             h=prect->bottom-prect->top+1;
@@ -1750,109 +1842,109 @@ printf("@blitter:  prect @ %d, %d = %d x %d\n",
 printf("    xscr,yscr = %d,%d\n",xCurrentScroll,yCurrentScroll);
 */
             bmp_blit_to_hdc_ex(&control->bmp,ps.hdc,x1,y1,
-                                hscroll ? w : control->bmp.width, 
-                                vscroll ? h : control->bmp.height, 
+                                hscroll ? w : control->bmp.width,
+                                vscroll ? h : control->bmp.height,
                                 hscroll ? xCurrentScroll : 0,
                                 vscroll ? yCurrentScroll : 0);
 
-            EndPaint(hwnd, &ps); 
-            break; 
-            } 
+            EndPaint(hwnd, &ps);
+            break;
+            }
 
-        case WM_HSCROLL: 
-            { 
+        case WM_HSCROLL:
+            {
             int xNewPos;    /* new position  */
 
             if (!hscroll)
                 break;
-            switch (LOWORD(wParam)) 
-                { 
+            switch (LOWORD(wParam))
+                {
                 /* User clicked the scroll bar shaft left of the scroll box.  */
-                case SB_PAGEUP: 
-                    xNewPos = xCurrentScroll - 50; 
-                    break; 
+                case SB_PAGEUP:
+                    xNewPos = xCurrentScroll - 50;
+                    break;
                 /* User clicked the scroll bar shaft right of the scroll box. */
-                case SB_PAGEDOWN: 
-                    xNewPos = xCurrentScroll + 50; 
-                    break; 
+                case SB_PAGEDOWN:
+                    xNewPos = xCurrentScroll + 50;
+                    break;
                 /* User clicked the left arrow. */
-                case SB_LINEUP: 
-                    xNewPos = xCurrentScroll - 5; 
-                    break; 
+                case SB_LINEUP:
+                    xNewPos = xCurrentScroll - 5;
+                    break;
                 /* User clicked the right arrow. */
-                case SB_LINEDOWN: 
-                    xNewPos = xCurrentScroll + 5; 
-                    break; 
+                case SB_LINEDOWN:
+                    xNewPos = xCurrentScroll + 5;
+                    break;
                 /* User dragged the scroll box. */
-                case SB_THUMBPOSITION: 
+                case SB_THUMBPOSITION:
                 case SB_THUMBTRACK:
-                    xNewPos = HIWORD(wParam); 
-                    break; 
-                default: 
-                    xNewPos = xCurrentScroll; 
-                } 
- 
+                    xNewPos = HIWORD(wParam);
+                    break;
+                default:
+                    xNewPos = xCurrentScroll;
+                }
+
             /* New position must be between 0 and the screen width. */
-            xNewPos = max(0, xNewPos); 
-            xNewPos = min(xMaxScroll, xNewPos); 
-            if (xNewPos == xCurrentScroll) 
-                break; 
+            xNewPos = max(0, xNewPos);
+            xNewPos = min(xMaxScroll, xNewPos);
+            if (xNewPos == xCurrentScroll)
+                break;
             /* Reset the current scroll position. */
-            xCurrentScroll = xNewPos; 
+            xCurrentScroll = xNewPos;
             RedrawWindow(hwnd,NULL,NULL,RDW_INVALIDATE);
-            // Reset the scroll bar. 
-            si.cbSize = sizeof(si); 
-            si.fMask  = SIF_POS; 
-            si.nPos   = xCurrentScroll; 
-            SetScrollInfo(hwnd,SB_HORZ,&si,TRUE); 
-            break; 
-            } 
-        
-        case WM_VSCROLL: 
-            { 
+            // Reset the scroll bar.
+            si.cbSize = sizeof(si);
+            si.fMask  = SIF_POS;
+            si.nPos   = xCurrentScroll;
+            SetScrollInfo(hwnd,SB_HORZ,&si,TRUE);
+            break;
+            }
+
+        case WM_VSCROLL:
+            {
             int yNewPos;    /* new position  */
 
             if (!vscroll)
-                break; 
-            switch (LOWORD(wParam)) 
-                { 
-                /* User clicked the scroll bar shaft above the scroll box. */ 
-                case SB_PAGEUP: 
-                    yNewPos = yCurrentScroll - 50; 
-                    break; 
+                break;
+            switch (LOWORD(wParam))
+                {
+                /* User clicked the scroll bar shaft above the scroll box. */
+                case SB_PAGEUP:
+                    yNewPos = yCurrentScroll - 50;
+                    break;
                 /* User clicked the scroll bar shaft below the scroll box. */
-                case SB_PAGEDOWN: 
-                    yNewPos = yCurrentScroll + 50; 
-                    break; 
+                case SB_PAGEDOWN:
+                    yNewPos = yCurrentScroll + 50;
+                    break;
                 /* User clicked the top arrow. */
-                case SB_LINEUP: 
-                    yNewPos = yCurrentScroll - 5; 
-                    break; 
+                case SB_LINEUP:
+                    yNewPos = yCurrentScroll - 5;
+                    break;
                 /* User clicked the bottom arrow. */
-                case SB_LINEDOWN: 
-                    yNewPos = yCurrentScroll + 5; 
-                    break; 
+                case SB_LINEDOWN:
+                    yNewPos = yCurrentScroll + 5;
+                    break;
                 /* User dragged the scroll box. */
-                case SB_THUMBPOSITION: 
+                case SB_THUMBPOSITION:
                 case SB_THUMBTRACK:
-                    yNewPos = HIWORD(wParam); 
-                    break; 
-                default: 
-                    yNewPos = yCurrentScroll; 
-                } 
-            yNewPos = max(0, yNewPos); 
-            yNewPos = min(yMaxScroll, yNewPos); 
-            if (yNewPos == yCurrentScroll) 
-                break; 
-            yCurrentScroll = yNewPos; 
+                    yNewPos = HIWORD(wParam);
+                    break;
+                default:
+                    yNewPos = yCurrentScroll;
+                }
+            yNewPos = max(0, yNewPos);
+            yNewPos = min(yMaxScroll, yNewPos);
+            if (yNewPos == yCurrentScroll)
+                break;
+            yCurrentScroll = yNewPos;
             RedrawWindow(hwnd,NULL,NULL,RDW_INVALIDATE);
             /* Reset the scroll bar. */
-            si.cbSize = sizeof(si); 
-            si.fMask  = SIF_POS; 
-            si.nPos   = yCurrentScroll; 
-            SetScrollInfo(hwnd, SB_VERT, &si, TRUE); 
-            break; 
-            } 
+            si.cbSize = sizeof(si);
+            si.fMask  = SIF_POS;
+            si.nPos   = yCurrentScroll;
+            SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
+            break;
+            }
 
         case WM_LBUTTONDOWN:
             {
@@ -1888,10 +1980,10 @@ printf("    xscr,yscr = %d,%d\n",xCurrentScroll,yCurrentScroll);
             /* Move the scroll bars */
             if (dy!=0)
                 {
-                si.cbSize = sizeof(si); 
-                si.fMask  = SIF_POS; 
-                si.nPos   = yCurrentScroll; 
-                SetScrollInfo(hwnd, SB_VERT, &si, TRUE); 
+                si.cbSize = sizeof(si);
+                si.fMask  = SIF_POS;
+                si.nPos   = yCurrentScroll;
+                SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
                 }
             break;
             }
@@ -1937,17 +2029,17 @@ printf("sbitmap MOUSEMOVE.\n");
             /* Move the scroll bars */
             if (dy!=0)
                 {
-                si.cbSize = sizeof(si); 
-                si.fMask  = SIF_POS; 
-                si.nPos   = yCurrentScroll; 
-                SetScrollInfo(hwnd, SB_VERT, &si, TRUE); 
+                si.cbSize = sizeof(si);
+                si.fMask  = SIF_POS;
+                si.nPos   = yCurrentScroll;
+                SetScrollInfo(hwnd, SB_VERT, &si, TRUE);
                 }
             if (dx!=0)
                 {
-                si.cbSize = sizeof(si); 
-                si.fMask  = SIF_POS; 
-                si.nPos   = xCurrentScroll; 
-                SetScrollInfo(hwnd, SB_HORZ, &si, TRUE); 
+                si.cbSize = sizeof(si);
+                si.fMask  = SIF_POS;
+                si.nPos   = xCurrentScroll;
+                SetScrollInfo(hwnd, SB_HORZ, &si, TRUE);
                 }
             mx=x;
             my=y;
@@ -1994,10 +2086,10 @@ printf("sbitmap MOUSEMOVE.\n");
 */
 LRESULT CALLBACK willusgui_edit2_proc(HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam)
 
-    {	
+    {
     WNDPROC wndproc;
 
-	switch (message) 
+	switch (message)
         {
         case WM_KILLFOCUS:
 /* printf("EDIT BOX LOST FOCUS.\n"); */
@@ -2017,8 +2109,8 @@ LRESULT CALLBACK willusgui_edit2_proc(HWND hWnd,UINT message,WPARAM wParam,LPARA
             else if ((TCHAR)wParam==VK_TAB)
                 {
                 SetFocus(GetNextDlgTabItem(GetParent(hWnd),hWnd,GetAsyncKeyState(VK_SHIFT)));
-                //cannot use WM_NEXTDLGCTL without handling in a parent window using the same code 
-                return(0); 
+                //cannot use WM_NEXTDLGCTL without handling in a parent window using the same code
+                return(0);
                 }
             }
         }
@@ -2027,12 +2119,23 @@ LRESULT CALLBACK willusgui_edit2_proc(HWND hWnd,UINT message,WPARAM wParam,LPARA
     }
 
 
+static int ime_notify_status=0;
+void willusgui_set_ime_notify(int status)
+
+    {
+    if (status==0)
+        ime_notify_status=status;
+    else
+        ime_notify_status++;
+    }
+
+
 /*
 ** Call back MS Windows subclass of editclass which selects entire text when receiving focus.
 */
 LRESULT CALLBACK willusgui_edit3_proc(HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam)
 
-    {	
+    {
     WNDPROC wndproc;
 /*
 if (message==WM_IME_NOTIFY)
@@ -2041,7 +2144,7 @@ printf("edit3:  hwnd=%p, message=%04x, ins=%d\n",hWnd,message,ime_notify_status)
 printf("imenotify=%04x\n",WM_IME_NOTIFY);
 }
 */
-	switch (message) 
+	switch (message)
         {
         /* Need to find the right codes for this... */
         case WM_CAPTURECHANGED:
@@ -2073,8 +2176,8 @@ printf("imenotify=%04x\n",WM_IME_NOTIFY);
             if((TCHAR)wParam==VK_TAB)
                 {
                 SetFocus(GetNextDlgTabItem(GetParent(hWnd),hWnd,GetAsyncKeyState(VK_SHIFT)));
-                //cannot use WM_NEXTDLGCTL without handling in a parent window using the same code 
-                return(0); 
+                //cannot use WM_NEXTDLGCTL without handling in a parent window using the same code
+                return(0);
                 }
             }
         */

@@ -160,10 +160,38 @@ int mem_get_line_cf(char *buf,int maxlen,char *cptr,long *cindex,long csize)
 /*
 ** Return first index where pattern occurs in buffer.  Return -1
 ** if pattern does not occur in buffer.  Match is NOT case sensitive.
+**
+** 4 Dec 2014:  Made this much faster.  Significantly improves load
+**              time on Excel spreadsheets.
 */
 int in_string(char *buffer,char *pattern)
 
     {
+    int c,lp;
+    char *b,*p;
+
+    c=tolower(pattern[0]);
+    /* Quickly scan for first letter--if not found, return negative result */
+    for (b=buffer;(*b)!='\0' && tolower(*b)!=c;b++);
+    if ((*b)=='\0')
+        return(-1);
+    lp=strlen(pattern)-1;
+    if (lp<=0)
+        return((int)(b-buffer));
+    p=&pattern[1];
+    while (1)
+        {
+        b++;
+        if (!strnicmp(b,p,lp))
+            return((int)((b-1)-buffer));
+        for (;(*b)!='\0' && tolower(*b)!=c;b++);
+        if ((*b)=='\0')
+            break;
+        }
+    return(-1);
+/*
+** Pre 4 Dec 2014 version:
+**
     int     i,lp,lb;
 
     lp=strlen(pattern);
@@ -174,6 +202,7 @@ int in_string(char *buffer,char *pattern)
         if (!strnicmp(&buffer[i],pattern,lp))
             return(i);
     return(-1);
+*/
     }
 
 
@@ -1159,6 +1188,196 @@ char *wstrtok(char *s,char *t)
     return(buf2);
     }
 
+/*
+** short must be 16-bit--this is true for WIN32 and WIN64.
+*/
+int wide_is_ascii(short *s)
+
+    {
+    int i;
+
+    for (i=0;s[i]!=0;i++)
+        if (s[i]<32 || s[i]>255)
+            return(0);
+    return(1);
+    }
+
+
+int utf8_is_ascii(char *s)
+
+    {
+    int i;
+
+    for (i=0;s[i]!='\0';i++)
+        if (s[i]&0x80)
+            return(0);
+    return(1);
+    }
+
+
+/*
+** short must be 16-bit--this is true for WIN32 and WIN64.
+*/
+int wide_is_legal_ascii_filename(short *s)
+
+    {
+    int i;
+
+    for (i=0;s[i]!=0;i++)
+        if (s[i]<0 || s[i]>255 || s[i]=='<' || s[i]=='>' || s[i]=='\"' || s[i]=='/'
+                   || s[i]=='|' || s[i]=='?' || s[i]=='*')
+            return(0);
+    return(1);
+    }
+
+
+int wide_strlen(short *s)
+
+    {
+    int i;
+
+    for (i=0;s[i]!=0;i++);
+    return(i);
+    }
+
+
+void wide_strcpy(short *d,short *s)
+
+    {
+    int i;
+
+    for (i=0;s[i]!=0;i++)
+        d[i]=s[i];
+    d[i]=0;
+    }
+
+
+char *wide_to_char(char *d,short *s)
+
+    {
+    static char *funcname="wide_to_char";
+    unsigned char *x;
+    unsigned short *p;
+    int i;
+
+    if (d==NULL)
+        willus_mem_alloc_warn((void **)&x,sizeof(short)*(wide_strlen(s)+1),funcname,10);
+    else
+        x=(unsigned char *)d;
+    p=(unsigned short *)s;
+    for (i=0;p[i]!=0;i++)
+        x[i]=(unsigned char)p[i];
+    x[i]='\0';
+    return((char *)x);
+    }
+
+
+short *char_to_wide(short *d,char *s)
+
+    {
+    static char *funcname="char_to_wide";
+    unsigned short *x;
+    unsigned char *p;
+    int i;
+
+    if (d==NULL)
+        willus_mem_alloc_warn((void **)&x,sizeof(short)*(strlen(s)+1),funcname,10);
+    else
+        x=(unsigned short *)d;
+    p=(unsigned char *)s;
+    for (i=0;p[i]!='\0';i++)
+        x[i]=p[i];
+    x[i]=0;
+    return((short *)x);
+    }
+
+
+int utf8_to_utf16_alloc(void **d,char *s)
+
+    {
+    int len;
+    short *dw;
+    static char *funcname="utf8_to_utf16_alloc";
+
+    (*d)=NULL;
+    len=utf8_to_utf16(NULL,s,-1);
+    willus_mem_alloc_warn(d,sizeof(short)*(len+1),funcname,10);
+    dw=(short *)(*d);
+    utf8_to_utf16(dw,s,len);
+    return(len);
+    }
+
+
+int utf16_to_utf8_alloc(void **d,short *s)
+
+    {
+    int len;
+    char *d8;
+    static char *funcname="utf16_to_utf8_alloc";
+
+    (*d)=NULL;
+    len=utf16_to_utf8(NULL,s,-1);
+    willus_mem_alloc_warn(d,len+1,funcname,10);
+    d8=(char *)(*d);
+    utf16_to_utf8(d8,s,len);
+    return(len);
+    }
+
+
+/*
+** If d!=NULL, it gets populated w/utf16 values
+** Returns the number of shorts stored in d[] INCLUDING the nul char at the end.
+*/
+int utf8_to_utf16(short *d,char *s,int maxlen)
+
+    {
+    int i,c;
+
+    if (maxlen<0)
+        maxlen=MAXUTF16PATHLEN;
+    for (i=c=0;c<maxlen-1 && s[i]!='\0';i++)
+        {
+        int bits,topbyte;
+        unsigned int x;
+
+        for (x=s[i],bits=0;x&0x80;x<<=1,bits++);
+        if (bits==0)
+            {
+            if (d!=NULL)
+                d[c]=s[i];
+            c++;
+            continue;
+            }
+        topbyte=(x&0xff)>>bits;
+        for (x=topbyte,i++,bits--;bits>0;i++,bits--)
+            x=(x<<6)|(s[i]&0x3f);
+        i--;
+        if (x < 0x10000)
+            {
+            if (d!=NULL)
+                d[c]=x;
+            c++;
+            }
+        else
+            {
+            if (x <= 0x10ffff)
+                {
+                if (c>=maxlen-2)
+                    break;
+                if (d!=NULL)
+                    {
+                    d[c] = (x>>10) + 0xd7c0;
+                    d[c+1] = (x&0x3ff) + 0xdc00;
+                    }
+                c+=2;
+                }
+            }
+        }
+    if (d!=NULL)
+        d[c]=0;
+    c++;
+    return(c);
+    }
 
 /*
 ** If d!=NULL, it gets populated w/unicode values
@@ -1268,4 +1487,124 @@ char *unicode_to_utf8(char *d,int *s,int n)
     return(d);
     }
           
+
+/*
+** Same as utf8_to_utf16()
+*/
+int utf16_to_utf8(char *d,short *s,int maxlen)
+
+    {
+    int i,j;
+    unsigned short *u;
+
+    if (maxlen<0)
+        maxlen=MAXUTF8PATHLEN;
+    u=(unsigned short *)s;
+    for (i=j=0;j<maxlen-1 && u[i]!=0;i++)
+        {
+        unsigned int u32;
+
+        if (u[i]>=0xd800 && u[i]<=0xdbff && u[i+1]!=0)
+            {
+            i++;
+            u32 = (u[i-1]<<10) + u[i] - 0x35fdc00;
+            }
+        else
+            u32 = u[i];
+        if (u32<=0x7f)
+            {
+            if (d!=NULL)
+                d[j]=u32;
+            j++;
+            }
+        else if (u32<=0x7ff)
+            {
+            if (j>=maxlen-2)
+                break;
+            if (d!=NULL)
+                {
+                d[j]=0xc0 | ((u32>>6)&0x1f);
+                d[j+1]=0x80 | (u32&0x3f);
+                }
+            j+=2;
+            }
+        else if (u32<=0xffff)
+            {
+            if (j>=maxlen-3)
+                break;
+            if (d!=NULL)
+                {
+                d[j]=0xe0 | ((u32>>12)&0xf);
+                d[j+1]=0x80 | ((u32>>6)&0x3f);
+                d[j+2]=0x80 | (u32&0x3f);
+                }
+            j+=3;
+            }
+        else if (u32<=0x1fffff)
+            {
+            if (j>=maxlen-4)
+                break;
+            if (d!=NULL)
+                {
+                d[j]=0xf0 | ((u32>>18)&0x7);
+                d[j+1]=0x80 | ((u32>>12)&0x3f);
+                d[j+2]=0x80 | ((u32>>6)&0x3f);
+                d[j+3]=0x80 | (u32&0x3f);
+                }
+            j+=4;
+            }
+        else if (u32<=0x3ffffff)
+            {
+            if (j>=maxlen-5)
+                break;
+            if (d!=NULL)
+                {
+                d[j]=0xf8 | ((u32>>24)&0x3);
+                d[j+1]=0x80 | ((u32>>18)&0x3f);
+                d[j+2]=0x80 | ((u32>>12)&0x3f);
+                d[j+3]=0x80 | ((u32>>6)&0x3f);
+                d[j+4]=0x80 | (u32&0x3f);
+                }
+            j+=5;
+            }
+        else
+            {
+            if (j>=maxlen-6)
+                break;
+            if (d!=NULL)
+                {
+                d[j]=0xf8 | ((u32>>30)&0x1);
+                d[j+1]=0x80 | ((u32>>24)&0x3f);
+                d[j+2]=0x80 | ((u32>>18)&0x3f);
+                d[j+3]=0x80 | ((u32>>12)&0x3f);
+                d[j+4]=0x80 | ((u32>>6)&0x3f);
+                d[j+5]=0x80 | (u32&0x3f);
+                }
+            j+=6;
+            }
+        }
+    if (d!=NULL)
+        d[j]='\0';
+    j++;
+    return(j);
+    }
+          
+
+int hexcolor(char *s)
+
+    {
+    int i,c;
+
+    c=0;
+    for (i=0;s[i]!='\0';i++)
+        {
+        int x;
+        x=tolower(s[i]);
+        if (x<'0' || (x>'9' && x<'a') || x>'f')
+            continue;
+        c = (c<<4) | (x<'a' ? x-'0' : x-'a'+10);
+        }
+    return(c);
+    }
+
 

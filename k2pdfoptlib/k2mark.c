@@ -33,7 +33,7 @@ void publish_marked_page(PDFFILE *mpdf,WILLUSBITMAP *src,int src_dpi)
 
 #if (WILLUSDEBUGX & 9)
 static int count=1;
-char filename[256];
+char filename[MAXFILENAMELEN];
 sprintf(filename,"outsrc%02d.png",count++);
 bmp_write(src,filename,stdout,100);
 #endif

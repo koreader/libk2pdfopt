@@ -360,10 +360,10 @@ FILE *pdffile_init(PDFFILE *pdf,char *filename,int pages_at_end)
     pdf->imc=0;
     strncpy(pdf->filename,filename,511);
     pdf->filename[511]='\0';
-    pdf->f = fopen(filename,"wb");
+    pdf->f = wfile_fopen_utf8(filename,"wb");
     if (pdf->f!=NULL)
         fclose(pdf->f);
-    pdf->f = fopen(filename,"rb+");
+    pdf->f = wfile_fopen_utf8(filename,"rb+");
     if (pdf->f!=NULL)
         pdffile_start(pdf,pages_at_end);
     return(pdf->f);
@@ -1126,7 +1126,7 @@ void pdffile_finish(PDFFILE *pdf,char *title,char *author,char *producer,char *c
                 }
         }
     fclose(pdf->f);
-    pdf->f=fopen(pdf->filename,"ab");
+    pdf->f=wfile_fopen_utf8(pdf->filename,"ab");
     }
 
 
@@ -1171,7 +1171,7 @@ int pdf_numpages(char *filename)
     FILE *f;
     int np;
 
-    f=fopen(filename,"rb");
+    f=wfile_fopen_utf8(filename,"rb");
     if (f==NULL)
         return(-1);
     np=pdf_numpages_1((void *)f,0);
@@ -2030,7 +2030,7 @@ WPDFOUTLINE *wpdfoutline_read_from_text_file(char *filename)
 
     for (level=0;level<16;level++)
         parent[level]=NULL;
-    f=fopen(filename,"r");
+    f=wfile_fopen_utf8(filename,"r");
     if (f==NULL)
         return(NULL);
     outline0=outline=NULL;

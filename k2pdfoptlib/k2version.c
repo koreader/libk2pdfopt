@@ -1,4 +1,4 @@
-char *k2pdfopt_version = "v2.21";
+char *k2pdfopt_version = "v2.31";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
@@ -17,7 +17,70 @@ char *k2pdfopt_version = "v2.21";
 ** You should have received a copy of the GNU Affero General Public License
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **
+**
 ** VERSION HISTORY
+**
+** v2.31 27 DEC 2014
+**           NEW FEATURES
+**           - Added -ppgs option to post process output with ghostscript pdfwrite
+**             device.  This can improve text selection when there are overlapping
+**             cropped regions.  Recommended in 7 Dec 2014 e-mail.
+**           - In MS Windows GUI, added context-sensitive help.  If you right-click
+**             most controls in the main window, you will get a dialog box explaining
+**             what that control does.
+**           NEW DEVICES
+**           - Added separate Kindle Paperwhite 2 resolution:  710x960.
+**             From 12 Dec 2014 e-mail.
+**           - Added kindle voyage.
+**           BUG FIXES
+**           - Erase vertical lines correctly works from MS Windows GUI again.
+**           OTHER
+**           - Compiled with MuPDF v1.6 library.
+**           - Separated out functions in wmupdf.c that do not depend on MuPDF.
+**             Those are now in wpdf.c.  This helps the KOReader build.
+**             https://github.com/koreader/koreader-base/pull/290 (2 Dec 2014)
+**             Also e-mail on 7 Dec 2014.
+**           - No longer assumes that WIN32 = GUI.  To compile so as not to use
+**             the WIN32 API, define NO_WIN32_API from the compile command line.
+**
+** v2.30 26 NOV 2014
+**           NEW FEATURES
+**           - MS Windows version (including GUI) now supports wide-character file
+**             names (UTF16), so names with non-ASCII characters in them (e.g.
+**             Chinese characters) should be correctly handled.
+**           - Added -colorfg and -colorbg options to adjust the foreground (text)
+**             and background colors of the output file (only works for bitmapped
+**             output files--doesn't work for native PDF output). You can even use
+**             a background bitmap (which will be tiled).  Suggested in mobileread.com
+**             private message, 24 Nov 2014. (beta4).
+**           - Windows versions compiled with gcc 4.9.2 (MinGW).
+**
+**           MS WINDOWS GUI UPDATES
+**           - As mentioned above, the MS Windows GUI supports wide characters now.
+**           - Added "Get Folder" button. (beta1)
+**             http://www.mobileread.com/forums/showthread.php?p=2945278#post2945278
+**
+**           BUG FIXES
+**           - Marking corners now works for color bitmapped output.
+**             http://www.mobileread.com/forums/showpost.php?p=2962214&postcount=935
+**           - Compiled with OpenJPEG v2.1.0--fixed some cases with incorrectly
+**             reading PDF files. (beta2)  The typical symptom is reported as
+**             "JPX stream not read coorectly."  Issue reported in 2 Nov 2014 e-mail.
+**           - Removed "wrectmaps->n=..." debugging output from k2ocr.c. (beta3)
+**           - Clarified intended use of -rt vs. -ls.
+**             http://www.mobileread.com/forums/showthread.php?p=2938230#post2938230
+**           - Fixed buffer overrun in k2gui_cbox_set_pages_completed().
+**             Reported via e-mail on 10 Nov 2014.
+**           - Preview mode correctly turns on color for native PDF output
+**             (also turns off gamma).  If the user tries to turn off color output
+**             in the MS Windows GUI while native PDF output is checked, a dialog
+**             box will pop up explaining why it won't uncheck.
+**             http://www.mobileread.com/forums/showthread.php?p=2930855#post2930855
+**           - Preview mode correctly puts up alert box when source file is not found.
+**           - File open / folder open puts up alert box if file or folder is not found.
+**           - The -ocrsp+ command-line option is now correctly recognized.
+**             http://www.mobileread.com/forums/showthread.php?p=2902672#post2902672
+**           - GOCR is correctly used if Tesseract cannot be initialized.
 **
 ** v2.21 25 JUL 2014
 **           - Compiled with MuPDF v1.5 (a highly recommened, mostly-bug-fix

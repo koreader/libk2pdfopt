@@ -527,6 +527,10 @@ printf("    xmin0 = %g\n",xmin0);
     yminbest = ymin3 = ymin0;
     /* Try some different parabolic fits around the minimum point */
     /* and choose the best one.                                   */
+/*
+{
+double dxbest,dxbest3;
+*/
     for (ipos=-2;ipos<=2;ipos++)
         {
         int   i0;
@@ -549,6 +553,9 @@ printf("%g %g %d\n",x1,conf,npfit);
 */
             if (npfit>3 && conf<errmax && (confbest < 0 || conf < confbest))
                 {
+/*
+dxbest = dxmean*(i+.6);
+*/
                 confbest = conf;
                 xmin = x1;
                 npfbest = npfit;
@@ -556,6 +563,9 @@ printf("%g %g %d\n",x1,conf,npfit);
                 }
             else if (npfit==3 && conf<errmax && (conf3 <0 || conf < conf3))
                 {
+/*
+dxbest3 = dxmean*(i+.6);
+*/
                 conf3 = conf;
                 xmin3 = x1;
                 npf3 = npfit;
@@ -570,7 +580,14 @@ printf("%g %g %d\n",x1,conf,npfit);
         confbest = conf3;
         npfbest = npf3;
         yminbest = ymin3;
+/*
+dxbest = dxbest3;
+*/
         }
+/*
+printf("dxbest = %g\n",dxbest);
+}
+*/
     if (err!=NULL)
         (*err) = confbest;
     if (npf!=NULL)

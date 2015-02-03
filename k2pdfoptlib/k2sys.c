@@ -155,3 +155,19 @@ void k2gets(char *buf,int maxlen,char *def)
         buf[maxlen-1]='\0';
         }
     }
+
+/*
+void k2pdfopt_non_ascii_warning(FILE *out)
+
+    {
+    afprintf(out,"\a\n\n" ANSI_RED
+         "*************************************************************\n"
+         "**                                                         **\n"
+         "** " ANSI_YELLOW "Your command-line arguments have non-ASCII characters!" ANSI_RED "  **\n"
+         "**                                                         **\n"
+         "** " ANSI_YELLOW "This may cause the k2pdfopt conversion to fail!" ANSI_RED "         **\n"
+         "**                                                         **\n"
+         "*************************************************************\n"
+         "\n");
+    }
+*/

@@ -49,6 +49,7 @@
 */
 
 /*
+#define WILLUSDEBUGX 0x4000
 #define WILLUSDEBUGX 0x100000
 #define WILLUSDEBUGX 32
 #define WILLUSDEBUGX 0xfff
@@ -102,7 +103,7 @@
 #endif
 
 /* Compile w/Windows GUI? */
-#if ((defined(WIN32) || defined(WIN64)) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
+#if (defined(HAVE_WIN32_API) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
 #define HAVE_K2GUI
 #endif
 
@@ -220,6 +221,10 @@ typedef struct
     int show_usage;
     int src_left_to_right;
     int src_whitethresh;
+    char dst_fgcolor[MAXFILENAMELEN];
+    char dst_fgtype; /* 0=none, 1=gray, 2=color, 3=bitmap */
+    char dst_bgcolor[MAXFILENAMELEN];
+    char dst_bgtype; /* 0=none, 1=gray, 2=color, 3=bitmap */
     int src_paintwhite; /* Paint everything above src_whitethresh white */
     int text_only; /* Do not send figures to output file */
 
@@ -353,6 +358,10 @@ typedef struct
     ** Flag for setting device size--see k2pdfoptsettings_set_margins_and_devsize().
     */
     int devsize_set; /* 0 = device size not set yet */
+    /* v2.31 */
+#ifdef HAVE_GHOSTSCRIPT
+    int ppgs;    /* 1 = post process with ghostscript */
+#endif
     } K2PDFOPT_SETTINGS;
 
 
@@ -795,6 +804,7 @@ void k2pdfopt_settings_copy(K2PDFOPT_SETTINGS *dst,K2PDFOPT_SETTINGS *src);
 int  k2pdfopt_settings_set_to_device(K2PDFOPT_SETTINGS *k2settings,DEVPROFILE *dp);
 void k2pdfopt_settings_quick_sanity_check(K2PDFOPT_SETTINGS *k2settings);
 void k2pdfopt_settings_sanity_check(K2PDFOPT_SETTINGS *k2settings);
+double k2pdfopt_settings_gamma(K2PDFOPT_SETTINGS *k2settings);
 void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings);
 void k2pdfopt_settings_restore_output_dpi(K2PDFOPT_SETTINGS *k2settings);
 void k2pdfopt_settings_fit_column_to_screen(K2PDFOPT_SETTINGS *k2settings,
@@ -891,6 +901,7 @@ void   bmp_detect_vertical_lines(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,double dpi
 void   bmp_adjust_contrast(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,
                            K2PDFOPT_SETTINGS *k2settings,int *white);
 void   bmp_paint_white(WILLUSBITMAP *bmpgray,WILLUSBITMAP *bmp,int white_thresh);
+void   bmp_change_colors(WILLUSBITMAP *bmp,char *fgcolor,int fgtype,char *bgcolor,int bgtype);
 
 /* k2mem.c */
 void willus_dmem_alloc_warn(int index,void **ptr,int size,char *funcname,int exitcode);
@@ -916,8 +927,7 @@ void k2pdfopt_files_add_file(K2PDFOPT_FILES *k2files,char *filename);
 void k2pdfopt_files_remove_file(K2PDFOPT_FILES *k2files,char *filename);
 
 #ifdef HAVE_K2GUI
-
-#if ((defined(WIN32) || defined(WIN64)))
+#ifdef HAVE_WIN32_API
 #ifndef MSWINGUI
 #define MSWINGUI
 #endif
@@ -991,7 +1001,7 @@ typedef struct
 /* k2gui.c */
 void k2gui_settings_to_cmdline(STRBUF *cmdline,K2PDFOPT_SETTINGS *k2settings);
 int  k2gui_main(K2PDFOPT_CONVERSION  *k2conv,void *hInstance,void *hPrevInstance,
-                STRBUF *env,STRBUF *cmdline);
+                STRBUF *env,STRBUF *cmdline,int ascii);
 void k2gui_start_conversion(void *data);
 int  k2gui_conversion_successful(void);
 void k2gui_conversion_thread_cleanup(void);
@@ -1026,6 +1036,7 @@ void k2gui_preview_toggle_size(int increment);
 void k2gui_preview_refresh(void);
 void k2gui_preview_paint(void);
 int  k2gui_previewing(void);
+void k2gui_widechar_alert(void);
 
 /* k2gui_cbox.c */
 int  k2gui_cbox_converting(void);
@@ -1056,6 +1067,7 @@ void k2gui_cbox_close_buttons(void);
 void k2gui_cbox_destroy(void);
 
 /* k2gui_osdep.c */
+short *k2gui_osdep_wide_cmdline(void);
 void k2gui_osdep_init(K2GUI *k2gui0);
 int  k2gui_osdep_window_proc_messages(WILLUSGUIWINDOW *win,void *semaphore,WILLUSGUICONTROL *closebutton);
 void k2gui_osdep_main_window_init(WILLUSGUIWINDOW *win,int normal_size);

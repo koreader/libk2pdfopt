@@ -120,7 +120,7 @@ $(K2PDFOPT_A): $(K2PDFOPT_O) tesseract_capi
 $(K2PDFOPT_LIB): $(K2PDFOPT_O) tesseract_capi
 	$(CXX) $(TARGET_ASHLDFLAGS) -Wl,-rpath,'libs' -o $@ \
 		$(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS) \
-		$(MUPDF_LIB) $(TESSERACT_LIB) $(LEPTONICA_LIB)
+		$(TESSERACT_LIB) $(LEPTONICA_LIB)
 ifndef WIN32
 	ln -sf $(K2PDFOPT_LIB) libk2pdfopt.so
 endif

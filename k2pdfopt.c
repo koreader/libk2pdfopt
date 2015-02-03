@@ -34,7 +34,7 @@
 
 #if (defined(HAVE_K2GUI) && (defined(WIN32) || defined(WIN64)))
 #include <windows.h>
-static void k2pdfopt_launch_gui(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline);
+static void k2pdfopt_launch_gui(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,int ascii);
 #endif
 
 
@@ -47,7 +47,13 @@ int main(int argc,char *argv[])
     static STRBUF _cmdline,_env,_usermenu;
     STRBUF *cmdline,*env,*usermenu;
     static char *funcname="main";
+#if (defined(WIN32) || defined(WIN64))
+    int ascii;
+    short *clinew;
 
+    clinew=(short *)GetCommandLineW(); /* Get UTF-16 command-line */
+    ascii=(clinew==NULL || wide_is_ascii(clinew));
+#endif
     k2conv=&_k2conv;
     k2pdfopt_conversion_init(k2conv);
     k2settings=&k2conv->k2settings;
@@ -63,9 +69,29 @@ int main(int argc,char *argv[])
 #else
     strbuf_cpy(env,getenv("K2PDFOPT"));
 #endif
-    
+
+#if (defined(WIN32) || defined(WIN64))
+    {
+    short **argvw;
+    int nargs;
+
+    argvw=(short **)CommandLineToArgvW((LPWSTR)clinew,&nargs);
+    for (i=1;i<argc;i++)
+        {
+        char *clineu8;
+        int clen;
+        clen=utf16_to_utf8(NULL,argvw[i],MAXUTF8PATHLEN);
+        willus_mem_alloc_warn((void **)&clineu8,clen+1,funcname,10);
+        utf16_to_utf8(clineu8,argvw[i],clen);
+        strbuf_cat_with_quotes(cmdline,clineu8);
+        willus_mem_free((double **)&clineu8,funcname);
+        }
+    LocalFree(argvw);
+    }
+#else
     for (i=1;i<argc;i++)
         strbuf_cat_with_quotes(cmdline,argv[i]);
+#endif
     k2sys_init();
     k2pdfopt_settings_init(k2settings);
     k2pdfopt_files_clear(&k2conv->k2files);
@@ -78,7 +104,7 @@ int main(int argc,char *argv[])
                     || (!win_has_own_window() && argc<2))))
         {
         strbuf_free(usermenu);
-        k2pdfopt_launch_gui(k2conv,env,cmdline);
+        k2pdfopt_launch_gui(k2conv,env,cmdline,ascii);
         k2sys_close(k2settings);
         strbuf_free(env);
         strbuf_free(cmdline);
@@ -189,7 +215,8 @@ int main(int argc,char *argv[])
 
 #if (defined(HAVE_K2GUI) && (defined(WIN32) || defined(WIN64)))
 
-static void k2pdfopt_launch_gui(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline)
+static void k2pdfopt_launch_gui(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
+                                int ascii)
 
     {
 #if (WILLUSDEBUGX & 0x4000)
@@ -199,24 +226,30 @@ if (0)
     if (k2conv->k2settings.gui!=2 && (!win_has_own_window() || !k2conv->k2settings.guimin))
 #endif
         {
-        char exename[512];
-        char *buf;
-        int  cmdlen;
-        STARTUPINFO si;
+        short exename[512];
+        short *x;
+        short *buf;
+        int  i;
+        STARTUPINFOW si;
         PROCESS_INFORMATION pi;
         static char *funcname="k2pdfopt_launch_gui";
 
-        GetStartupInfo(&si);
-        GetModuleFileNameA(NULL,exename,511);
-        cmdlen=strlen(exename)+(cmdline->s==NULL?0:strlen(cmdline->s))+16;
-        willus_mem_alloc_warn((void **)&buf,cmdlen+16,funcname,10);
-        sprintf(buf,"\"%s\"",exename);
-        if (cmdline->s!=NULL && strlen(cmdline->s)>0)
-            sprintf(&buf[strlen(buf)]," %s",cmdline->s);
-        sprintf(&buf[strlen(buf)]," -gui+");
+        GetStartupInfoW(&si);
+        GetModuleFileNameW(NULL,(WCHAR *)exename,511);
+        x=(short *)GetCommandLineW();
+        willus_mem_alloc_warn((void **)&buf,sizeof(short)*(wide_strlen(x)+8),funcname,10);
+        wide_strcpy(buf,x);
+        i=wide_strlen(buf);
+        buf[i++]=' ';
+        buf[i++]='-';
+        buf[i++]='g';
+        buf[i++]='u';
+        buf[i++]='i';
+        buf[i++]='+';
+        buf[i++]=0;
         memset(&pi,0,sizeof(PROCESS_INFORMATION));
-        memset(&si,0,sizeof(STARTUPINFO));
-        si.cb = sizeof(STARTUPINFO);
+        memset(&si,0,sizeof(STARTUPINFOW));
+        si.cb = sizeof(STARTUPINFOW);
         si.dwX = 0; /* Ignored unless si.dwFlags |= STARTF_USEPOSITION */
         si.dwY = 0;
         si.dwXSize = 0; /* Ignored unless si.dwFlags |= STARTF_USESIZE */
@@ -224,7 +257,7 @@ if (0)
         si.dwFlags = STARTF_USESHOWWINDOW;
         si.wShowWindow = SW_SHOWNORMAL;
         /* Launching from a console will NOT create new console. */
-        CreateProcess(exename,buf,0,0,1,DETACHED_PROCESS,0,NULL,&si,&pi);
+        CreateProcessW((LPCWSTR)exename,(LPWSTR)buf,0,0,1,DETACHED_PROCESS,0,NULL,&si,&pi);
         }
     else
         {
@@ -234,7 +267,7 @@ if (0)
 #if (!(WILLUSDEBUGX & 0x4000))
         FreeConsole();
 #endif
-        k2gui_main(k2conv,hinst,NULL,env,cmdline);
+        k2gui_main(k2conv,hinst,NULL,env,cmdline,ascii);
         }
     }
 

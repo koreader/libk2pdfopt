@@ -55,6 +55,7 @@ static void k2gui_update_controls(void);
 static void k2gui_error_out(char *message);
 static void k2gui_clear_envvars(void);
 static void k2gui_add_files(void);
+static void k2gui_add_folder(void);
 static void k2gui_save_settings_to_file(void);
 static void k2gui_restore_settings_from_file(void);
 static int  k2gui_determine_fontsize(void);
@@ -74,10 +75,12 @@ static void k2gui_preview_fail(int statuscode);
 static void k2gui_preview_bitmap_message(WILLUSBITMAP *bmp,int width,int height,
                                          double fs,char *message);
 static void next_bmp_line(char *d,char *s,int *index,double mpw,int maxpix);
+static void k2gui_contextmenu_by_control(WILLUSGUICONTROL *control);
+static void k2gui_contextmenu(char *title,char *content);
 
 
 int k2gui_main(K2PDFOPT_CONVERSION  *k2conv0,void *hInstance,void *hPrevInstance,
-               STRBUF *env,STRBUF *cmdline)
+               STRBUF *env,STRBUF *cmdline,int ascii)
 
     {
     int status;
@@ -168,7 +171,7 @@ printf("guicmds='%s', k2gui->cmdxtra='%s'\n",guicmds.s,k2gui->cmdxtra.s);
 int k2gui_alertbox(int retval,char *title,char *message)
 
     {
-#if (defined(WIN32) || defined(WIN64))
+#ifdef HAVE_WIN32_API
     return(k2gui_messagebox(retval,title,message));
 #else
     return(retval);
@@ -290,10 +293,10 @@ static void k2gui_set_button_defaults(void)
 
     for (i=0;defbuttons[i][0]!='\0';i++)
         {
-        char envname[32],buf[256];
+        char envname[32],buf[512];
 
         sprintf(envname,"K2PDFOPT_CUSTOM%d",i+1);
-        if (wsys_get_envvar_ex(envname,buf,255) < 0)
+        if (wsys_get_envvar_ex(envname,buf,511) < 0)
             wsys_set_envvar(envname,defbuttons[i],0);
         }
     }
@@ -641,7 +644,7 @@ static void k2gui_main_window_init(int normal_size)
 static void k2gui_window_menus_init(WILLUSGUIWINDOW *win)
 
     {
-    static char *menus[] = {"_File","&Add Source File...","&Save Settings...",
+    static char *menus[] = {"_File","&Add Source File...","Add &Folder...","&Save Settings...",
                                     "&Restore Settings...","E&xit",
                             "_Help","&Website help page...","&Command-line Options...",
                                     "&About k2pdfopt...",
@@ -769,6 +772,9 @@ printf("Selecting all in control %d.\n",control_index);
             k2gui_window_menus_init(&k2gui->mainwin);
             willusgui_window_timer_init(&k2gui->mainwin,200); /* Send timer event every 200 ms */
             willusgui_window_accept_draggable_files(&k2gui->mainwin);
+            break;
+        case WILLUSGUIACTION_CONTEXTMENU:
+            k2gui_contextmenu_by_control(control);
             break;
         case WILLUSGUIACTION_CONTROL_PRESS:
             {
@@ -909,7 +915,7 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                     char *buf;
                     int i,j;
                     willus_mem_alloc_warn((void **)&buf,1024,funcname,10);
-                    willusgui_control_gettext(control,buf,1023);
+                    willusgui_control_get_text(control,buf,1023);
                     /* v2.13 new check */
                     if (!stricmp(buf,"(all)") || !stricmp(buf,"all"))
                         buf[0]='\0';
@@ -958,8 +964,17 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                     k2settings->src_autostraighten = checked ? 4. : -1.;
                 else if (!strcmp(control->name,"break"))
                     k2settings->dst_break_pages= checked ? 2 : 1;
+#ifdef HAVE_GHOSTSCRIPT
+                else if (!strcmp(control->name,"ppgs"))
+                    k2settings->ppgs= checked ? 1 : 0;
+#endif
                 else if (!strcmp(control->name,"color"))
+                    {
                     k2settings->dst_color= checked ? 1 : 0;
+                    if (k2settings->use_crop_boxes)
+                        k2gui_alertbox(0,"Cannot turn off color output",
+                                   "Color output is always on for native PDF output.");
+                    }
                 else if (!strcmp(control->name,"landscape"))
                     k2settings->dst_landscape = checked ? 1 : 0;
                 else if (!strcmp(control->name,"native"))
@@ -1027,9 +1042,11 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                     k2gui_get_settings(preset,k2settings,&k2gui->cmdxtra);
                     k2gui_update_controls();
                     }
+                else if (in_string(control->name,"add folder")>=0)
+                    k2gui_add_folder();
                 else if (in_string(control->name,"add file")>=0)
                     k2gui_add_files();
-                else if (in_string(control->name,"remove file")>=0)
+                else if (in_string(control->name,"remove item")>=0)
                     {
                     int maxsel;
 
@@ -1351,13 +1368,16 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                 case 700:  /* Add source file */
                     k2gui_add_files();
                     break;
-                case 701:
-                    k2gui_save_settings_to_file();
+                case 701:  /* Add folder */
+                    k2gui_add_folder();
                     break;
                 case 702:
-                    k2gui_restore_settings_from_file();
+                    k2gui_save_settings_to_file();
                     break;
                 case 703:
+                    k2gui_restore_settings_from_file();
+                    break;
+                case 704:
                     k2gui_quit();
                     break;
                 case 710:
@@ -1450,6 +1470,8 @@ printf("K2PDFOPT <-- '%s'\n",buf);
         case WILLUSGUIACTION_DROPFILES:
             {
             char **ptr;
+            /* int ca; */
+
             ptr=willusgui_get_dropped_files(message->ptr[0]);
             if (ptr!=NULL)
                 {
@@ -1457,6 +1479,12 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                 for (i=0;ptr[i]!=NULL;i++)
                     k2gui_add_file(ptr[i]);
                 willusgui_release_dropped_files(ptr);
+                /*
+                if (ca)
+                    k2gui_alertbox(0,"Non-ASCII characters!",
+                                   "Some file names had non-ASCII characters.\n\n"
+                                   "These file names were not added.");
+                */
                 }
             break;
             }
@@ -1778,7 +1806,8 @@ printf("Calling wincomdlg...\n");
 */
     size=16384;
     willus_mem_alloc_warn((void **)&filename,size,funcname,10);
-    status=willusgui_file_select_dialog(filename,size-1,allowed_files,"Select source file","pdf",0);
+    status=willusgui_file_select_dialog(filename,size-1,allowed_files,"Select source file",
+                                        "pdf",0);
 /* printf("status=%d\n",status); */
     if (status)
         {
@@ -1801,6 +1830,36 @@ printf("Calling wincomdlg...\n");
             }
         }
     willus_mem_free((double **)&filename,funcname);
+    }
+
+
+static void k2gui_add_folder(void)
+
+    {
+    char foldername[MAXFILENAMELEN];
+    int status;
+
+#ifdef MSWINGUI
+    short fnamew[MAXFILENAMELEN];
+    status=winshell_get_foldernamew(fnamew,"Select a folder");
+    if (!status)
+        return;
+    utf16_to_utf8(foldername,fnamew,MAXFILENAMELEN-1);
+    /*
+    if (!wide_is_legal_ascii_filename(fnamew))
+        {
+        k2gui_alertbox(0,"Non-ASCII characters!",
+                   "Cannot select a folder name with non-ASCII characters!\n\n"
+                   "Please re-choose a folder.");
+        continue;
+        }
+    wide_to_char(foldername,fnamew);
+    */
+#else
+    status=0;
+#endif
+    if (status)
+        k2gui_add_file(foldername);
     }
 
 
@@ -1944,10 +2003,10 @@ printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
     /* Buttons by file list */
     x0 = k2gui->control[k2gui->ncontrols-1].rect.right;
     y0 = k2gui->control[k2gui->ncontrols-1].rect.top - linesize;
-    for (x1=x0,j=0,i=1;i>=0;i--,j++,x1-=(w+fs))
+    for (x1=x0,j=0,i=2;i>=0;i--,j++,x1-=(w+fs))
         {
         double xl;
-        static char *button_label[2]={"&ADD FILE","&REMOVE FILE"};
+        static char *button_label[3]={"&ADD FILE","ADD FOLDER","&REMOVE ITEM"};
         WILLUSGUIRECT trect;
 
         xl = 1.00;
@@ -2693,6 +2752,9 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
                                "Color o&utput","Rotate output to &landscape",
                                "&Native PDF output","Right-&to-left text",
                                "Smart line brea&ks",
+#ifdef HAVE_GHOSTSCRIPT
+                               "&Post-process w/Ghostscript",
+#endif
                                "Generate &marked-up source","Re-flow te&xt",
                                "Erase vertical l&ines","Fast Previe&w",
                                "Avoi&d Text Select Overlap","I&gnore small defects",
@@ -2701,8 +2763,11 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
 #endif
                                ""};
     static char *checkboxname[] = {"straighten","break","color","landscape","native",
-                                   "r2l","linebreak","markup","wrap","evl","autorot","bpm",
-                                   "defects"
+                                   "r2l","linebreak",
+#ifdef HAVE_GHOSTSCRIPT
+                                   "ppgs",
+#endif
+                                   "markup","wrap","evl","autorot","bpm","defects"
 #ifdef HAVE_OCR_LIB
                                    ,"ocr"
 #endif
@@ -2718,7 +2783,7 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
     ybmax = 0;
     for (i=0;i<n;i++)
         {
-        int c,r,checked,lbreak;
+        int c,r,checked,lbreak,ii;
 
         lbreak=!stricmp(checkboxname[i],"linebreak");
         c=i/n2;
@@ -2754,7 +2819,12 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
             }
         /* Set checkmarks */
         checked=0;
-        switch (i)
+#ifdef HAVE_GHOSTSCRIPT
+        ii = i;
+#else
+        ii = (i>=7 ? i+1 : i);
+#endif
+        switch (ii)
             {
             case 0:
                 checked=k2settings->src_autostraighten>=0.;
@@ -2777,26 +2847,31 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
             case 6:
                 checked=(k2settings->word_spacing<0);
                 break;
+#ifdef HAVE_GHOSTSCRIPT
             case 7:
+                checked=(k2settings->ppgs==1);
+                break;
+#endif
+            case 8:
                 checked=k2settings->show_marked_source;
                 break;
-            case 8:
+            case 9:
                 checked=k2settings->text_wrap;
                 break;
-            case 9:
+            case 10:
                 checked=k2settings->erase_vertical_lines;
                 break;
-            case 10:
+            case 11:
                 checked=fabs(k2settings->src_rot-SRCROT_AUTO)<.5;
                 break;
-            case 11:
+            case 12:
                 checked=(k2settings->dst_break_pages==4);
                 break;
-            case 12:
+            case 13:
                 checked=fabs(k2settings->defect_size_pts-1.5)<.001;
                 break;
 #ifdef HAVE_OCR_LIB
-            case 13:
+            case 14:
                 checked=(k2settings->dst_ocr=='t');
                 break;
 #endif
@@ -3069,6 +3144,9 @@ int k2gui_previewing(void)
 static void k2gui_preview_start(void)
 
     {
+#if (WILLUSDEBUGX & 1)
+printf("@k2gui_preview_start...\n");
+#endif
     if (!k2gui_preview_done())
         {
         k2gui_preview_terminate();
@@ -3107,8 +3185,11 @@ static void k2gui_preview_start(void)
 ** crash with some errors reported by the PNG library.  I can't seem
 ** to get the crash to occur with this delay.  -- 4 Sep 2013, v2.01
 */
-#if (defined(WIN32) || defined(WIN64))
+#ifdef HAVE_WIN32_API
 win_sleep(100);
+#endif
+#if (WILLUSDEBUGX & 1)
+printf("Exiting k2gui_preview_start.\n");
 #endif
     }
 
@@ -3124,6 +3205,9 @@ static void k2gui_preview_make_bitmap(char *data)
     char *buf;
     static char *funcname="k2gui_preview_make_bitmap";
 
+#if (WILLUSDEBUGX & 1)
+printf("@k2gui_preview_make_bitmap...\n");
+#endif
     if (k2gui->k2conv->k2files.n<1)
         {
         k2gui_preview_cleanup(1);
@@ -3188,6 +3272,9 @@ printf("Preview bitmap file name = '%s'\n",buf);
     willus_mem_free((double **)&buf,funcname);
     willus_mem_free((double **)&k2conv,funcname);
     k2gui_preview_cleanup(k2gui->pbitmap.width<0 ? 5 : (k2gui->pbitmap.width==0 ? 4 : 0));
+#if (WILLUSDEBUGX & 1)
+printf("Exiting k2gui_preview_make_bitmap.\n");
+#endif
     }
 
 
@@ -3355,5 +3442,272 @@ void k2gui_preview_refresh(void)
     ** a NULL handle.
     */
     willusgui_control_close(control);
+    }
+
+
+static void k2gui_contextmenu_by_control(WILLUSGUICONTROL *control)
+
+    {
+    if (!strcmp(control->name,"evl"))
+        {
+        k2gui_contextmenu("Erase vertical lines",
+                          "Erases vertical lines that may be preventing "
+                          "your text from getting re-flowed.");
+        return;
+        }
+    else if (!strcmp(control->name,"straighten"))
+        {
+        k2gui_contextmenu("Autostraighten",
+                          "Autostraightens (de-skews) text on pages.");
+        return;
+        }
+    else if (!strcmp(control->name,"break"))
+        {
+        k2gui_contextmenu("Break after each source page",
+                          "Inserts a page break into the output file after each "
+                          "source page has been processed.");
+        return;
+        }
+    else if (!strcmp(control->name,"color"))
+        {
+        k2gui_contextmenu("Color output",
+                          "The output PDF will be in color.");
+        return;
+        }
+    else if (!strcmp(control->name,"landscape"))
+        {
+        k2gui_contextmenu("Rotate output to landscape",
+                          "The output PDF will be such that you will hold your "
+                          "e-reader sideways (in landscape mode) in order to read it.  "
+                          "This effectively gives you a wider screen.");
+        return;
+        }
+    else if (!strcmp(control->name,"native"))
+        {
+        k2gui_contextmenu("Native PDF output",
+                          "The output PDF will be in \"native\" mode--i.e. if the "
+                          "source PDF has scaleable graphics and fonts, the output "
+                          "PDF will also have scaleable graphics and fonts.  If native "
+                          "PDF output is unchecked, the output PDF will be made up of "
+                          "fixed resolution bitmaps (with an optional OCR text layer).  "
+                          "Note that on most e-readers, bitmapped PDF files often render "
+                          "faster than native PDF files.  Also, native PDF output is not "
+                          "allowed if text re-flow is checked.");
+        return;
+        }
+    else if (!strcmp(control->name,"r2l"))
+        {
+        k2gui_contextmenu("Right-to-left text",
+                          "Text will be processed right to left.  This is best for "
+                          "arabic texts, for example.");
+        return;
+        }
+    else if (!strcmp(control->name,"linebreak"))
+        {
+        k2gui_contextmenu("Smart line breaks",
+                          "Letters will be grouped into words using a heuristic "
+                          "algorithm.  The value in the box is an override in case "
+                          "the algorithm fails (or if the option is not checked).  "
+                          "It represents the fraction of the height of a lowercase "
+                          "'o'.  In manual mode (unchecked), if the gap between "
+                          "letters exceeds this distance, it is considered to be "
+                          "a word separator.");
+        return;
+        }
+#ifdef HAVE_GHOSTSCRIPT
+    else if (!strcmp(control->name,"ppgs"))
+        {
+        k2gui_contextmenu("Post-process with Ghostscript",
+                          "The normal PDF output file will be further post-processed "
+                          "using Ghostscript's pdfwrite device.  This requires that "
+                          "you have Ghostscript installed on your PC.  This is a good "
+                          "way to solve text selection overlap problems if you are "
+                          "using native PDF output, particularly if processing a two-column "
+                          "source PDF.  See the -ppgs option in the command-line help "
+                          "for more information.");
+        return;
+        }
+#endif
+    else if (!strcmp(control->name,"markup"))
+        {
+        k2gui_contextmenu("Generate marked-up source",
+                          "A separate \"markup\" output PDF file (with the ending _marked.pdf) "
+                          "will "
+                          "be generated which shows how k2pdfopt is processing the "
+                          "source PDF file.  If this option is checked, the preview "
+                          "window will also show the contents of this markup file.");
+        return;
+        }
+    else if (!strcmp(control->name,"wrap"))
+        {
+        k2gui_contextmenu("Re-flow text",
+                          "Text will be re-flowed to fit the output device screen.  "
+                          "Note that this option is not compatible with native PDF output.");
+        return;
+        }
+    else if (!strcmp(control->name,"autorot"))
+        {
+        k2gui_contextmenu("Fast Preview",
+                          "Prevents k2pdfopt from trying to automatically determine the "
+                          "source PDF orientation when generating previews since this "
+                          "takes extra processing time.");
+        return;
+        }
+    else if (!strcmp(control->name,"bpm"))
+        {
+        k2gui_contextmenu("Avoid Text Select Overlap",
+                          "Forces each cropped area from the source PDF onto a new "
+                          "output PDF page.  This is one way to avoid text selection "
+                          "overlap issues.  See also the post-processing with Ghostscript "
+                          "option.");
+        return;
+        }
+    else if (!strcmp(control->name,"defects"))
+        {
+        k2gui_contextmenu("Ignore small defects",
+                          "Scanning / copying artifacts (speckles) smaller than 1.5 points "
+                          "in size will be ignored when processing the source PDF.");
+        return;
+        }
+#ifdef HAVE_OCR_LIB
+    else if (!strcmp(control->name,"ocr"))
+        {
+        k2gui_contextmenu("OCR (Tesseract)",
+                          "The source PDF will be analyzed using optical character "
+                          "recognition (OCR) using the Tesseract library.  An invisible "
+                          "layer of text will be added to the output PDF so that the "
+                          "text can be selected and/or searched.  You must have a "
+                          "Tesseract language library installed.  See "
+                          "http://willus.com/k2pdfopt/help/ocr.shtml for more details.");
+        return;
+        }
+#endif
+    else if (!stricmp(control->name,"device"))
+        {
+        k2gui_contextmenu("Device Menu",
+                          "Select your e-reader dimensions, or, if not listed, you can "
+                          "enter your e-reader dimensions and DPI into the boxes below "
+                          "this menu.");
+        return;
+        }
+    else if (!stricmp(control->name,"mode"))
+        {
+        k2gui_contextmenu("Conversion Mode Menu",
+                          "Select the type of conversion, depending on your source PDF "
+                          "file.  For instance, if you have a 2-column source PDF, you "
+                          "may want to selet \"2-column.\"  If you want to best preserve "
+                          "the source PDF formatting and don't need to re-flow the text, "
+                          "try the \"fit width\" mode.  The default mode tries to best "
+                          "detect what type of source document you have.");
+        return;
+        }
+    else if (!strcmp(control->name,"_fitpage_"))
+        {
+        k2gui_contextmenu("Fit to Preview Window",
+                          "Fits the preview page to the window.");
+        return;
+        }
+    else if (!strcmp(control->name,"_magplus_"))
+        {
+        k2gui_contextmenu("Increase Preview Magnification",
+                          "Increases the magnification in the preview window.");
+        return;
+        }
+    else if (!strcmp(control->name,"_magminus_"))
+        {
+        k2gui_contextmenu("Decrease Preview Magnification",
+                          "Decreases the magnification in the preview window.");
+        return;
+        }
+    else if (!stricmp(control->name,"Pre&view"))
+        {
+        k2gui_contextmenu("Show Preview Page",
+                          "Processes the source PDF file and displays a preview of the "
+                          "selected output page.");
+        return;
+        }
+    else if (!stricmp(control->name,"Restore Defaults"))
+        {
+        k2gui_contextmenu("Restore Default Settings",
+                          "Return all settings (except for the custom presets) to the "
+                          "default k2pdfopt values.");
+        return;
+        }
+    else if (!stricmp(control->name,"*&Convert all files"))
+        {
+        k2gui_contextmenu("Convert All Files",
+                          "Processes all of the files in the file list.");
+        return;
+        }
+    else if (!stricmp(control->name,"File list"))
+        {
+        k2gui_contextmenu("File list",
+                          "Shows all source PDF files which will be processed.  The "
+                          "selected file will be the one shown in the preview window.");
+        return;
+        }
+    else if (!stricmp(control->name,"Save"))
+        {
+        k2gui_contextmenu("Save Environment Variable",
+                          "Saves the contents of the text field to the K2PDFOPT "
+                          "environment variable.");
+        return;
+        }
+    else if (!stricmp(control->name,"Restore"))
+        {
+        k2gui_contextmenu("Restore Environment Variable",
+                          "Puts the contents of the K2PDFOPT environment variable "
+                          "into the text field.");
+        return;
+        }
+    else if (!stricmp(control->name,"&add file"))
+        {
+        k2gui_contextmenu("Add File",
+                          "Adds a source PDF file to the file list to be converted.");
+        return;
+        }
+    else if (!stricmp(control->name,"add folder"))
+        {
+        k2gui_contextmenu("Add Folder",
+                          "Adds an entire folder to the file list.  All files in that "
+                          "folder will be converted.  If the folder contains a sequence "
+                          "of bitmaps, those bitmaps will be converted, in alphabetic order, "
+                          "as if they were pages of a PDF file.");
+        return;
+        }
+    else if (!stricmp(control->name,"&remove item"))
+        {
+        k2gui_contextmenu("Remove Item",
+                          "Removes the selected item from the file list.");
+        return;
+        }
+    else if (!stricmp(control->name,"heightunits") || !stricmp(control->name,"widthunits"))
+        {
+        k2gui_contextmenu("Height and Width Units",
+                          "Select the output page width and height dimensional units.\n"
+                          "px = pixels\n"
+                          "in = inches\n"
+                          "cm = centimeters\n"
+                          "s = fraction of the source page (e.g. 1 = same as source page)\n"
+                          "t = fraction of the trimmed source page\n"
+                          "x = fraction of the text-layer width/height on the source page");
+        return;
+        }
+    else
+        k2gui_contextmenu("Custom Preset",
+                          "The custom preset buttons store or recall a snapshot of all of the "
+                          "selected settings.  To store the settings, press and hold the "
+                          "button for two seconds (much like your FM radio presets work "
+                          "in your car).  To recall settings, just click on the desired button.");
+    }
+
+
+static void k2gui_contextmenu(char *title,char *content)
+
+    {
+    static int bcolors[3]={0x60b060,0xe0ffe0,0xe0ffe0};
+
+    willusgui_message_box(&k2gui->mainwin,title,content,"*&OK",NULL,NULL,
+                               NULL,0,20,600,0xe0ffe0,bcolors,NULL,1);
     }
 #endif /* HAVE_K2GUI */
