@@ -31,7 +31,11 @@
 #include <ctype.h>
 #include <time.h>
 #include <unistd.h>
+#ifndef ANDROID
 #include <sys/termios.h>
+#else
+#include <asm/termios.h>
+#endif
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <signal.h>
