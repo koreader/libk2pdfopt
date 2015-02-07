@@ -41,7 +41,9 @@
 #include <sys/ioctl.h>
 #endif
 
-
+#ifdef ANDROID
+#include <asm/termios.h>
+#endif
 
 #ifdef WIN32
 #define ANSI_PARSE
@@ -167,7 +169,7 @@ void wlp_set_stdout(int sout,int serr,char *filename,int close_after,
     if (newstream)
         wlp_stream = str;
     }
-    
+
 
 int wlprintf(char *fmt,...)
 
@@ -256,7 +258,7 @@ int nprintf(FILE *f,char *fmt,...)
         }
     return(-1);
     }
-        
+
 
 int afprintf(FILE *f,char *fmt,...)
 
