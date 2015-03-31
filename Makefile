@@ -100,10 +100,11 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
 		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED',) \
 		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
-		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
+		LDFLAGS='$(STDCPPLIB) $(LEPT_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
 		--with-extra-libraries=$(CURDIR)/$(LEPTONICA_DIR)/lib \
-		--disable-static --enable-shared --disable-graphics \
-		&& $(MAKE) --silent >/dev/null 2>&1
+		--disable-static --enable-shared --disable-graphics
+	cd $(TESSERACT_DIR) && sed -i 's|-lstdc++||g' libtool
+	$(MAKE) -C $(TESSERACT_DIR) --silent >/dev/null 2>&1
 ifdef WIN32
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract-3.dll ./
 else
@@ -118,7 +119,7 @@ $(K2PDFOPT_A): $(K2PDFOPT_O) tesseract_capi
 	$(AR) rcs $@ $(K2PDFOPT_O) $(TESSERACT_API_O)
 
 $(K2PDFOPT_LIB): $(K2PDFOPT_O) tesseract_capi
-	$(CXX) $(TARGET_ASHLDFLAGS) -Wl,-rpath,'libs' -o $@ \
+	$(CXX) $(TARGET_ASHLDFLAGS) -static-libstdc++ -Wl,-rpath,'libs' -o $@ \
 		$(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS) \
 		$(TESSERACT_LIB) $(LEPTONICA_LIB)
 ifndef WIN32
