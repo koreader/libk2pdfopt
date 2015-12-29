@@ -1,9 +1,9 @@
 MAJVER=  2
 
 MOD_INC = include_mod
-LEPTONICA_DIR = leptonica-1.69
+LEPTONICA_DIR = $(CURDIR)/leptonica-1.69
 TESSERACT_DIR = tesseract-ocr
-TESSERACT_MOD = tesseract_mod
+TESSERACT_MOD = $(CURDIR)/tesseract_mod
 WILLUSLIB_DIR = willuslib
 K2PDFOPTLIB_DIR = k2pdfoptlib
 WILLUSLIB_SRC = $(wildcard $(WILLUSLIB_DIR)/*.c)
@@ -75,7 +75,7 @@ K2PDFOPT_LIB= libk2pdfopt$(if $(WIN32),-$(MAJVER).dll,.so.$(MAJVER))
 ##############################################################################
 $(LEPTONICA_LIB):
 	cd $(LEPTONICA_DIR) && ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
-		--prefix=$(CURDIR)/$(LEPTONICA_DIR) \
+		--prefix=$(LEPTONICA_DIR) \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(LEPT_CFLAGS)' \
 		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,"libs" $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
 		--disable-static --enable-shared \
@@ -93,15 +93,15 @@ endif
 $(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cp $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/
 	-cd $(TESSERACT_DIR) && \
-		patch -N -p1 < ../tesseract_mod/baseapi.cpp.patch
+		patch -N -p1 < $(TESSERACT_MOD)/baseapi.cpp.patch
 	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q \
 		$(if $(EMULATE_READER),,--host=$(HOST)) \
 		CXX='$(strip $(CCACHE) $(CXX))' \
-		CXXFLAGS='$(CXXFLAGS) -I$(CURDIR)/$(MOD_INC)' \
+		CXXFLAGS='$(CXXFLAGS) -I$(MOD_INC)' \
 		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED',) \
-		LIBLEPT_HEADERSDIR=$(CURDIR)/$(LEPTONICA_DIR)/src \
+		LIBLEPT_HEADERSDIR=$(LEPTONICA_DIR)/src \
 		LDFLAGS='$(STDCPPLIB) $(LEPT_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
-		--with-extra-libraries=$(CURDIR)/$(LEPTONICA_DIR)/lib \
+		--with-extra-libraries=$(LEPTONICA_DIR)/src/.libs \
 		--disable-static --enable-shared --disable-graphics
 	cd $(TESSERACT_DIR) && sed -i 's|-lstdc++||g' libtool
 	$(MAKE) -C $(TESSERACT_DIR) --silent >/dev/null 2>&1
