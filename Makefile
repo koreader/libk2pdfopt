@@ -48,7 +48,11 @@ ifeq (static,$(BUILDMODE))
 endif
 TARGET_SONAME= libk2pdfopt.so.$(MAJVER)
 TARGET_DYLIBPATH=
-TARGET_XSHLDFLAGS= -shared $(if $(WIN32),,-fPIC) -Wl,-soname,$(TARGET_SONAME)
+ifdef DARWIN
+	TARGET_XSHLDFLAGS= -shared -fPIC
+else
+	TARGET_XSHLDFLAGS= -shared $(if $(WIN32),,-fPIC) -Wl,-soname,$(TARGET_SONAME)
+endif
 TARGET_ASHLDFLAGS= $(TARGET_XSHLDFLAGS) $(TARGET_DYLIBPATH) $(TARGET_FLAGS) $(TARGET_SHLDFLAGS)
 TARGET_XLIBS= -lm
 TARGET_ALIBS= $(TARGET_XLIBS) $(LIBS) $(TARGET_LIBS)
@@ -56,18 +60,20 @@ TARGET_ALIBS= $(TARGET_XLIBS) $(LIBS) $(TARGET_LIBS)
 K2PDFOPT_A= libk2pdfopt.a
 K2PDFOPT_SO= $(TARGET_SONAME)
 
-LEPTONICA_LIB= liblept$(if $(WIN32),-3.dll,.so)
-TESSERACT_LIB= libtesseract$(if $(WIN32),-3.dll,.so)
-K2PDFOPT_LIB= libk2pdfopt$(if $(WIN32),-$(MAJVER).dll,.so.$(MAJVER))
+LEPTONICA_LIB= liblept$(if $(WIN32),-3.dll,$(if $(DARWIN),.dylib,.so))
+TESSERACT_LIB= libtesseract$(if $(WIN32),-3.dll,$(if $(DARWIN),.dylib,.so))
+K2PDFOPT_LIB= libk2pdfopt$(if $(WIN32),-$(MAJVER).dll,$(if $(DARWIN),.$(MAJVER).dylib,.so.$(MAJVER)))
 
 ##############################################################################
 # Object file rules.
 ##############################################################################
 %.o: %.c
 	@echo "BUILD    $@"
-	@$(TARGET_CC) $(CFLAGS) -c -DK2PDFOPT_KINDLEPDFVIEWER $(if $(ANDROID),-DANDROID,) \
+	@$(TARGET_CC) $(CFLAGS) -c -DK2PDFOPT_KINDLEPDFVIEWER \
+		$(if $(ANDROID),-DANDROID,) $(if $(DARWIN),-DDARWIN,) \
 		-I$(MOD_INC) -I$(WILLUSLIB_DIR) -I$(K2PDFOPTLIB_DIR) -o $@ $<
-	@$(TARGET_DYNCC) $(CFLAGS) -c -DK2PDFOPT_KINDLEPDFVIEWER $(if $(ANDROID),-DANDROID,) \
+	@$(TARGET_DYNCC) $(CFLAGS) -c -DK2PDFOPT_KINDLEPDFVIEWER \
+		$(if $(ANDROID),-DANDROID,) $(if $(DARWIN),-DDARWIN,) \
 		-I$(MOD_INC) -I$(WILLUSLIB_DIR) -I$(K2PDFOPTLIB_DIR) -o $(@:.o=_dyn.o) $<
 
 ##############################################################################
@@ -81,13 +87,13 @@ $(LEPTONICA_LIB):
 		--disable-static --enable-shared \
 		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff
 	# fix cannot find library -lc on mingw-w64
-	cd $(LEPTONICA_DIR) && sed -i "s|archive_cmds_need_lc='yes'|archive_cmds_need_lc='no'|" config.status
+	cd $(LEPTONICA_DIR) && sed -ie "s|archive_cmds_need_lc='yes'|archive_cmds_need_lc='no'|" config.status
 	cd $(LEPTONICA_DIR) && $(MAKE) CFLAGS='$(LEPT_CFLAGS)' \
 		install --silent >/dev/null 2>&1
 ifdef WIN32
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept-3.dll ./
 else
-	cp -a $(LEPTONICA_DIR)/src/.libs/liblept.so* ./
+	cp -a $(LEPTONICA_DIR)/src/.libs/liblept$(if $(DARWIN),*.dylib,.so*) ./
 endif
 
 $(TESSERACT_LIB): $(LEPTONICA_LIB)
@@ -103,12 +109,12 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		LDFLAGS='$(STDCPPLIB) $(LEPT_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
 		--with-extra-libraries=$(LEPTONICA_DIR)/src/.libs \
 		--disable-static --enable-shared --disable-graphics
-	cd $(TESSERACT_DIR) && sed -i 's|-lstdc++||g' libtool
-	$(MAKE) -C $(TESSERACT_DIR) --silent >/dev/null 2>&1
+	cd $(TESSERACT_DIR) && sed -ie 's|-lstdc++||g' libtool
+	$(MAKE) -C $(TESSERACT_DIR)
 ifdef WIN32
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract-3.dll ./
 else
-	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract.so* ./
+	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract$(if $(DARWIN),*.dylib,.so*) ./
 endif
 
 tesseract_capi: $(TESSERACT_MOD)/tesscapi.cpp $(TESSERACT_LIB)
@@ -123,7 +129,7 @@ $(K2PDFOPT_LIB): $(K2PDFOPT_O) tesseract_capi
 		$(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS) \
 		$(TESSERACT_LIB) $(LEPTONICA_LIB)
 ifndef WIN32
-	ln -sf $(K2PDFOPT_LIB) libk2pdfopt.so
+	ln -sf $(K2PDFOPT_LIB) libk2pdfopt$(if $(DARWIN),.dylib,.so)
 endif
 
 all: $(TESSERACT_LIB) $(LEPTONICA_LIB) $(K2PDFOPT_LIB)
@@ -133,6 +139,7 @@ clean:
 	rm -rf *.a
 	rm -rf *.so*
 	rm -rf *.dll
+	rm -rf *.dylib
 	cd $(WILLUSLIB_DIR) && rm -rf *.o
 	cd $(K2PDFOPTLIB_DIR) && rm -rf *.o
 	cd $(TESSERACT_MOD) && rm -rf *.o
