@@ -1,9 +1,8 @@
 #include "mupdf/fitz.h"
 
 #include <jpeglib.h>
-/* willus mod:  make sure SHARE_JPEG is defined */
-typedef void * backing_store_ptr;
 
+/* willus mod: make sure SHARE_JPEG is defined */
 #ifndef SHARE_JPEG
 #define SHARE_JPEG
 #endif
@@ -16,7 +15,9 @@ typedef void * backing_store_ptr;
 #define fz_jpg_mem_term(cinfo)
 
 #else /* SHARE_JPEG */
-/* willus mod:  End of modification */
+
+typedef void * backing_store_ptr;
+#include "jmemcust.h"
 
 #define JZ_CTX_FROM_CINFO(c) (fz_context *)(GET_CUST_MEM_DATA(c)->priv)
 

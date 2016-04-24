@@ -1,7 +1,7 @@
 /*
 ** k2publish.c   Convert and write the master output bitmap to PDF output pages.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -66,9 +66,9 @@ aprintf(ANSI_GREEN "\n   @masterinfo_publish(flushall=%d)....\n\n" ANSI_NORMAL,f
     while (masterinfo_get_next_output_page(masterinfo,k2settings,flushall,bmp,
                                            &bmpdpi,&size_reduction,ocrwords)>0)
         {
-/*
+#if (WILLUSDEBUGX & 1)
 aprintf(ANSI_GREEN "\n   SRC PAGE %d\n\n" ANSI_NORMAL,masterinfo->pageinfo.srcpage);
-*/
+#endif
         output_page_count++;
         if (masterinfo->preview_bitmap!=NULL)
             {
@@ -89,7 +89,13 @@ masterinfo->preview_bitmap->width,masterinfo->preview_bitmap->height,masterinfo-
             }
 
         /* v2.16, outline / bookmark check done in separate function. */
+#if (WILLUSDEBUGX & 1)
+printf("k2publish_outline_check\n");
+#endif
         k2publish_outline_check(masterinfo,k2settings,0);
+#if (WILLUSDEBUGX & 1)
+printf("Done k2publish_outline_check, usecrop=%d, dst_ocr=%c\n",k2settings->use_crop_boxes,k2settings->dst_ocr);
+#endif
 /*
 printf("use_toc=%d, outline=%p, spc=%d, srcpage=%d\n",k2settings->use_toc,masterinfo->outline,masterinfo->outline_srcpage_completed,masterinfo->pageinfo.srcpage);
 */
@@ -171,6 +177,13 @@ for (k=0;k<ocrwords->n;k++)
 printf("%3d. '%s'\n",k,ocrwords->word[k].text);
 }
 #endif
+#if (WILLUSDEBUGX & 1)
+printf("Calling pdffile_add_bitmap_with_ocrwords... (%d x %d, %d dpi)\n",bmp->width,bmp->height,(int)bmpdpi);
+printf("    pdffile=%s\n",masterinfo->outfile.filename);
+printf("    ptr=%p\n",masterinfo->outfile.f);
+printf("    nobjs=%d\n",masterinfo->outfile.n);
+printf("    na=%d\n",masterinfo->outfile.na);
+#endif
             pdffile_add_bitmap_with_ocrwords(&masterinfo->outfile,bmp,bmpdpi,
                                              k2settings->jpeg_quality,size_reduction,
                                              ocrwords,k2settings->dst_ocr_visibility_flags
@@ -191,9 +204,17 @@ bmp_write(bmp,filename,stdout,100);
             }
         else
 #endif
+            {
+#if (WILLUSDEBUGX & 1)
+printf("Calling pdffile_add_bitmap... (%d x %d, %d dpi)\n",bmp->width,bmp->height,(int)bmpdpi);
+#endif
             pdffile_add_bitmap(&masterinfo->outfile,bmp,bmpdpi,
                                k2settings->jpeg_quality,size_reduction);
+            }
         }
+#if (WILLUSDEBUGX & 1)
+printf("output_page_count=%d\n",output_page_count);
+#endif
     /*
     ** v2.16 bug fix:  If no destination output generated, we still have to call outline_check().
     */

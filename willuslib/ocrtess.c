@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2015  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -38,7 +38,7 @@ static void endian_flip(char *x,int n);
 /*
 ** Returns 0 for success, NZ for failure.
 */
-int ocrtess_init(char *datadir,char *lang,FILE *out)
+int ocrtess_init(char *datadir,char *lang,FILE *out,char *initstr,int maxlen)
 
     {
     char langdef[16];
@@ -52,18 +52,18 @@ int ocrtess_init(char *datadir,char *lang,FILE *out)
         langdef[15]='\0';
         }
     /* Try CUBE/COMBINED first */
-    status=tess_capi_init(datadir,langdef,0,out);
+    status=tess_capi_init(datadir,langdef,0,out,initstr,maxlen);
     /* Next try just CUBE if that didn't work */
     if (status)
         {
         tess_capi_end();
-        status=tess_capi_init(datadir,langdef,2,out);
+        status=tess_capi_init(datadir,langdef,2,out,initstr,maxlen);
         }
     /* Final try:  regular */
     if (status)
         {
         tess_capi_end();
-        status=tess_capi_init(datadir,langdef,1,out);
+        status=tess_capi_init(datadir,langdef,1,out,initstr,maxlen);
         }
     return(status);
     }

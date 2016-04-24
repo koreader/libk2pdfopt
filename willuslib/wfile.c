@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -29,6 +29,9 @@
 #endif
 #if (defined(WIN32))
 #include <windows.h>
+#include <direct.h>
+#include <errno.h>
+#include <io.h>
 #endif
 #include <stdio.h>
 #ifdef MSDOS16
@@ -117,6 +120,7 @@ static void wfile_wf2rf(RFIND *rf);
 static int wfile_recfreelast(RFIND *rf);
 static int wfile_correct_exe(char *basename,char *correctname,char *fullname);
 static double generic_size(char *filename);
+static int wfile_makedir_ascii(char *path);
 
 /* Prevent DJGPP from globbing */
 #ifdef DJGPP
@@ -1152,7 +1156,7 @@ int wfile_prepdir(char *filename)
 **         -2 if error
 **          0 if OK
 */
-int wfile_makedir(char *path)
+static int wfile_makedir_ascii(char *path)
 
     {
     int status;
@@ -1542,6 +1546,7 @@ int wfile_filename_basename_compare(char *fn1,char *fn2)
 
 /*
 ** Returns 0 for no file, 1 for a reg. file, 2 for a directory
+** UTF-8 compatible in Windows
 */
 int wfile_status(char *filename)
 
@@ -2099,6 +2104,14 @@ char *wfile_tempname(char *dir,char *prefix)
         }
     return(tname);
 #endif /* LINUX */
+    }
+
+
+void wfile_abstmpnam_ex(char *filename,char *ext)
+
+    {
+    wfile_abstmpnam(filename);
+    wfile_newext(filename,NULL,ext);
     }
 
 
@@ -3388,6 +3401,35 @@ FILE *wfile_fopen_utf8(char *filename,char *mode)
     return(f);
 #else
     return(fopen(filename,mode));
+#endif
+    }
+
+/*
+** Make directory.
+** UTF-8 compatible in Windows
+** Returns -1 if already exists.
+**         -2 if error
+**          0 if OK
+*/
+int wfile_makedir(char *foldername)
+
+    {
+#if (defined(WIN32) || defined(WIN64))
+    short *fw;
+    static char *funcname="wfile_makedir";
+    int status;
+    if (utf8_is_ascii(foldername))
+        return(wfile_makedir_ascii(foldername));
+    utf8_to_utf16_alloc((void **)&fw,foldername);
+    status=_wmkdir((wchar_t*)fw);
+    willus_mem_free((double **)&fw,funcname);
+    if (!status)
+        return(0);
+    else if (status==EEXIST)
+        return(-1);
+    return(-2);
+#else
+    return(wfile_makedir_ascii(foldername));
 #endif
     }
 

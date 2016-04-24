@@ -4,11 +4,12 @@ cmake_minimum_required(VERSION 2.6)
 include_directories(..)
 
 set(WILLUSLIB_SRC
-        pdfwrite.c wfile.c wzfile.c wgs.c 
-	math.c point2d.c array.c mem.c string.c strbuf.c ansi.c render.c 
-	filelist.c fontdata.c bmp.c gslpolyfit.c token.c   
-	willusversion.c fontrender.c wsys.c
-	linux.c dtcompress.c 
+    ansi.c array.c bmp.c bmpdjvu.c bmpmupdf.c dtcompress.c filelist.c
+    fontdata.c fontrender.c gslpolyfit.c linux.c math.c mem.c ocr.c
+    ocrjocr.c ocrtess.c pdfwrite.c point2d.c render.c strbuf.c string.c
+    token.c wfile.c wgs.c wgui.c willusversion.c win.c winbmp.c
+    wincomdlg.c winmbox.c winshell.c wmupdf.c wmupdfinfo.c wpdf.c wsys.c
+    wzfile.c
 )
 # ocr.c  
 # win.c  winbmp.c winmbox.c wincomdlg.c wgui.c winshell.c

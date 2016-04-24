@@ -1,8 +1,8 @@
-char *k2pdfopt_version = "v2.31";
+char *k2pdfopt_version = "v2.34b";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -17,8 +17,192 @@ char *k2pdfopt_version = "v2.31";
 ** You should have received a copy of the GNU Affero General Public License
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **
-**
 ** VERSION HISTORY
+**
+** V2.34b 21 MAR 2016
+**           MS WINDOWS BUG FIXES
+**           - Native conversions correctly generate unicode file names
+**             http://www.mobileread.com/forums/showthread.php?p=3284264#post3284264
+**           - GUI correctly provides right-click help on the output folder widgets
+**
+** V2.34a 19 MAR 2016
+**           BUG FIX
+**           - Device "Kobo H2O" can now be correctly assigned. (E-mail 3-17-16)
+**           MS WINDOWS GUI BUG FIX
+**           - Fixed "Additional Options" and "Command-line Options" read-only issue.
+**           - Fixed file list box overlapping the output folder box.
+**           - Fixed "Add File" selection of .pdf and .djvu files.
+**
+** V2.34 18 MAR 2016
+**           ENHANCEMENTS
+**           - Compiled with the latest versions of MuPDF (1.8), Tesseract (3.04.01),
+**             libpng (1.6.21), freetype (2.6.2), turbo JPEG (1.4.2), and
+**             leptonica (1.72).
+**           NEW FEATURES
+**           - Added an option to scale the output font size to a fixed value:
+**             -fs <fontsize>.  E.g. -fs 12 will scale the median font size
+**             in the source document to be 12 points in the converted document.
+**             See details in the command-line usage help.  Supported in MS Windows
+**             GUI as well (new check box with up/down control next to it).
+**             http://www.mobileread.com/forums/showthread.php?p=3175758#post3175758
+**           - The -o has two new format characters--%b for the base name of the
+**             source file (not including the path).  %f for the folder the source
+**             file is stored in.
+**           - The -mag feature magnifies the text/images in the output file.  It
+**             as the same effect as increasing -odpi.
+**           - New -y option is same as -ow (assumes "yes" on overwriting files).
+**             I just did this for compatibility with other programs that use this
+**             same option the same way (e.g. ffmpeg).
+**           - The -cbox and -ibox options now have a "u" appendix that applies to
+**             any unspecified pages.  E.g. -cbox5-10 <cbox1> -cboxu <cbox2>
+**             This will apply <cbox1> to pages 5 through 10 and <cbox2> to all
+**             other pages.
+**             http://www.mobileread.com/forums/showthread.php?p=3204759#post3204759
+**           - The -ci option can be used to specify an image for a cover page for
+**             the PDF file (doesn't work with native PDF output yet).
+**             http://www.mobileread.com/forums/showthread.php?p=3196307#post3196307
+**           NEW MS WINDOWS GUI FEATURES
+**           - There is now a selection button for the output folder, which uses
+**             the new %b formatting in the -o option.  Requested 6 Jan 2016 via e-mail.
+**           - Fixed several bugs involving the crop box GUI selection.
+**           - Crop box setting prompts for an overriding page range now, and then
+**             reports both the -cbox and the -m dimensions when complete.
+**           - Added code to detect Calibri vs. Arial font, but this didn't have
+**             the effect I wanted, so I commented it back out (in k2gui.c,
+**             search for "fontscale".)
+**           BUG FIXES
+**           - Fixed the documentation of -ocrcol.  Said it was ignored now, but it
+**             is not ignored for documents that don't already have an OCR layer.
+**           - If the folder for the converted file(s) does not exist, it will be
+**             created (6 Jan 2016 e-mail).
+**           - Gets page bounding box from "Pages" object if not available for an
+**             individual page.  (E-mail bug report, 10 Oct 2015).
+**           - Made -bpc / -jpg incompatibility more clear in the command-line usage.
+**           - k2printf correctly uses a semaphore to prevent threads from both using
+**             it at the same time.
+**           - MS Windows GUI:  Fixed issues with multi-threading when starting the
+**             conversion process and starting the process to generate the bitmap for
+**             setting the crop boxes.  Semaphores were not being correctly closed.
+**           - MS Windows GUI:  File opening works more reliably now after multiple
+**             aborted conversions (new willusgui_file_open_ex function).
+**           - Postscript files are correctly processed now.  Because ghostscript
+**             cannot pull specific pages from a PS file, they are now converted to
+**             PDF (using ghostscript) before any further processing by k2pdfopt.
+**
+** V2.33a 3 OCT 2015
+**           BUG FIX
+**           - Fixed MS Windows GUI bug where preview page controls were missing.
+**
+** V2.33 27 SEP 2015
+**           NEW FEATURES
+**           - Compiled with GCC v5.2.0 and MuPDF v1.7a (released May 7, 2015).
+**             The MuPDF upgrade involved modifying a significant amount of the
+**             MuPDF interface code in the willus library since Artifex changed the
+**             APIs on several functions, but the bulk of the logic did not change.
+**             I uncovered a bug in the pdf_dict_del() function as well (reported).
+**           - The -i option displays information about the source PDF file.  Added
+**             to MS Windows GUI also.
+**           - Added -fr option to rotate wide-aspect-ratio figures to landscape.
+**             http://www.mobileread.com/forums/showthread.php?p=3060339#post3060339
+**           - Added Kindle Paperwhite 3 (2015 release) and Pocketbook Basic 2 to
+**             dev list (from http://www.mobileread.com/forums/showthread.php?t=253579)
+**           - Smarter sorting of red regions on a multiple-column page.  See
+**             pageregion_sort() function in pageregions.c.
+**           - New -ibox option has same format as -cbox, but these boxes are ignored
+**             by k2pdfopt--they are "whited out" in the source file.  For native
+**             output, the contents may still be visible in the output.
+**           - The -neg option now attempts to only negate text passages to white
+**             on black and to leave figures alone.  Use -neg+ to negate everything.
+**             http://www.mobileread.com/forums/showthread.php?p=3104536#post3104536
+**           - Added option -ehl to erase horizontal lines in the document.  Works
+**             exactly like the -evl option.
+**           - Added -author and -title options to specify the author and title of
+**             the output PDF.
+**             http://www.mobileread.com/forums/showthread.php?p=3112052#post3112052
+**           - Added -px option to exclude a set of pages, e.g. -px 4,7,10-20.
+**             http://www.mobileread.com/forums/showthread.php?p=3112052#post3112052
+**           - User can use color markings to tell k2pdfopt where to apply page
+**             breaks to the output file.
+**             http://www.mobileread.com/forums/showthread.php?p=3152988#post3152988
+**           - The -? option can now be followed by a (wildcard) matching string to
+**             show the usage of a particlar option, e.g. -? -ws.
+**
+**           NEW MS WINDOWS GUI FEATURES
+**           - Crop margins replaced by three crop-box entries.
+**             These entries can act as either -cbox or -ibox.
+**           - Added an "INFO" button to show information on the selected PDF file.
+**           - If a wildcard is specified for a PDF source file
+**             on the command line (e.g. *.pdf), and the GUI is launched, all matching
+**             entries are placed into the GUI file list.
+**
+**           BUG FIXES
+**           - With notes options turned on (-nl / -nr), k2pdfopt will still search
+**             for multiple columns if no notes are found on the page.  In addition,
+**             the -crgh option now more directly affects column divider finding.
+**             See textrows_remove_small_rows() call in bmpregion_find_multicolumn_divider().
+**             http://www.mobileread.com/forums/showthread.php?p=3148589#post3148589
+**           - Fixed multiple file select (broke when I converted to wide chars in v2.30).
+**           - Modified bmpregion_hyphen_detect() to be less strict about rejecting
+**             hyphens that aren't exactly centered.  Also modified calculation of
+**             lcheight in bmpregion_calc_bbox()--see the function.
+**             http://www.mobileread.com/forums/showthread.php?p=3119501#post3119501
+**           - The k2pdfopt web site and help pages work again from the help menu.
+**           - Turned off some debugging text from the bmp_autocrop2 function in k2bmp.c.
+**           - Not really a bug fix, but the command-line help is now shown in
+**             Courier New in MS Windows (a mono-spaced font).
+**           - In info_update() in wmupdf.c in the willus library, I check to see
+**             if I can resolve the Info dictionary.  This checks to see if it can
+**             be parsed correctly.  If not, I discard the dictionary.  This was
+**             causing a bug that a user submitted to me in an e-mail on 15 April 2015.
+**             The users had a PDF file with a corrupt "Info" dictionary.
+**           - WPDFOUTLINE structures correctly freed.
+**           - MuPDF v1.7 stores ligatured characters differently than previous versions
+**             in its internal character arrays, so I had to compensate for this.
+**
+** v2.32 6 MAR 2015
+**           NEW FEATURES
+**           - A new auto-cropping feature (-ac) has been added where k2pdfopt will
+**             attempt to crop out dark edges due to scanning / copying artifacts.
+**             There is a checkbox for it in the MS Windows GUI.
+**           - MS Windows GUI: graphical selection of crop margins has now been
+**             implemented.  When you click the "Select Margins" button, k2pdfopt will
+**             overlay all of the pages in the "Pages to Convert" box and allow you
+**             to select a rectangular crop region with the mouse, which it will then
+**             use to populate the "Crop Margins" values.
+**           - The -ls option now takes an optional page range so that it can be
+**             applied to specified pages.  A control was added to the MS Windows
+**             GUI for this.
+**             http://www.mobileread.com/forums/showthread.php?p=3016119#post3016119
+**           - Improved the context sensitive help in the MS Windows GUI.
+**
+**           OTHER
+**           - Update the list of devices and their dimension from the information
+**             collected at http://www.mobileread.com/forums/showthread.php?t=253579
+**           - Clarified -cbox usage.
+**             http://www.mobileread.com/forums/showthread.php?p=3048458#post3048458
+**           - Added source code flow description to k2pdfopt.c.  (2-18-15 e-mail).
+**
+**           BUG FIXES
+**           - Fixed a bug with notes in the margins (-nl/-nr options), checking
+**             for notesrows->n==0 (was causing a crash).  E-mailed on 13 Jan 2015.
+**           - Clarified usage for -m option.
+**           - Added MS Windows GUI confirmation of Tesseract initialization (in the
+**             conversion dialog box).
+**             http://www.mobileread.com/forums/showthread.php?p=3016119#post3016119
+**           - -cbox<n>- did not work correctly if <n> was beyond the last page of
+**             the source PDF.  This is fixed.
+**             http://www.mobileread.com/forums/showthread.php?p=3047145#post3047145
+**           - Fixed a preview error noted by a mobileread member.  Was due to
+**             not correctly clearing a WTEXTCHARS structure in
+**             ocrlayer_bounding_box_inches().
+**             http://www.mobileread.com/forums/showthread.php?p=3027213#post3027213
+**           - Fixed some issues with masterinfo_should_flush() where it wasn't
+**             correctly figuring out the next page.
+**           - Fixed issues selecting the text in text edit boxes as they gain focus
+**             (either through tabbing or mouse clicks).
+**           - The number of inserted rows added by textrows_find_doubles() is now
+**             limited to a reasonable number.  This was going out of control in
+**             one oddball case and (I think) causing k2pdfopt to crash.
 **
 ** v2.31 27 DEC 2014
 **           NEW FEATURES
@@ -94,6 +278,8 @@ char *k2pdfopt_version = "v2.31";
 **             the OCR layer is queried for any words which are within the box).
 **             This should eliminate the need to use the -ocrcol option on PDF
 **             files which already have their own text layer.
+**             [NOTE: The -ocrcol still has impact for documents that don't
+**              already have an OCR layer. 13 Feb 2016.]
 **           - There is a new option optimized for PDFs that have notes in the
 **             left or right margins.  This option (-nl for notes in the left
 **             margin or -nr for notes in the right margin) tells k2pdfopt to
@@ -530,7 +716,7 @@ char *k2pdfopt_version = "v2.31";
 **             logic that breaks the page out into displayable rectangular
 **             regions can be used in other places (e.g. by the OCR fill-in
 **             function).
-**           - Added option -ocrcols which sets the max number of columns for
+**           - Added option -ocrcol which sets the max number of columns for
 **             processing with OCR (if different from the -col value).  You would
 **             use this if you want to OCR a PDF file using -mode copy, but
 **             the file has multiple columns of text.

@@ -1,7 +1,7 @@
 /*
 ** textrows.c   Functions to handle TEXTROWS structure.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -229,9 +229,13 @@ void textrows_compute_row_gaps(TEXTROWS *textrows,int r2)
 
 /*
 ** v2.10:  Tosses out figures for computing statistics
+**
+** v2.33:  Added mingap_in parameter--if this is > 0 and if any gap between two
+**         rows exceeds this gap, the two rows are joined.
 */
 void textrows_remove_small_rows(TEXTROWS *textrows,K2PDFOPT_SETTINGS *k2settings,
-                                double fracrh,double fracgap,BMPREGION *region)
+                                double fracrh,double fracgap,BMPREGION *region,
+                                double mingap_in)
 
     {
     int i,j,mg,mh,mg0,mg1,nr,ng;
@@ -241,6 +245,11 @@ void textrows_remove_small_rows(TEXTROWS *textrows,K2PDFOPT_SETTINGS *k2settings
 
 #if (WILLUSDEBUGX & 2)
 k2printf("@textrows_remove_small_rows(fracrh=%g,fracgap=%g)\n",fracrh,fracgap);
+#endif
+#if (WILLUSDEBUGX & 0x40000)
+if (mingap_in>0.)
+k2printf("@textrows_remove_small_rows from multicolumn divider. mingap=%g in\n",mingap_in);
+k2printf("    nrows=%d\n",textrows->n);
 #endif
     if (textrows->n<2)
         return;
@@ -284,6 +293,7 @@ k2printf("mg = %d x %g = %d\n",gap[textrows->n/2],fracgap,mg);
         TEXTROW *textrow;
         int trh,gs1,gs2,g1,g2,gap_is_big,row_too_small;
         double m1,m2,row_width_inches;
+        int gap_too_small;
 
         textrow=&textrows->textrow[i];
         trh=textrow->r2-textrow->r1+1;
@@ -307,6 +317,7 @@ k2printf("mg = %d x %g = %d\n",gap[textrows->n/2],fracgap,mg);
             g2=textrows->textrow[i+1].r1-textrow->r2-1;
             gs2=textrows->textrow[i].gap;
             }
+        gap_too_small = i<textrows->n-1 && mingap_in>0. && (double)g2/region->dpi < mingap_in;
 #if (WILLUSDEBUGX & 2)
 k2printf("   rowheight[%d] = %d, mh=%d, gs1=%d, gs2=%d\n",i,trh,mh,gs1,gs2);
 #endif
@@ -325,20 +336,24 @@ k2printf("   rowheight[%d] = %d, mh=%d, gs1=%d, gs2=%d\n",i,trh,mh,gs1,gs2);
 #if (WILLUSDEBUGX & 2)
 k2printf("       m1=%g, m2=%g, rwi=%g, g1=%d, g2=%d, mg0=%d\n",m1,m2,row_width_inches,g1,g2,mg0);
 #endif
-        if (gap_is_big && !row_too_small)
+        if (!gap_too_small && gap_is_big && !row_too_small)
             continue;
-#if (WILLUSDEBUGX & 2)
-k2printf("   row[%d] to be combined w/next row.\n",i);
+#if (WILLUSDEBUGX & 0x40000)
+if (mingap_in>0.)
+k2printf("   row[%d] to be combined w/next row (gaptoosmall=%d, gapbig=%d, rowtoosmall=%d).\n",i,gap_too_small,gap_is_big,row_too_small);
 #endif
-        if (row_too_small)
+        if (!gap_too_small)
             {
-            if (g1<g2)
-                i--;
-            }
-        else
-            {
-            if (gs1<gs2)
-                i--;
+            if (row_too_small)
+                {
+                if (g1<g2)
+                    i--;
+                }
+            else
+                {
+                if (gs1<gs2)
+                    i--;
+                }
             }
 /*
 k2printf("Removing row.  nrows=%d, rh=%d, gs1=%d, gs2=%d\n",textrows->n,trh,gs1,gs2);
@@ -488,7 +503,7 @@ void textrows_find_doubles(TEXTROWS *textrows,int *rowthresh,BMPREGION *region,
                            int dynamic_aperture)
 
     {
-    int i,r1,r2;
+    int i,r1,r2,max_added_rows,n_added_rows;
     int rb[4];
     static char *funcname="textrows_find_doubles";
 
@@ -496,6 +511,9 @@ void textrows_find_doubles(TEXTROWS *textrows,int *rowthresh,BMPREGION *region,
     r2=region->r2;
     if (maxsize > 5)
         maxsize = 5;
+    n_added_rows=0;
+    /* 2.32 fix */
+    max_added_rows=(maxsize>3 ? 3 : maxsize)*textrows->n;
 #if (WILLUSDEBUGX & 256)
 printf("@textrows_find_doubles, textrows->n=%d\n",textrows->n);
 printf("    dpi = %d\n",region->dpi);
@@ -554,7 +572,7 @@ printf("Large gap:  row[%d] = rows %d - %d, capheight = %d, lch=%d, rh=%d\n",i,t
 #endif
 
            /*
-           ** Default is to use rowthresh array, but rthresh may bet re-assigned in the
+           ** Default is to use rowthresh array, but rthresh may get re-assigned in the
            ** if statement below.
            */
            rthresh = rowthresh;
@@ -733,7 +751,8 @@ printf("    rat[%d rows] = %g = %d / %d\n",j,rat,c2,c1);
 printf("MAX RATIO (%d rows) = %g\n",jbest,maxrat);
 #endif
            /* If figure of merit is met, split this row into jbest rows */
-           if (maxrat > k2settings->row_split_fom)
+           /* 2.32 fix--limit the max number of added rows */
+           if (maxrat > k2settings->row_split_fom && n_added_rows+(jbest-1) <= max_added_rows)
                {
                int ii;
                TEXTROWS newrows;
@@ -744,6 +763,7 @@ printf("MAX RATIO (%d rows) = %g\n",jbest,maxrat);
                    textrows_add_textrow(&newrows,&textrows->textrow[i]);
                textrows_insert(textrows,i,&newrows);
                textrows_free(&newrows);
+               n_added_rows += (jbest-1);
 
                /* Modify the copies */
 #if (WILLUSDEBUGX & 256)
@@ -779,7 +799,6 @@ printf("    rb[%d]=%d\n",k,rb[k]);
                    if (ii>i)
                        textrow->r1 = rb[ii-i-1]+1;
 #if (WILLUSDEBUGX & 256)
-if (partial)
 printf("    1. row[%d]: (%d,%d) - (%d,%d)\n",ii,textrow->c1,textrow->r1,textrow->c2,textrow->r2);
 #endif
                    newregion=&_newregion;
@@ -794,7 +813,6 @@ printf("    1. row[%d]: (%d,%d) - (%d,%d)\n",ii,textrow->c1,textrow->r1,textrow-
                    textrow_assign_bmpregion(textrow,newregion,REGION_TYPE_TEXTLINE);
                    textrow->rat=maxrat;
 #if (WILLUSDEBUGX & 256)
-if (partial)
 printf("    2. row[%d]: (%d,%d) - (%d,%d)\n",ii,textrow->c1,textrow->r1,textrow->c2,textrow->r2);
 #endif
                    bmpregion_free(newregion);
@@ -815,19 +833,13 @@ void textrow_determine_type(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,int 
     {
     TEXTROW *textrow;
     int nr,nc;
-    double aspect_ratio;
-    double region_height_inches;
 
     textrow=&region->textrows.textrow[index];
     if (textrow->type != REGION_TYPE_FIGURE)
         {
         nr=textrow->r2-textrow->r1+1;
         nc=textrow->c2-textrow->c1+1;
-        aspect_ratio = (double)nr/nc;
-        region_height_inches = (double)nr/region->dpi;
-        if (aspect_ratio > k2settings->no_wrap_ar_limit
-                  && (region_height_inches > k2settings->no_wrap_height_limit_inches
-                       || region_height_inches > k2settings->dst_min_figure_height_in))
+        if (region_is_figure(k2settings,(double)nc/region->dpi,(double)nr/region->dpi))
             {
             textrow->type = REGION_TYPE_FIGURE;
 /*
@@ -835,6 +847,18 @@ printf("2. textrow[%d] type = figure.\n",index);
 */
             }
         }
+    }
+
+
+int region_is_figure(K2PDFOPT_SETTINGS *k2settings,double width_in,double height_in)
+
+    {
+    double aspect_ratio;
+
+    aspect_ratio = width_in / height_in;
+    return(aspect_ratio > k2settings->no_wrap_ar_limit
+             && (height_in > k2settings->no_wrap_height_limit_inches
+                 || height_in > k2settings->dst_min_figure_height_in));
     }
 
 
@@ -934,4 +958,76 @@ static int maxval(int *x,int n,int n0,int dx,int *index,int index0)
     if (index!=NULL)
         (*index)=imax+n0;
     return(x[imax]);
+    }
+
+
+void fontsize_histogram_init(FONTSIZE_HISTOGRAM *fsh)
+
+    {
+    fsh->n=fsh->na=0;
+    fsh->sorted=0;
+    fsh->fontsize_pts=NULL;
+    }
+
+
+void fontsize_histogram_add_fontsize(FONTSIZE_HISTOGRAM *fsh,double fontsize_pts)
+
+    {
+    static char *funcname="fontsize_histogram_add_fontsize";
+
+    if (fsh->fontsize_pts==NULL || fsh->n>=fsh->na)
+        {
+        if (fsh->n==0 || fsh->fontsize_pts==NULL)
+            {
+            fsh->na=1000;
+            willus_dmem_alloc_warn(45,(void **)&fsh->fontsize_pts,fsh->na*sizeof(double),
+                                   funcname,10);
+            }
+        else
+            {
+            int newsize;
+            newsize=fsh->na*2;
+            willus_mem_realloc_robust_warn((void **)&fsh->fontsize_pts,newsize*sizeof(double),
+                                           fsh->na*sizeof(double),funcname,10);
+            fsh->na=newsize;
+            }
+        }
+    fsh->fontsize_pts[fsh->n++]=fontsize_pts;
+    fsh->sorted=0;
+    }
+
+
+void fontsize_histogram_free(FONTSIZE_HISTOGRAM *fsh)
+
+    {
+    static char *funcname="fontsize_histogram_free";
+
+    willus_dmem_free(45,(double **)&fsh->fontsize_pts,funcname);
+    }
+
+
+double fontsize_histogram_median(FONTSIZE_HISTOGRAM *fsh,int starting_index)
+
+    {
+    if (fsh->n<1)
+        return(-1.0);
+    if (starting_index==0 || fsh->n-starting_index<1 || (fsh->n-starting_index<5 && fsh->n>100))
+        {
+        if (fsh->n>1 && !fsh->sorted)
+            {
+            sortd(fsh->fontsize_pts,fsh->n);
+            fsh->sorted=1;
+            }
+        return(fsh->fontsize_pts[fsh->n/2]);
+        }
+    sortd(&fsh->fontsize_pts[starting_index],fsh->n-starting_index);
+    fsh->sorted=0;
+    return(fsh->fontsize_pts[(fsh->n+starting_index)/2]);
+    }
+
+
+void fontsize_histogram_clear(FONTSIZE_HISTOGRAM *fsh)
+
+    {
+    fsh->n=0;
     }

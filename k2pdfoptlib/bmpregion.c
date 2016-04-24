@@ -3,7 +3,7 @@
 **                are more-or-less generic functions that don't depend
 **                heavily on k2pdfopt settings.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -104,9 +104,11 @@ void bmpregion_row_histogram(BMPREGION *region)
     int *hist;
     int i,j,nn;
 
-    willus_dmem_alloc_warn(6,(void **)&rowcount,(region->r2-region->r1+1)*sizeof(int),funcname,10);
-    willus_dmem_alloc_warn(7,(void **)&hist,(region->c2-region->c1+1)*sizeof(int),funcname,10);
     src=region->bmp8;
+    if (src==NULL)
+        return;
+    willus_dmem_alloc_warn(6,(void **)&rowcount,(region->r2-region->r1+1)*sizeof(int),funcname,10);
+    willus_dmem_alloc_warn(7,(void **)&hist,(region->c2-region->c1+2)*sizeof(int),funcname,10);
     for (j=region->r1;j<=region->r2;j++)
         {
         unsigned char *p;
@@ -125,13 +127,19 @@ void bmpregion_row_histogram(BMPREGION *region)
             break;
     nn=i;
     out=fopen("hist.ep","w");
+    if (out!=NULL)
+        {
         for (i=0;i<=nn;i++)
             fprintf(out,"%5d %5d\n",i,hist[i]);
-    fclose(out);
+        fclose(out);
+        }
     out=fopen("rowcount.ep","w");
+    if (out!=NULL)
+        {
         for (i=0;i<region->r2-region->r1+1;i++)
             fprintf(out,"%5d %5d\n",i,rowcount[i]);
-    fclose(out);
+        fclose(out);
+        }
     willus_dmem_free(7,(double **)&hist,funcname);
     willus_dmem_free(6,(double **)&rowcount,funcname);
     }
@@ -260,12 +268,8 @@ void bmpregion_trim_to_crop_margins(BMPREGION *region,MASTERINFO *masterinfo,
             break;
     if (i<4)
         bmpregion_trim_margins(region,k2settings,0xf);
-    masterinfo_get_margins(margins_inches,&k2settings->srccropmargins,masterinfo,region);
-    /*
-    for (i=0;i<4;i++)
-        if (cbox->box[i]<0.)
-            k2pdfopt_settings_sanity_check(k2settings);
-    */
+    masterinfo_get_margins(k2settings,margins_inches,&k2settings->srccropmargins,
+                           masterinfo,region);
     n=(int)(0.5+margins_inches[0]*region->dpi);
     if (n>region->bmp->width)
         n=region->bmp->width;
@@ -347,6 +351,36 @@ void bmpregion_init(BMPREGION *region)
     textrows_init(&region->textrows);
     textrow_init(&region->bbox);
     region->wrectmaps=NULL;
+    region->k2pagebreakmarks=NULL;
+    region->k2pagebreakmarks_allocated=0;
+    }
+
+
+void bmpregion_k2pagebreakmarks_allocate(BMPREGION *region)
+
+    {
+    static char *funcname="bmpregion_k2pagebreakmarks_allocate";
+
+    bmpregion_k2pagebreakmarks_free(region);
+    willus_dmem_alloc_warn(44,(void **)&region->k2pagebreakmarks,sizeof(K2PAGEBREAKMARKS),
+                               funcname,10);
+    region->k2pagebreakmarks_allocated=1;
+    region->k2pagebreakmarks->n=0;
+    }
+
+
+void bmpregion_k2pagebreakmarks_free(BMPREGION *region)
+
+    {
+    static char *funcname="bmpregion_k2pagebreakmarks_free";
+
+    if (region->k2pagebreakmarks!=NULL && region->k2pagebreakmarks_allocated)
+        {
+        willus_dmem_free(44,(double **)&region->k2pagebreakmarks,funcname);
+        region->k2pagebreakmarks_allocated=0;
+        }
+    else
+        region->k2pagebreakmarks=NULL;
     }
 
 
@@ -355,6 +389,7 @@ void bmpregion_free(BMPREGION *region)
     {
     static char *funcname="bmpregion_free";
 
+    bmpregion_k2pagebreakmarks_free(region);
     willus_dmem_free(11,(double **)&region->rowcount,funcname);
     willus_dmem_free(10,(double **)&region->colcount,funcname);
     textrows_free(&region->textrows);
@@ -372,6 +407,7 @@ void bmpregion_copy(BMPREGION *dst,BMPREGION *src,int copy_text_rows)
     bmpregion_free(dst);
     dtr=dst->textrows;
     (*dst)=(*src);
+    dst->k2pagebreakmarks_allocated=0;
     dst->textrows=dtr;
     textrows_clear(&dst->textrows);
     if (copy_text_rows)
@@ -501,11 +537,15 @@ exit(10);
         bbox->capheight = bbox->rowbase-i+1;
         /*
         ** Sanity check capheight and lcheight
+        ** height2_calc() changed in v2.33.
         */
         h2=height2_calc(&rowcount[bbox->r1],bbox->r2-bbox->r1+1);
 #if (WILLUSDEBUGX & 8)
 if (bbox->c2-bbox->c1 > 1500)
 k2printf("reg %d x %d (%d,%d) - (%d,%d) h2=%d ch/h2=%g\n",bbox->c2-bbox->c1+1,bbox->r2-bbox->r1+1,bbox->c1,bbox->r1,bbox->c2,bbox->r2,h2,(double)bbox->capheight/h2);
+#endif
+#if (WILLUSDEBUGX & 16)
+printf("capheight=%d, h2=%d\n",bbox->capheight,h2);
 #endif
         if (bbox->capheight < h2*0.75)
             bbox->capheight = h2;
@@ -518,12 +558,16 @@ k2printf("reg %d x %d (%d,%d) - (%d,%d) h2=%d ch/h2=%g\n",bbox->c2-bbox->c1+1,bb
 if (bbox->c2-bbox->c1 > 1500)
 k2printf("    lcheight final = %d\n",bbox->lcheight);
 #endif
-#if (WILLUSDEBUGX & 10)
+#if (WILLUSDEBUGX & 16)
+/*
 if (bbox->c2-bbox->c1 > 1500 && bbox->r2-bbox->r1 < 100)
+*/
+if (bbox->lcheight==42)
 {
 static int append=0;
 FILE *f;
 int i;
+printf("lcheight=%d, h2=%d, capheight=%d, h5050=%d\n",bbox->lcheight,h2,bbox->capheight,bbox->h5050);
 f=fopen("textrows.ep",append==0?"w":"a");
 append=1;
 for (i=bbox->r1;i<=bbox->r2;i++)
@@ -670,8 +714,21 @@ static int height2_calc(int *rc,int n)
 #if (WILLUSDEBUGX & 8)
     cmax=c[n-1];
 #endif
-    for (i=0;i<n-1 && c[i]==0;i++);
-    thresh=c[(i+n)/3];
+#if (WILLUSDEBUGX & 16)
+{
+static int append=0;
+FILE *f;
+f=fopen("tr2.ep",append?"a":"w");
+append=1;
+for (i=0;i<n;i++)
+fprintf(f,"%g %g\n",(double)i/n,(double)c[i]/c[n-1]);
+fprintf(f,"//nc\n");
+fclose(f);
+}
+#endif
+    /* for (i=0;i<n-1 && c[i]==0;i++); */
+    /* v2.33:  change from c[(i+n)/3] to c[9*n/10]/2 */
+    thresh=c[9*n/10]/2;
     willus_dmem_free(12,(double **)&c,funcname);
     for (i=0;i<n-1;i++)
         if (rc[i]>=thresh)
@@ -926,12 +983,18 @@ rmax,rmin,textrow->lcheight,(double)(rmax-rmin+1)/textrow->lcheight);
                 break;
 }
             /* Must be reasonably well centered above baseline */
+            /* v2.33 -- changed to 0.25 to 0.85 (used to be 0.35 to 0.85) */
             rmean=(double)(rmax+rmin)/2;
-            if ((double)(textrow->rowbase-rmean)/textrow->lcheight < 0.35
+            if ((double)(textrow->rowbase-rmean)/textrow->lcheight < 0.25
                   || (double)(textrow->rowbase-rmean)/textrow->lcheight > 0.85)
 {
 #if (WILLUSDEBUGX & 16)
 fprintf(out,"  Not well centered (1).\n");
+fprintf(out,"      rowbase=%d\n",textrow->rowbase);
+fprintf(out,"      lcheight=%d\n",textrow->lcheight);
+fprintf(out,"      rmin=%d, rmax=%d, rmean=%g\n",rmin,rmax,rmean);
+fprintf(out,"      (rbase-rmean)/lh=%g\n",(textrow->rowbase-rmean)/textrow->lcheight);
+fprintf(out,"      (Needs to be between 0.25 and 0.85.)\n");
 #endif
                 break;
 }
@@ -947,7 +1010,6 @@ fprintf(out,"  Not well centered (2).\n");
         }
 #if (WILLUSDEBUGX & 16)
 fprintf(out,"   ch=%d, c2=%d, r1=%d, r2=%d\n",textrow->hyphen.ch,textrow->hyphen.c2,textrow->hyphen.r1,textrow->hyphen.r2);
-fclose(out);
 #endif
     /* More sanity checks--better to miss a hyphen than falsely detect it. */
     if (textrow->hyphen.ch>=0)
@@ -955,16 +1017,30 @@ fclose(out);
         double ar;
         /* If it's only a hyphen, then it's probably actually a dash--don't detect it. */
         if (textrow->hyphen.c2<0)
+{
+#if (WILLUSDEBUGX & 16)
+fprintf(out,"  Probably a dash (no preceding letter).\n");
+#endif
             textrow->hyphen.ch = -1;
+}
         /* Check aspect ratio */
         ar=(double)(textrow->hyphen.r2-textrow->hyphen.r1)/nrmid;
         if (ar<0.08 || ar > 0.75)
+{
+#if (WILLUSDEBUGX & 16)
+fprintf(out,"  Bad aspect ratio = %g (s/b between .08 and .75).\n",ar);
+#endif
             textrow->hyphen.ch = -1;
+}
         }
     willus_dmem_free(27,(double **)&r0,funcname);
 #if (WILLUSDEBUGX & 16)
 if (textrow->hyphen.ch>=0)
+{
 k2printf("\n\n   GOT HYPHEN.\n\n");
+fprintf(out,"  HYPHEN DETECTED.\n");
+}
+fclose(out);
 k2printf("   Exiting bmpregion_hyphen_detect\n");
 #endif
     }
@@ -1104,16 +1180,11 @@ void bmpregion_find_textrows(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
     if (k2settings->debug)
         k2printf("@bmpregion_find_textrows:  (%d,%d) - (%d,%d)\n",
                 region->c1,region->r1,region->c2,region->r2);
-    /*
-    ** brc = consecutive blank pixel rows
-    ** trc = consecutive non-blank pixel rows
-    ** dtrc = number of non blank pixel rows since last dump
-    */
     nr=region->r2-region->r1+1;
     willus_dmem_alloc_warn(15,(void **)&rowthresh,sizeof(int)*nr,funcname,10);
     brcmin = k2settings->max_vertical_gap_inches*region->dpi;
     bmpregion_fill_row_threshold_array(region,k2settings,dynamic_aperture,rowthresh,&rhmean_pixels);
-/*
+#if (WILLUSDEBUGX & 0x2)
 {
 static int count=0;
 if (!count)
@@ -1122,7 +1193,7 @@ bmp_write(region->bmp,"bigbmp.png",stdout,100);
 count++;
 }
 }
-k2printf("rhmean=%d (ntr=%d)\n",rhmean_pixels,ntr);
+k2printf("rhmean=%d\n",rhmean_pixels);
 {
 FILE *f;
 static int count=0;
@@ -1133,7 +1204,7 @@ nprintf(f,"%d\n",rowthresh[i-region->r1]);
 nprintf(f,"//nc\n");
 fclose(f);
 }
-*/
+#endif
     /* Minimum text row height required (pixels) */
     rhmin_pix = rhmean_pixels/3;
     if (rhmin_pix < .04*region->dpi)
@@ -1142,19 +1213,37 @@ fclose(f);
         rhmin_pix = .13*region->dpi;
     if (rhmin_pix < 1)
         rhmin_pix = 1;
+#if (WILLUSDEBUGX & 0x2)
+printf("rhmin_pix = %d\n",rhmin_pix);
+printf("brcmin = %d\n",brcmin);
+#endif
     /*
     for (rmax=region->r2;rmax>region->r1;rmax--)
         if (rowthresh[rmax-region->r1]>10)
             break;
     */
-    /* Look for gaps between rows in the region so that it can be broken into */
-    /* multiple "rows".                                                       */
+    /*
+    ** Look for gaps between rows in the region so that it can be broken into
+    ** multiple "rows".
+    **
+    ** brc = consecutive blank pixel rows
+    ** trc = consecutive non-blank pixel rows
+    ** dtrc = number of non blank pixel rows since last dump
+    */
     textrows_clear(textrows);
     for (labelrow=figrow=-1,dtrc=trc=brc=0,i=region->r1;i<=region->r2+1;i++)
         {
+#if (WILLUSDEBUGX & 0x2)
+printf("i=%d, dtrc=%d (nonblank since last dump), trc=%d (cons nb), brc=%d (cons blnk)\n",
+i,dtrc,trc,brc);
+printf("    rowthresh[i]=%d\n",rowthresh[i-region->r1]);
+#endif
         /* Does row have few enough black pixels to be considered blank? */
         if (i>region->r2 || rowthresh[i-region->r1]<=10) 
             {
+#if (WILLUSDEBUGX & 0x2)
+printf("    (Blank row.)\n");
+#endif
             trc=0;
             brc++;
             /*
@@ -1201,10 +1290,17 @@ fclose(f);
                     }
                 newregion->r2=i-1;
                 region_height_inches = (double)(newregion->r2-newregion->r1+1)/region->dpi;
+#if (WILLUSDEBUGX & 0x2)
+printf("    Optimum point = %d\n",i);
+printf("    Region_height = %g in.\n",region_height_inches);
+#endif
 
                 /* Could this region be a figure? */
                 if (i<=region->r2 && figrow < 0 && region_height_inches >= min_fig_height)
                     {
+#if (WILLUSDEBUGX & 0x2)
+printf("    Region could be figure.\n");
+#endif
                     /* If so, set figrow and don't process it yet. */
                     figrow = newregion->r1;
                     labelrow = -1;
@@ -1216,6 +1312,9 @@ fclose(f);
                 /* Are we processing a figure? */
                 if (figrow >= 0)
                     {
+#if (WILLUSDEBUGX & 0x2)
+printf("    Processing a figure (figrow=%d).\n",figrow);
+#endif
                     /* Compute most recent gap */
                     if (labelrow>=0)
                         gap_inches = (double)(labelrow-newregion->r1)/region->dpi;
@@ -1228,6 +1327,9 @@ fclose(f);
                     else
                         {
                         /* Not small enough--dump the previous figure. */
+#if (WILLUSDEBUGX & 0x2)
+printf("    Dumping previous figure.\n");
+#endif
                         newregion->r2=newregion->r1-1;
                         newregion->r1=figrow;
                         newregion->c1=region->c1;
@@ -1270,8 +1372,14 @@ printf("1. textrow[%d] = figure.\n",textrows->n-1);
                 newregion->c2=region->c2;
                 newregion->bbox.type=0;
                 bmpregion_calc_bbox(newregion,k2settings,1);
+#if (WILLUSDEBUGX & 0x2)
+printf("    Adding bmpregion: (%d,%d)-(%d,%d).\n",newregion->c1,newregion->r1,newregion->c2,newregion->r2);
+#endif
                 if (newregion->r2>newregion->r1)
                     textrows_add_bmpregion(textrows,newregion,REGION_TYPE_TEXTLINE);
+#if (WILLUSDEBUGX & 0x2)
+printf("        Done adding bmpregion: (%d,%d)-(%d,%d).\n",newregion->c1,newregion->r1,newregion->c2,newregion->r2);
+#endif
                 newregion->r1=i;
                 dtrc=trc=0;
                 brc=1;
@@ -1279,6 +1387,9 @@ printf("1. textrow[%d] = figure.\n",textrows->n-1);
             }
         else
             {
+#if (WILLUSDEBUGX & 0x2)
+printf("    (Non-blank row.)\n");
+#endif
             if (figrow>=0 && labelrow<0)
                 labelrow=i;
             dtrc++;
@@ -1294,10 +1405,16 @@ printf("1. textrow[%d] = figure.\n",textrows->n-1);
     /* Compute gaps between rows and row heights */
     textrows_compute_row_gaps(textrows,region->r2);
 
+#if (WILLUSDEBUGX & 0x2)
+printf("CC\n");
+#endif
     /* Look for double-height and triple-height rows and break them up */
     /* if conditions seem right.                                       */
     textrows_find_doubles(textrows,rowthresh,region,k2settings,3,dynamic_aperture);
 
+#if (WILLUSDEBUGX & 0x2)
+printf("DD\n");
+#endif
     /* Compute gaps between rows and row heights again */
     textrows_compute_row_gaps(textrows,region->r2);
 
@@ -1307,7 +1424,7 @@ printf("1. textrow[%d] = figure.\n",textrows->n-1);
         /* textrows_remove_small_rows needs types determined */
         for (i=0;i<textrows->n;i++)
             textrow_determine_type(region,k2settings,i);
-        textrows_remove_small_rows(textrows,k2settings,0.25,0.5,region);
+        textrows_remove_small_rows(textrows,k2settings,0.25,0.5,region,-1.0);
         }
 
     /* Compute gaps between rows and row heights again */
@@ -1339,7 +1456,9 @@ void bmpregion_fill_row_threshold_array(BMPREGION *region,K2PDFOPT_SETTINGS *k2s
     aperturemax = (int)(region->dpi/72.+.5);
     if (aperturemax < 2)
         aperturemax = 2;
-    aperture=(int)(region->dpi*k2settings->column_row_gap_height_in+.5);
+    aperture=aperturemax;
+    /* v2.33 -- don't use column_row_gap_height_in for aperture. */
+    /* aperture=(int)(region->dpi*k2settings->column_row_gap_height_in+.5); */
 /*
 for (i=region->r1;i<=region->r2;i++)
 k2printf("rowcount[%d]=%d\n",i,region->rowcount[i]);
@@ -1423,7 +1542,7 @@ printf("    wordspacing=%g\n",k2settings->word_spacing);
 #endif
 #if (WILLUSDEBUGX & 0x1000)
 {
-char filename[MAXFILEENAMELEN];
+char filename[MAXFILENAMELEN];
 rn++;
 /*
 if (rn==3)
@@ -2050,3 +2169,78 @@ aprintf("        gt=%d, wlen=%d (dl=%d)\n",gap_thresh,c-i0,display_width);
     return(0);
     }
 #endif
+
+
+void bmpregion_whiteout(BMPREGION *dstregion,BMPREGION *croppedregion)
+
+    {
+    if (dstregion->bmp!=NULL)
+        bmp_draw_filled_rect(dstregion->bmp,croppedregion->c1,croppedregion->r1,
+                                            croppedregion->c2,croppedregion->r2,
+                                            255,255,255);
+    if (dstregion->bmp8!=NULL && dstregion->bmp8!=dstregion->bmp)
+        bmp_draw_filled_rect(dstregion->bmp8,croppedregion->c1,croppedregion->r1,
+                                             croppedregion->c2,croppedregion->r2,
+                                             255,255,255);
+    }
+
+
+void bmpregion_local_pagebreakmarkers(BMPREGION *region,int left_to_right,int whitethresh)
+
+    {
+    int i,c1,c2;
+
+    if (region->k2pagebreakmarks==NULL)
+        return;
+    c1=region->c1;
+    c2=region->c2;
+    if (left_to_right)
+        c1 -= region->dpi;
+    else
+        c2 += region->dpi;
+    for (i=0;i<region->k2pagebreakmarks->n;i++)
+        {
+        K2PAGEBREAKMARK *mark;
+
+        mark=&region->k2pagebreakmarks->k2pagebreakmark[i];
+        if (mark->col < c1 || mark->col > c2)
+            {
+            mark->type = -1;
+            continue;
+            }
+        if (mark->row < region->r2 || bmpregion_clean_to_row(region,mark->row,whitethresh))
+            mark->row -= region->r1;
+        else
+            mark->type = -1;
+        }
+    }
+
+
+/*
+** This should be smarter--should have a generic function that does this using
+** same logic as trim_to().
+*/
+int bmpregion_clean_to_row(BMPREGION *region,int row,int whitethresh)
+
+    {
+    int i,max,pixwidth;
+
+    max=(int)(.01*region->dpi+.5);
+    if (max<1)
+        max=1;
+    pixwidth=region->c2-region->c1+1;
+    for (i=region->r2+1;i<row;i++)
+        {
+        unsigned char *p;
+        int pc,j;
+
+        pc=0;
+        p=bmp_rowptr_from_top(region->bmp8,i)+region->c1;
+        for (j=0;j<pixwidth;j++,p++)
+            if (p[0] < whitethresh)
+                pc++;
+        if (pc >= max)
+            return(0);
+        }
+    return(1);
+    }

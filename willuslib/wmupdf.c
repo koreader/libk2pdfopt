@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -31,25 +31,26 @@
 #include <mupdf/pdf.h>
 void pdf_install_load_system_font_funcs(fz_context *ctx);
 
-static void info_update(pdf_document *xref,char *producer);
-static void dict_put_string(pdf_document *doc,pdf_obj *dict,char *key,char *string);
-static void wmupdf_page_bbox(pdf_obj *srcpage,double *bbox_array);
+static void info_update(fz_context *ctx,pdf_document *xref,char *producer,char *author,char *title);
+static void dict_put_string(fz_context *ctx,pdf_document *doc,pdf_obj *dict,char *key,char *string);
+static void wmupdf_object_bbox(fz_context *ctx,pdf_obj *srcpage,double *bbox_array,double *defbbox);
 static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINFO *pageinfo,
                                   int use_forms,WPDFOUTLINE *wpdfoutline,FILE *out);
 static void set_clip_array(double *xclip,double *yclip,double rot_deg,double width,double height);
 static void cat_pdf_double(char *buf,double x);
-static void wmupdf_convert_pages_to_forms(pdf_document *xref,fz_context *ctx,int *srcpageused);
+static void wmupdf_convert_pages_to_forms(pdf_document *xref,fz_context *ctx,int *srcpageused,
+                                          double *defaultbbox);
 static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ctx,
-                                               pdf_obj *srcpageref,int pageno);
-static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,
-                          int *length);
-static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,
-                                 pdf_obj *dict);
+                                               pdf_obj *srcpageref,int pageno,double *defaultbbox);
+static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,int *length);
+static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,
+                                 int pagegen,pdf_obj *dict);
 static char *xobject_name(int pageno);
-static pdf_obj *start_new_destpage(pdf_document *doc,double width_pts,double height_pts);
+static pdf_obj *start_new_destpage(fz_context *ctx,pdf_document *doc,double width_pts,double height_pts);
 static void wmupdf_preserve_old_dests(pdf_obj *olddests,fz_context *ctx,pdf_document *xref,
                                       pdf_obj *pages);
 static int new_stream_object(pdf_document *xref,fz_context *ctx,char *buf);
+static void wmupdf_update_stream(fz_context *ctx,pdf_document *doc,int num,fz_buffer *newbuf);
 static void wmupdf_dict_merge(fz_context *ctx,char *distname,pdf_obj *dstdict,pdf_obj *srcdict);
 static void wmupdf_dict_merge_keyval(fz_context *ctx,pdf_obj *dstdict,pdf_obj *key,pdf_obj *value);
 static void wmupdf_array_merge(fz_context *ctx,char *arrayname,pdf_obj *dstarray,pdf_obj *srcarray);
@@ -68,10 +69,10 @@ static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_text_page
 ** Outline functions
 */
 static WPDFOUTLINE *wpdfoutline_convert_from_fitz_outline(fz_outline *fzoutline);
-static void pdf_create_outline(pdf_document *doc,pdf_obj *outline_root,pdf_obj *orref,WPDFOUTLINE *outline);
-static void pdf_create_outline_1(pdf_document *doc,pdf_obj *parent,pdf_obj *parentref,pdf_obj *dict,pdf_obj *dictref,int drefnum,WPDFOUTLINE *outline);
-static pdf_obj *anchor_reference(pdf_document *doc,int pageno);
-static pdf_obj *pdf_new_string_utf8(pdf_document *doc,char *string);
+static void pdf_create_outline(fz_context *ctx,pdf_document *doc,pdf_obj *outline_root,pdf_obj *orref,WPDFOUTLINE *outline);
+static void pdf_create_outline_1(fz_context *ctx,pdf_document *doc,pdf_obj *parent,pdf_obj *parentref,pdf_obj *dict,pdf_obj *dictref,int drefnum,WPDFOUTLINE *outline);
+static pdf_obj *anchor_reference(fz_context *ctx,pdf_document *doc,int pageno);
+static pdf_obj *pdf_new_string_utf8(fz_context *ctx,pdf_document *doc,char *string);
 
 
 int wmupdf_numpages(char *filename)
@@ -92,13 +93,13 @@ int wmupdf_numpages(char *filename)
         }
     fz_catch(ctx)
         {
-        fz_free_context(ctx);
+        fz_drop_context(ctx);
         return(-2);
         }
-    np=fz_count_pages(doc);
-    fz_close_document(doc);
+    np=fz_count_pages(ctx,doc);
+    fz_drop_document(ctx,doc);
     fz_flush_warnings(ctx);
-    fz_free_context(ctx);
+    fz_drop_context(ctx);
     return(np);
     }
 
@@ -133,35 +134,35 @@ int wmupdf_info_field(char *infile,char *label,char *buf,int maxlen)
     fz_try(ctx)
         {
         fz_register_document_handlers(ctx);
-        xref=pdf_open_document_no_run(ctx,infile);
+        xref=pdf_open_document(ctx,infile);
         if (!xref)
             {
-            fz_free_context(ctx);
+            fz_drop_context(ctx);
             return(-2);
             }
-        if (pdf_needs_password(xref) && !pdf_authenticate_password(xref,password))
+        if (pdf_needs_password(ctx,xref) && !pdf_authenticate_password(ctx,xref,password))
             {
-            pdf_close_document(xref);
-            fz_free_context(ctx);
+            pdf_close_document(ctx,xref);
+            fz_drop_context(ctx);
             return(-3);
             }
-        if (pdf_trailer(xref)!=NULL
-            && (info=pdf_dict_gets(pdf_trailer(xref),"Info"))!=NULL
-            && (obj=pdf_dict_gets(info,label))!=NULL
-            && pdf_is_string(obj))
+        if (pdf_trailer(ctx,xref)!=NULL
+            && (info=pdf_dict_gets(ctx,pdf_trailer(ctx,xref),"Info"))!=NULL
+            && (obj=pdf_dict_gets(ctx,info,label))!=NULL
+            && pdf_is_string(ctx,obj))
             {
-            strncpy(buf,pdf_to_str_buf(obj),maxlen-1);
+            strncpy(buf,pdf_to_str_buf(ctx,obj),maxlen-1);
             buf[maxlen-1]='\0';
             }
         }
     fz_always(ctx)
         {
-        pdf_close_document(xref);
+        pdf_close_document(ctx,xref);
         }
     fz_catch(ctx)
         {
         }
-    fz_free_context(ctx);
+    fz_drop_context(ctx);
     return(0);
     }
 
@@ -172,7 +173,7 @@ int wmupdf_info_field(char *infile,char *label,char *buf,int maxlen)
 ** use_forms==1:  New-style where pages are turned into XObject forms.
 */
 int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_forms,
-                      WPDFOUTLINE *wpdfoutline,FILE *out)
+                      WPDFOUTLINE *wpdfoutline,WILLUSBITMAP *coverimage,FILE *out)
 
     {
     pdf_document *xref;
@@ -205,41 +206,41 @@ int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_
         fz_register_document_handlers(ctx);
         /* Sumatra version of MuPDF v1.4 -- use locally installed fonts */
         pdf_install_load_system_font_funcs(ctx);
-        xref=pdf_open_document_no_run(ctx,infile);
+        xref=pdf_open_document(ctx,infile);
         if (!xref)
             {
-            fz_free_context(ctx);
+            fz_drop_context(ctx);
             nprintf(out,"wmupdf_remake_pdf:  Cannot open PDF file %s.\n",infile);
             return(-2);
             }
-        if (pdf_needs_password(xref) && !pdf_authenticate_password(xref,password))
+        if (pdf_needs_password(ctx,xref) && !pdf_authenticate_password(ctx,xref,password))
             {
-            pdf_close_document(xref);
-            fz_free_context(ctx);
+            pdf_close_document(ctx,xref);
+            fz_drop_context(ctx);
             nprintf(out,"wmupdf_remake_pdf:  Cannot authenticate PDF file %s.\n",infile);
             return(-3);
             }
         status=wmupdf_pdfdoc_newpages(xref,ctx,pageinfo,use_forms,wpdfoutline,out);
         if (status<0)
             {
-            pdf_close_document(xref);
-            fz_free_context(ctx);
+            pdf_close_document(ctx,xref);
+            fz_drop_context(ctx);
             nprintf(out,"wmupdf_remake_pdf:  Error re-paginating PDF file %s.\n",infile);
             return(status);
             }
-        info_update(xref,pageinfo->producer);
+        info_update(ctx,xref,pageinfo->producer,pageinfo->author,pageinfo->title);
         /* Write output */
-        pdf_write_document(xref,outfile,&fzopts);
+        pdf_write_document(ctx,xref,outfile,&fzopts);
         }
     fz_always(ctx)
         {
-        pdf_close_document(xref);
+        pdf_close_document(ctx,xref);
         }
     fz_catch(ctx)
         {
         write_failed=1;
         }
-    fz_free_context(ctx);
+    fz_drop_context(ctx);
     if (write_failed)
         {
         nprintf(out,"wmupdf_remake_pdf:  Error writing output PDF file %s.\n",outfile);
@@ -249,7 +250,7 @@ int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_
     }
 
 
-static void info_update(pdf_document *xref,char *producer)
+static void info_update(fz_context *ctx,pdf_document *xref,char *producer,char *author,char *title)
 
     {
     char moddate[64];
@@ -258,7 +259,7 @@ static void info_update(pdf_document *xref,char *producer)
     pdf_obj *info;
     int newinfo;
 
-    if (pdf_trailer(xref)==NULL)
+    if (pdf_trailer(ctx,xref)==NULL)
         return;
     time(&now);
     date=(*localtime(&now));
@@ -266,39 +267,46 @@ static void info_update(pdf_document *xref,char *producer)
            date.tm_year+1900,date.tm_mon+1,date.tm_mday,
            date.tm_hour,date.tm_min,date.tm_sec,
            wsys_utc_string());
-    info=pdf_dict_gets(pdf_trailer(xref),"Info");
-    if (info==NULL)
+    info=pdf_dict_gets(ctx,pdf_trailer(ctx,xref),"Info");
+    /* v2.33:  if pdf_resolve_indirect is NULL, it means Info has a bad dictionary. */
+    if (info==NULL || pdf_resolve_indirect(ctx,info)==NULL)
         {
         newinfo=1;
-        info=pdf_new_dict(xref,2);
+        info=pdf_new_dict(ctx,xref,2);
         }
     else
         newinfo=0;
-    dict_put_string(xref,info,"Producer",producer);
-    dict_put_string(xref,info,"ModDate",moddate);
+    if (producer!=NULL && producer[0]!='\0')
+        dict_put_string(ctx,xref,info,"Producer",producer);
+    if (author!=NULL && author[0]!='\0')
+        dict_put_string(ctx,xref,info,"Author",author);
+    if (title!=NULL && title[0]!='\0')
+        dict_put_string(ctx,xref,info,"Title",title);
+    dict_put_string(ctx,xref,info,"ModDate",moddate);
     if (newinfo)
         {
-        pdf_dict_puts(pdf_trailer(xref),"Info",info);
-        pdf_drop_obj(info);
+        pdf_dict_puts(ctx,pdf_trailer(ctx,xref),"Info",info);
+        pdf_drop_obj(ctx,info);
         }
     }
 
 
-static void dict_put_string(pdf_document *doc,pdf_obj *dict,char *key,char *string)
+static void dict_put_string(fz_context *ctx,pdf_document *doc,pdf_obj *dict,char *key,char *string)
 
     {
     pdf_obj *value;
 
-    value=pdf_new_string(doc,string,strlen(string));
-    pdf_dict_puts(dict,key,value);
-    pdf_drop_obj(value);
+    value=pdf_new_string(ctx,doc,string,strlen(string));
+    pdf_dict_puts(ctx,dict,key,value);
+    pdf_drop_obj(ctx,value);
     }
 
 
 /*
 ** Look at CropBox and MediaBox entries to determine visible page origin.
+** Use bbox_def[] if no bbox found (and if not NULL)
 */
-static void wmupdf_page_bbox(pdf_obj *srcpage,double *bbox_array)
+static void wmupdf_object_bbox(fz_context *ctx,pdf_obj *srcpage,double *bbox_array,double *bbox_def)
 
     {
     int i;
@@ -310,7 +318,7 @@ static void wmupdf_page_bbox(pdf_obj *srcpage,double *bbox_array)
         static char *boxname[] = {"MediaBox","CropBox"};
         pdf_obj *box;
 
-        box=pdf_dict_gets(srcpage,boxname[i]);
+        box=pdf_dict_gets(ctx,srcpage,boxname[i]);
         if (box!=NULL)
             {
             int j;
@@ -318,11 +326,11 @@ static void wmupdf_page_bbox(pdf_obj *srcpage,double *bbox_array)
                 {
                 pdf_obj *obj;
 
-                obj=pdf_array_get(box,j);
+                obj=pdf_array_get(ctx,box,j);
                 if (obj!=NULL)
                     {
                     double x;
-                    x=pdf_to_real(obj);
+                    x=pdf_to_real(ctx,obj);
                     if ((j<2 && x>bbox_array[j]) || (j>=2 && x<bbox_array[j]))
                         bbox_array[j]=x;
                     }
@@ -330,13 +338,13 @@ static void wmupdf_page_bbox(pdf_obj *srcpage,double *bbox_array)
             }
         }
     if (bbox_array[0] < -9e9)
-        bbox_array[0] = 0.;
+        bbox_array[0] = ((bbox_def!=NULL && bbox_def[0]>-9e9) ? bbox_def[0] : 0.);
     if (bbox_array[1] < -9e9)
-        bbox_array[1] = 0.;
+        bbox_array[1] = ((bbox_def!=NULL && bbox_def[1]>-9e9) ? bbox_def[1] : 0.);
     if (bbox_array[2] > 9e9)
-        bbox_array[2] = 612.;
+        bbox_array[2] = ((bbox_def!=NULL && bbox_def[2]<9e9) ? bbox_def[2] : 612.);
     if (bbox_array[3] > 9e9)
-        bbox_array[3] = 792.;
+        bbox_array[3] = ((bbox_def!=NULL && bbox_def[3]<9e9) ? bbox_def[3] : 792.);
     }
 
 
@@ -348,7 +356,7 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
     pdf_obj *root,*oldroot,*pages,*kids,*countobj,*parent,*olddests;
     pdf_obj *srcpageobj,*srcpagecontents;
     pdf_obj *destpageobj,*destpagecontents,*destpageresources;
-    double srcx0,srcy0;
+    double srcx0,srcy0,defaultbbox[4];
     int qref,i,i0,pagecount,srccount,destpageref,nbb,numpages;
     int *srcpageused;
     char *bigbuf;
@@ -359,7 +367,7 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
     destpageobj = NULL;
     srcx0=srcy0=0.;
     /* Keep only pages/type and (reduced) dest entries to avoid references to unretained pages */
-    pagecount = pdf_count_pages(xref);
+    pagecount = pdf_count_pages(ctx,xref);
     if (use_forms)
         {
         willus_mem_alloc_warn((void **)&srcpageused,sizeof(int)*(pagecount+1),funcname,10);
@@ -370,31 +378,32 @@ static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINF
         willus_mem_alloc_warn((void **)&bigbuf,nbb,funcname,10);
         bigbuf[0]='\0';
         }
-    oldroot = pdf_dict_gets(pdf_trailer(xref),"Root");
+    oldroot = pdf_dict_gets(ctx,pdf_trailer(ctx,xref),"Root");
     /*
     ** pages points to /Pages object in PDF file.
     ** Has:  /Type /Pages, /Count <numpages>, /Kids [ obj obj obj obj ]
     */
-    pages = pdf_dict_gets(oldroot,"Pages");
-    olddests = pdf_load_name_tree(xref,"Dests");
+    pages = pdf_dict_gets(ctx,oldroot,"Pages");
+    wmupdf_object_bbox(ctx,pages,defaultbbox,NULL);
+    olddests = pdf_load_name_tree(ctx,xref,pdf_dict_gets(ctx,pdf_dict_gets(ctx,oldroot,"Names"),"Dests"));
 
     /*
     ** Create new root object with only /Pages and /Type (and reduced dest entries)
     ** to avoid references to unretained pages.
     */
-    root = pdf_new_dict(xref,4);
-    pdf_dict_puts(root,"Type",pdf_dict_gets(oldroot,"Type"));
-    pdf_dict_puts(root,"Pages",pages);
-    pdf_update_object(xref,pdf_to_num(oldroot),root);
+    root = pdf_new_dict(ctx,xref,4);
+    pdf_dict_puts(ctx,root,"Type",pdf_dict_gets(ctx,oldroot,"Type"));
+    pdf_dict_puts(ctx,root,"Pages",pages);
+    pdf_update_object(ctx,xref,pdf_to_num(ctx,oldroot),root);
 /*
     pdf_drop_obj(root);
 */
 
     /* Parent indirectly references the /Pages object in the file */
     /* (Each new page we create has to point to this.)            */
-    parent = pdf_new_indirect(xref, pdf_to_num(pages), pdf_to_gen(pages));
+    parent = pdf_new_indirect(ctx, xref, pdf_to_num(ctx,pages), pdf_to_gen(ctx,pages));
     /* Create a new kids array with only the pages we want to keep */
-    kids = pdf_new_array(xref, 1);
+    kids = pdf_new_array(ctx, xref, 1);
 
 
     qref=0;
@@ -443,32 +452,32 @@ printf("    scale=%g\n",box->scale);
             ** Store destination page into document structure
             */
 /*
-printf("    ADDING NEW PAGE. (srccount=%d)\n",srccount);
+printf("    ADDING NEW PAGE. (srccount=%d, use_forms=%d)\n",srccount,use_forms);
 */
             if (use_forms)
                 {
                 pdf_obj *dest_stream;
 
                 /* Create new object in document for destination page stream */
-                dest_stream = pdf_new_indirect(xref,new_stream_object(xref,ctx,bigbuf),0);
+                dest_stream = pdf_new_indirect(ctx,xref,new_stream_object(xref,ctx,bigbuf),0);
                 /* Store this into the destination page contents array */
-                pdf_array_push(destpagecontents,dest_stream);
-                pdf_drop_obj(dest_stream);
+                pdf_array_push(ctx,destpagecontents,dest_stream);
+                pdf_drop_obj(ctx,dest_stream);
                 }
-            newpageref=pdf_new_indirect(xref,destpageref,0);
+            newpageref=pdf_new_indirect(ctx,xref,destpageref,0);
             /* Reference parent list of pages */
-            pdf_dict_puts(destpageobj,"Parent",parent);
-            pdf_dict_puts(destpageobj,"Contents",destpagecontents);
-            pdf_dict_puts(destpageobj,"Resources",destpageresources);
+            pdf_dict_puts(ctx,destpageobj,"Parent",parent);
+            pdf_dict_puts(ctx,destpageobj,"Contents",destpagecontents);
+            pdf_dict_puts(ctx,destpageobj,"Resources",destpageresources);
             /* Store page object in document's kids array */
-            pdf_array_push(kids,newpageref);
+            pdf_array_push(ctx,kids,newpageref);
             /* Update document with new page */
-            pdf_update_object(xref,destpageref,destpageobj);
+            pdf_update_object(ctx,xref,destpageref,destpageobj);
             /* Clean up */
-            pdf_drop_obj(newpageref);
-            pdf_drop_obj(destpageresources);
-            pdf_drop_obj(destpagecontents);
-            pdf_drop_obj(destpageobj);
+            pdf_drop_obj(ctx,newpageref);
+            pdf_drop_obj(ctx,destpageresources);
+            pdf_drop_obj(ctx,destpagecontents);
+            pdf_drop_obj(ctx,destpageobj);
             /* Reset source page and index to start of new destination page */
             i0=i;
             srccount=0;
@@ -515,12 +524,12 @@ printf("    NEW SOURCE PAGE (srccount=%d)\n",srccount);
 /*
 printf("        (STARTING NEW DEST. PAGE)\n");
 */
-                destpageobj=start_new_destpage(xref,box->dst_width_pts,box->dst_height_pts);
-                destpageresources=pdf_new_dict(xref,1);
+                destpageobj=start_new_destpage(ctx,xref,box->dst_width_pts,box->dst_height_pts);
+                destpageresources=pdf_new_dict(ctx,xref,1);
                 if (use_forms)
-                    pdf_dict_puts(destpageresources,"XObject",pdf_new_dict(xref,1));
-                destpageref=pdf_create_object(xref);
-                destpagecontents=pdf_new_array(xref,1);
+                    pdf_dict_puts(ctx,destpageresources,"XObject",pdf_new_dict(ctx,xref,1));
+                destpageref=pdf_create_object(ctx,xref);
+                destpagecontents=pdf_new_array(ctx,xref,1);
                 /* Init the destination page stream for forms */
                 if (use_forms)
                     bigbuf[0]='\0';
@@ -528,32 +537,32 @@ printf("        (STARTING NEW DEST. PAGE)\n");
             /* New source page, so get the source page objects */
             /* srcpageobj = xref->page_objs[box->srcbox.pageno-1]; */
             /* pageno, or pageno-1?? */
-            srcpageobj = pdf_resolve_indirect(pdf_lookup_page_obj(xref,box->srcbox.pageno-1));
-            wmupdf_page_bbox(srcpageobj,v);
+            srcpageobj = pdf_resolve_indirect(ctx,pdf_lookup_page_obj(ctx,xref,box->srcbox.pageno-1));
+            wmupdf_object_bbox(ctx,srcpageobj,v,defaultbbox);
             srcx0=v[0];
             srcy0=v[1];
 /*
 printf("SRCX0=%g, SRCY0=%g\n",srcx0,srcy0);
 */
-            rotobj=pdf_dict_gets(srcpageobj,"Rotate");
-            srcpagerot = rotobj!=NULL ? pdf_to_real(rotobj) : 0.;
+            rotobj=pdf_dict_gets(ctx,srcpageobj,"Rotate");
+            srcpagerot = rotobj!=NULL ? pdf_to_real(ctx,rotobj) : 0.;
 /*
 printf("Page rotation = %g\n",srcpagerot);
 */
-            srcpagecontents=pdf_dict_gets(srcpageobj,"Contents");
+            srcpagecontents=pdf_dict_gets(ctx,srcpageobj,"Contents");
 /*
-if (pdf_is_array(srcpagecontents))
+if (pdf_is_array(ctx,srcpagecontents))
 {
 int k;
 printf("    source page contents = array.\n");
-for (k=0;k<pdf_array_len(srcpagecontents);k++)
+for (k=0;k<pdf_array_len(ctx,srcpagecontents);k++)
 {
 pdf_obj *obj;
-obj=pdf_array_get(srcpagecontents,k);
-if (pdf_is_indirect(obj))
+obj=pdf_array_get(ctx,srcpagecontents,k);
+if (pdf_is_indirect(ctx,obj))
 {
-printf("    contents[%d] = indirect (%d)\n",k,pdf_to_num(obj));
-pdf_resolve_indirect(obj);
+printf("    contents[%d] = indirect (%d)\n",k,pdf_to_num(ctx,obj));
+pdf_resolve_indirect(ctx,obj);
 }
 }
 }
@@ -563,20 +572,20 @@ pdf_resolve_indirect(obj);
                 pdf_obj *xobjdict,*pageref;
                 int pageno;
 
-                xobjdict=pdf_dict_gets(destpageresources,"XObject");
+                xobjdict=pdf_dict_gets(ctx,destpageresources,"XObject");
                 pageno=box->srcbox.pageno;
-                pageref=pdf_lookup_page_obj(xref,pageno-1);
-                pdf_dict_puts(xobjdict,xobject_name(pageno),pageref);
-                pdf_dict_puts(destpageresources,"XObject",xobjdict);
+                pageref=pdf_lookup_page_obj(ctx,xref,pageno-1);
+                pdf_dict_puts(ctx,xobjdict,xobject_name(pageno),pageref);
+                pdf_dict_puts(ctx,destpageresources,"XObject",xobjdict);
                 }
             else
                 {
                 pdf_obj *srcpageresources;
 
                 /* Merge source page resources into destination page resources */
-                srcpageresources=pdf_dict_gets(srcpageobj,"Resources");
+                srcpageresources=pdf_dict_gets(ctx,srcpageobj,"Resources");
 /*
-printf("box->dstpage=%d, srcpage=%d (ind.#=%d)\n",box->dstpage,box->srcbox.pageno,pdf_to_num(xref->page_refs[box->srcbox.pageno-1]));
+printf("box->dstpage=%d, srcpage=%d (ind.#=%d)\n",box->dstpage,box->srcbox.pageno,pdf_to_num(ctx,xref->page_refs[box->srcbox.pageno-1]));
 */
                 wmupdf_dict_merge(ctx,"Resources",destpageresources,srcpageresources);
                 }
@@ -694,38 +703,38 @@ printf("Clip path:\n    %7.2f %7.2f\n    %7.2f,%7.2f\n    %7.2f,%7.2f\n"
             /* NO-FORMS METHOD */
             strcat(buf,"\n");
             /* Create new objects in document for tx matrix and restore matrix */
-            s1indirect = pdf_new_indirect(xref,new_stream_object(xref,ctx,buf),0);
+            s1indirect = pdf_new_indirect(ctx,xref,new_stream_object(xref,ctx,buf),0);
             if (qref==0)
                 qref=new_stream_object(xref,ctx,"Q\n");
-            qindirect = pdf_new_indirect(xref,qref,0);
+            qindirect = pdf_new_indirect(ctx,xref,qref,0);
             /* Store this region into the destination page contents array */
-            pdf_array_push(destpagecontents,s1indirect);
-            if (pdf_is_array(srcpagecontents))
+            pdf_array_push(ctx,destpagecontents,s1indirect);
+            if (pdf_is_array(ctx,srcpagecontents))
                 {
                 int k;
-                for (k=0;k<pdf_array_len(srcpagecontents);k++)
-                    pdf_array_push(destpagecontents,pdf_array_get(srcpagecontents,k));
+                for (k=0;k<pdf_array_len(ctx,srcpagecontents);k++)
+                    pdf_array_push(ctx,destpagecontents,pdf_array_get(ctx,srcpagecontents,k));
                 }
             else
-                pdf_array_push(destpagecontents,srcpagecontents);
-            pdf_array_push(destpagecontents,qindirect);
-            pdf_drop_obj(s1indirect);
-            pdf_drop_obj(qindirect);
+                pdf_array_push(ctx,destpagecontents,srcpagecontents);
+            pdf_array_push(ctx,destpagecontents,qindirect);
+            pdf_drop_obj(ctx,s1indirect);
+            pdf_drop_obj(ctx,qindirect);
             }
         }
-    pdf_drop_obj(parent);
+    pdf_drop_obj(ctx,parent);
 
     /* For forms, convert all original source pages to XObject Forms */
     if (use_forms)
-        wmupdf_convert_pages_to_forms(xref,ctx,srcpageused);
+        wmupdf_convert_pages_to_forms(xref,ctx,srcpageused,defaultbbox);
 
     /* Update page count and kids array */
-    numpages = pdf_array_len(kids);
-    countobj = pdf_new_int(xref, numpages);
-    pdf_dict_puts(pages, "Count", countobj);
-    pdf_drop_obj(countobj);
-    pdf_dict_puts(pages, "Kids", kids);
-    pdf_drop_obj(kids);
+    numpages = pdf_array_len(ctx,kids);
+    countobj = pdf_new_int(ctx,xref, numpages);
+    pdf_dict_puts(ctx,pages, "Count", countobj);
+    pdf_drop_obj(ctx,countobj);
+    pdf_dict_puts(ctx,pages, "Kids", kids);
+    pdf_drop_obj(ctx,kids);
 
     /* Also preserve the (partial) Dests name tree */
     if (olddests)
@@ -745,16 +754,16 @@ printf("Clip path:\n    %7.2f %7.2f\n    %7.2f,%7.2f\n    %7.2f,%7.2f\n"
 
         wpdfoutline_fill_in_blank_dstpages(wpdfoutline,numpages);
 /* wpdfoutline_echo(wpdfoutline,0,1,stdout); */
-        ref = pdf_create_object(xref);
-        outline_root = pdf_new_dict(xref,4);
-        ori = pdf_new_indirect(xref,ref,0);
-        pdf_create_outline(xref,outline_root,ori,wpdfoutline);
-        pdf_update_object(xref,ref,outline_root);
-        pdf_drop_obj(outline_root);
-        pdf_dict_puts(root,"Outlines",ori);
-        pdf_drop_obj(ori);
+        ref = pdf_create_object(ctx,xref);
+        outline_root = pdf_new_dict(ctx,xref,4);
+        ori = pdf_new_indirect(ctx,xref,ref,0);
+        pdf_create_outline(ctx,xref,outline_root,ori,wpdfoutline);
+        pdf_update_object(ctx,xref,ref,outline_root);
+        pdf_drop_obj(ctx,outline_root);
+        pdf_dict_puts(ctx,root,"Outlines",ori);
+        pdf_drop_obj(ctx,ori);
         }
-    pdf_drop_obj(root);
+    pdf_drop_obj(ctx,root);
     return(0);
     }
 
@@ -826,14 +835,15 @@ static void cat_pdf_double(char *buf,double x)
     }
 
 
-static void wmupdf_convert_pages_to_forms(pdf_document *xref,fz_context *ctx,int *srcpageused)
+static void wmupdf_convert_pages_to_forms(pdf_document *xref,fz_context *ctx,int *srcpageused,
+                                          double *defaultbbox)
 
     {
     int i,pagecount;
     pdf_obj **srcpage;
     static char *funcname="wmupdf_convert_pages_to_forms";
 
-    pagecount = pdf_count_pages(xref);
+    pagecount = pdf_count_pages(ctx,xref);
     willus_mem_alloc_warn((void **)&srcpage,sizeof(pdf_obj *)*pagecount,funcname,10);
     /*
     ** Lookup all page references before we change them to XObjects, because
@@ -841,16 +851,16 @@ static void wmupdf_convert_pages_to_forms(pdf_document *xref,fz_context *ctx,int
     */
     for (i=1;i<=pagecount;i++)
         if (srcpageused[i])
-            srcpage[i-1] = pdf_lookup_page_obj(xref,i-1);
+            srcpage[i-1] = pdf_lookup_page_obj(ctx,xref,i-1);
     for (i=1;i<=pagecount;i++)
         if (srcpageused[i])
-            wmupdf_convert_single_page_to_form(xref,ctx,srcpage[i-1],i);
+            wmupdf_convert_single_page_to_form(xref,ctx,srcpage[i-1],i,defaultbbox);
     willus_mem_free((double **)&srcpage,funcname);
     }
 
 
 static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ctx,
-                                               pdf_obj *srcpageref,int pageno)
+                                               pdf_obj *srcpageref,int pageno,double *defaultbbox)
 
     {
     pdf_obj *array,*srcpageobj,*srcpagecontents;
@@ -858,88 +868,81 @@ static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ct
     double bbox_array[4];
     double matrix[6];
 
-    srcpageobj = pdf_resolve_indirect(srcpageref);
-    pageref=pdf_to_num(srcpageref);
-    pagegen=pdf_to_gen(srcpageref);
-    wmupdf_page_bbox(srcpageobj,bbox_array);
+    srcpageobj = pdf_resolve_indirect(ctx,srcpageref);
+    pageref=pdf_to_num(ctx,srcpageref);
+    pagegen=pdf_to_gen(ctx,srcpageref);
+    wmupdf_object_bbox(ctx,srcpageobj,bbox_array,defaultbbox);
     for (i=0;i<6;i++)
         matrix[i]=0.;
     matrix[0]=matrix[3]=1.;
-    srcpagecontents=pdf_dict_gets(srcpageobj,"Contents");
+    srcpagecontents=pdf_dict_gets(ctx,srcpageobj,"Contents");
     /* Concatenate all indirect streams from source page directly into it. */
 /* printf("Adding streams to source page %d (pageref=%d, pagegen=%d)...\n",pageno,pageref,pagegen); */
     streamlen=0;
     /* k2pdfopt v2.10:  check if NULL--can be NULL on empty page */
     if (srcpagecontents!=NULL)
         {
-        if (pdf_is_array(srcpagecontents))
+        if (pdf_is_array(ctx,srcpagecontents))
             {
             int k;
-            for (k=0;k<pdf_array_len(srcpagecontents);k++)
+            for (k=0;k<pdf_array_len(ctx,srcpagecontents);k++)
                 {
                 pdf_obj *obj;
-                obj=pdf_array_get(srcpagecontents,k);
-                if (pdf_is_indirect(obj))
-                    pdf_resolve_indirect(obj);
+                obj=pdf_array_get(ctx,srcpagecontents,k);
+                if (pdf_is_indirect(ctx,obj))
+                    pdf_resolve_indirect(ctx,obj);
                 streamlen=add_to_srcpage_stream(xref,ctx,pageref,pagegen,obj);
                 }
             }
         else
             {
-            if (pdf_is_indirect(srcpagecontents))
-                pdf_resolve_indirect(srcpagecontents);
+            if (pdf_is_indirect(ctx,srcpagecontents))
+                pdf_resolve_indirect(ctx,srcpagecontents);
             streamlen=add_to_srcpage_stream(xref,ctx,pageref,pagegen,srcpagecontents);
             }
         compressed=stream_deflate(xref,ctx,pageref,pagegen,&streamlen);
         }
     else
         compressed=0;
-    len=pdf_dict_len(srcpageobj);
+    len=pdf_dict_len(ctx,srcpageobj);
     for (i=0;i<len;i++)
         {
         pdf_obj *key; /* *value */
 
-        key=pdf_dict_get_key(srcpageobj,i);
-/*
-if (pdf_is_name(key))
-printf("key[%d] = name = %s\n",i,pdf_to_name(key));
-else
-printf("key[%d] = ??\n",i);
-*/
+        key=pdf_dict_get_key(ctx,srcpageobj,i);
         /* value=pdf_dict_get_val(srcpageobj,i); */
         /* Keep same resources */
-        if (!pdf_is_name(key))
+        if (!pdf_is_name(ctx,key))
             continue;
-        if (pdf_is_name(key) && !stricmp("Resources",pdf_to_name(key)))
+        if (pdf_is_name(ctx,key) && !stricmp("Resources",pdf_to_name(ctx,key)))
             continue;
         /* Drop dictionary entry otherwise */
-        pdf_dict_del(srcpageobj,key);
+        pdf_dict_del(ctx,srcpageobj,key);
         i=-1;
-        len=pdf_dict_len(srcpageobj);
+        len=pdf_dict_len(ctx,srcpageobj);
         }
     /*
     ** Once we turn the object into an XObject type (and not a Page type)
     ** it can no longer be looked up using pdf_lookup_page_obj() as of MuPDF v1.3
     */
-    pdf_dict_puts(srcpageobj,"Type",pdf_new_name(xref,"XObject"));
-    pdf_dict_puts(srcpageobj,"Subtype",pdf_new_name(xref,"Form"));
-    pdf_dict_puts(srcpageobj,"FormType",pdf_new_int(xref,1));
+    pdf_dict_puts(ctx,srcpageobj,"Type",pdf_new_name(ctx,xref,"XObject"));
+    pdf_dict_puts(ctx,srcpageobj,"Subtype",pdf_new_name(ctx,xref,"Form"));
+    pdf_dict_puts(ctx,srcpageobj,"FormType",pdf_new_int(ctx,xref,1));
     if (compressed)
-        pdf_dict_puts(srcpageobj,"Filter",pdf_new_name(xref,"FlateDecode"));
-    pdf_dict_puts(srcpageobj,"Length",pdf_new_int(xref,streamlen));
-    array=pdf_new_array(xref,4);
+        pdf_dict_puts(ctx,srcpageobj,"Filter",pdf_new_name(ctx,xref,"FlateDecode"));
+    pdf_dict_puts(ctx,srcpageobj,"Length",pdf_new_int(ctx,xref,streamlen));
+    array=pdf_new_array(ctx,xref,4);
     for (i=0;i<4;i++)
-        pdf_array_push(array,pdf_new_real(xref,bbox_array[i]));
-    pdf_dict_puts(srcpageobj,"BBox",array);
-    array=pdf_new_array(xref,6);
+        pdf_array_push(ctx,array,pdf_new_real(ctx,xref,bbox_array[i]));
+    pdf_dict_puts(ctx,srcpageobj,"BBox",array);
+    array=pdf_new_array(ctx,xref,6);
     for (i=0;i<6;i++)
-        pdf_array_push(array,pdf_new_real(xref,matrix[i]));
-    pdf_dict_puts(srcpageobj,"Matrix",array);
+        pdf_array_push(ctx,array,pdf_new_real(ctx,xref,matrix[i]));
+    pdf_dict_puts(ctx,srcpageobj,"Matrix",array);
     }
 
 
-static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,
-                          int *length)
+static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,int *length)
 
     {
     fz_buffer *strbuf;
@@ -953,7 +956,7 @@ static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pag
     int nw;
 #endif
 
-    strbuf=pdf_load_stream(xref,pageref,pagegen);
+    strbuf=pdf_load_stream(ctx,xref,pageref,pagegen);
     n=fz_buffer_storage(ctx,strbuf,&p);
 #ifdef HAVE_Z_LIB
     /*
@@ -982,7 +985,7 @@ static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pag
     wfile_remove_utf8(tempfile);
     p[nw]='\n';
     strbuf->len=nw+1;
-    pdf_update_stream(xref,pageref,strbuf);
+    wmupdf_update_stream(ctx,xref,pageref,strbuf);
     fz_drop_buffer(ctx,strbuf);
 /*
 printf("    After drop, xref->table[%d].stm_buf=%p, refs=%d\n",pageref,xref->table[pageref].stm_buf,
@@ -1000,8 +1003,8 @@ printf("    After drop, xref->table[%d].stm_buf=%p, refs=%d\n",pageref,xref->tab
 /*
 ** To do:  Can we use fz_buffer_cat for this?
 */
-static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,
-                                 pdf_obj *srcdict)
+static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,
+                                 int pagegen,pdf_obj *srcdict)
 
     {
     fz_buffer *srcbuf;
@@ -1011,23 +1014,23 @@ static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,
 /*
 printf("@add_to_srcpage_stream()...pageref=%d\n",pageref);
 printf("srcdict=%p\n",srcdict);
-printf("pdf_to_num(srcdict)=%d\n",pdf_to_num(srcdict));
+printf("pdf_to_num(ctx,srcdict)=%d\n",pdf_to_num(ctx,srcdict));
 */
-    srcbuf=pdf_load_stream(xref,pdf_to_num(srcdict),pdf_to_gen(srcdict));
+    srcbuf=pdf_load_stream(ctx,xref,pdf_to_num(ctx,srcdict),pdf_to_gen(ctx,srcdict));
     if (srcbuf==NULL)
         {
-        dstbuf=pdf_load_stream(xref,pageref,pagegen);
+        dstbuf=pdf_load_stream(ctx,xref,pageref,pagegen);
         if (dstbuf==NULL)
             return(0);
         dstlen=fz_buffer_storage(ctx,dstbuf,NULL);
         fz_drop_buffer(ctx,dstbuf);
         return(dstlen);
         }
-    if (!pdf_is_stream(xref,pageref,pagegen))
+    if (!pdf_is_stream(ctx,xref,pageref,pagegen))
         dstbuf=fz_new_buffer(ctx,16);
     else
         {
-        dstbuf=pdf_load_stream(xref,pageref,pagegen);
+        dstbuf=pdf_load_stream(ctx,xref,pageref,pagegen);
         if (dstbuf==NULL)
             dstbuf=fz_new_buffer(ctx,16);
         }
@@ -1056,7 +1059,7 @@ printf("    srcptr = %p\n",srcbuf->data);
 printf("    dstlen after = %d\n",dstlen);
 */
     fz_drop_buffer(ctx,srcbuf);
-    pdf_update_stream(xref,pageref,dstbuf);
+    wmupdf_update_stream(ctx,xref,pageref,dstbuf);
     fz_drop_buffer(ctx,dstbuf);
     return(dstlen);
     }
@@ -1072,20 +1075,20 @@ static char *xobject_name(int pageno)
     }
 
 
-static pdf_obj *start_new_destpage(pdf_document *doc,double width_pts,double height_pts)
+static pdf_obj *start_new_destpage(fz_context *ctx,pdf_document *doc,double width_pts,double height_pts)
 
     {
     pdf_obj *pageobj;
     pdf_obj *mbox;
 
-    pageobj=pdf_new_dict(doc,2);
-    pdf_dict_puts(pageobj,"Type",pdf_new_name(doc,"Page"));
-    mbox=pdf_new_array(doc,4);
-    pdf_array_push(mbox,pdf_new_real(doc,0.));
-    pdf_array_push(mbox,pdf_new_real(doc,0.));
-    pdf_array_push(mbox,pdf_new_real(doc,width_pts));
-    pdf_array_push(mbox,pdf_new_real(doc,height_pts));
-    pdf_dict_puts(pageobj,"MediaBox",mbox);
+    pageobj=pdf_new_dict(ctx,doc,2);
+    pdf_dict_puts(ctx,pageobj,"Type",pdf_new_name(ctx,doc,"Page"));
+    mbox=pdf_new_array(ctx,doc,4);
+    pdf_array_push(ctx,mbox,pdf_new_real(ctx,doc,0.));
+    pdf_array_push(ctx,mbox,pdf_new_real(ctx,doc,0.));
+    pdf_array_push(ctx,mbox,pdf_new_real(ctx,doc,width_pts));
+    pdf_array_push(ctx,mbox,pdf_new_real(ctx,doc,height_pts));
+    pdf_dict_puts(ctx,pageobj,"MediaBox",mbox);
     return(pageobj);
     }
 
@@ -1097,37 +1100,37 @@ static void wmupdf_preserve_old_dests(pdf_obj *olddests,fz_context *ctx,pdf_docu
 
     {
     int i;
-    pdf_obj *names = pdf_new_dict(xref,1);
-    pdf_obj *dests = pdf_new_dict(xref,1);
-    pdf_obj *names_list = pdf_new_array(xref,32);
-    int len = pdf_dict_len(olddests);
+    pdf_obj *names = pdf_new_dict(ctx,xref,1);
+    pdf_obj *dests = pdf_new_dict(ctx,xref,1);
+    pdf_obj *names_list = pdf_new_array(ctx,xref,32);
+    int len = pdf_dict_len(ctx,olddests);
     pdf_obj *root;
 
     for (i=0;i<len;i++)
         {
-        pdf_obj *key = pdf_dict_get_key(olddests,i);
-        pdf_obj *val = pdf_dict_get_val(olddests,i);
-        pdf_obj *key_str = pdf_new_string(xref,pdf_to_name(key),strlen(pdf_to_name(key)));
-        pdf_obj *dest = pdf_dict_gets(val,"D");
+        pdf_obj *key = pdf_dict_get_key(ctx,olddests,i);
+        pdf_obj *val = pdf_dict_get_val(ctx,olddests,i);
+        pdf_obj *key_str = pdf_new_string(ctx,xref,pdf_to_name(ctx,key),strlen(pdf_to_name(ctx,key)));
+        pdf_obj *dest = pdf_dict_gets(ctx,val,"D");
 
-        dest = pdf_array_get(dest ? dest : val, 0);
-        if (pdf_array_contains(pdf_dict_gets(pages,"Kids"),dest))
+        dest = pdf_array_get(ctx,dest ? dest : val, 0);
+        if (pdf_array_contains(ctx,pdf_dict_gets(ctx,pages,"Kids"),dest))
             {
-            pdf_array_push(names_list, key_str);
-            pdf_array_push(names_list, val);
+            pdf_array_push(ctx,names_list, key_str);
+            pdf_array_push(ctx,names_list, val);
             }
-        pdf_drop_obj(key_str);
+        pdf_drop_obj(ctx,key_str);
         }
 
-    root = pdf_dict_gets(pdf_trailer(xref),"Root");
-    pdf_dict_puts(dests,"Names",names_list);
-    pdf_dict_puts(names,"Dests",dests);
-    pdf_dict_puts(root,"Names",names);
+    root = pdf_dict_gets(ctx,pdf_trailer(ctx,xref),"Root");
+    pdf_dict_puts(ctx,dests,"Names",names_list);
+    pdf_dict_puts(ctx,names,"Dests",dests);
+    pdf_dict_puts(ctx,root,"Names",names);
 
-    pdf_drop_obj(names);
-    pdf_drop_obj(dests);
-    pdf_drop_obj(names_list);
-    pdf_drop_obj(olddests);
+    pdf_drop_obj(ctx,names);
+    pdf_drop_obj(ctx,dests);
+    pdf_drop_obj(ctx,names_list);
+    pdf_drop_obj(ctx,olddests);
     }
 
 
@@ -1138,18 +1141,48 @@ static int new_stream_object(pdf_document *xref,fz_context *ctx,char *buf)
     pdf_obj *obj,*len;
     fz_buffer *fzbuf;
 
-    ref = pdf_create_object(xref);
-    obj = pdf_new_dict(xref,1);
-    len=pdf_new_int(xref,strlen(buf));
-    pdf_dict_puts(obj,"Length",len);
-    pdf_drop_obj(len);
-    pdf_update_object(xref,ref,obj);
-    pdf_drop_obj(obj);
+    ref = pdf_create_object(ctx,xref);
+    obj = pdf_new_dict(ctx,xref,1);
+    len=pdf_new_int(ctx,xref,strlen(buf));
+    pdf_dict_puts(ctx,obj,"Length",len);
+    pdf_drop_obj(ctx,len);
+    pdf_update_object(ctx,xref,ref,obj);
+    pdf_drop_obj(ctx,obj);
     fzbuf=fz_new_buffer(ctx,strlen(buf));
     fz_write_buffer(ctx,fzbuf,(unsigned char *)buf,strlen(buf));
-    pdf_update_stream(xref,ref,fzbuf);
+    wmupdf_update_stream(ctx,xref,ref,fzbuf);
     fz_drop_buffer(ctx,fzbuf);
     return(ref);
+    }
+
+
+static void wmupdf_update_stream(fz_context *ctx,pdf_document *doc,int num,fz_buffer *newbuf)
+
+    {
+    pdf_xref_entry *x;
+    pdf_obj *obj;
+
+    if (num<=0 || num>=pdf_xref_len(ctx,doc))
+        {
+        fz_warn(ctx,"object out of range (%d 0 R); xref size %d",num,pdf_xref_len(ctx,doc));
+        return;
+        }
+    x=pdf_get_xref_entry(ctx,doc,num);
+    fz_drop_buffer(ctx,x->stm_buf);
+    x->stm_buf = fz_keep_buffer(ctx,newbuf);
+    obj = pdf_load_object(ctx,doc,num,0);
+    if (obj!=NULL)
+        {
+        pdf_dict_puts_drop(ctx,obj,"Length",pdf_new_int(ctx,doc,newbuf->len));
+        /*
+        if (!compressed)
+            {
+            pdf_dict_dels(ctx,obj,"Filter");
+            pdf_dict_dels(ctx,obj,"DecodeParms");
+            }
+        */
+        pdf_drop_obj(ctx,obj);
+        }
     }
 
 
@@ -1162,15 +1195,15 @@ static void wmupdf_dict_merge(fz_context *ctx,char *dictname,pdf_obj *dstdict,pd
     int i,len;
 
 /*
-printf("    Merging %s dictionaries (%d <-- %d)\n",dictname,pdf_to_num(dstdict),pdf_to_num(srcdict));
+printf("    Merging %s dictionaries (%d <-- %d)\n",dictname,pdf_to_num(ctx,dstdict),pdf_to_num(ctx,srcdict));
 */
-    len=pdf_dict_len(srcdict);
+    len=pdf_dict_len(ctx,srcdict);
     for (i=0;i<len;i++)
         {
         pdf_obj *key,*value;
 
-        key=pdf_dict_get_key(srcdict,i);
-        value=pdf_dict_get_val(srcdict,i);
+        key=pdf_dict_get_key(ctx,srcdict,i);
+        value=pdf_dict_get_val(ctx,srcdict,i);
         wmupdf_dict_merge_keyval(ctx,dstdict,key,value);
         }
     }
@@ -1185,51 +1218,51 @@ static void wmupdf_dict_merge_keyval(fz_context *ctx,pdf_obj *dstdict,pdf_obj *k
     {
     pdf_obj *dstval;
 
-    dstval=pdf_dict_get(dstdict,key);
+    dstval=pdf_dict_get(ctx,dstdict,key);
     if (!dstval)
         {
-        pdf_dict_put(dstdict,key,value);
+        pdf_dict_put(ctx,dstdict,key,value);
         return;
         }
     /* Values are same--no action required */
-    if (!pdf_objcmp(dstval,value))
+    if (!pdf_objcmp(ctx,dstval,value))
         return;
-    if (pdf_is_dict(dstval) && pdf_is_dict(value))
+    if (pdf_is_dict(ctx,dstval) && pdf_is_dict(ctx,value))
         {
         static char *okay_to_merge[] = {"Resources","XObject",""};
         int i;
 
         for (i=0;okay_to_merge[i][0]!='\0';i++)
-            if (!stricmp(okay_to_merge[i],pdf_to_name(key)))
+            if (!stricmp(okay_to_merge[i],pdf_to_name(ctx,key)))
                 break;
         if (okay_to_merge[i][0]!='\0')
             {
             /* Merge source dict into dest dict */
-            wmupdf_dict_merge(ctx,pdf_to_name(key),dstval,value);
-            pdf_dict_put(dstdict,key,dstval);
+            wmupdf_dict_merge(ctx,pdf_to_name(ctx,key),dstval,value);
+            pdf_dict_put(ctx,dstdict,key,dstval);
             }
         else
             /* Just overwrite dest dict with source dict */
-            pdf_dict_put(dstdict,key,value);
+            pdf_dict_put(ctx,dstdict,key,value);
         return;
         }
     /* This works for ProcSet array, but maybe not for any array (e.g. rectangle) */
-    if (pdf_is_array(dstval) && pdf_is_array(value))
+    if (pdf_is_array(ctx,dstval) && pdf_is_array(ctx,value))
         {
-        wmupdf_array_merge(ctx,pdf_to_name(key),dstval,value);
+        wmupdf_array_merge(ctx,pdf_to_name(ctx,key),dstval,value);
         return;
         }
     /* Last resort:  overwrite with new value */
-    pdf_dict_put(dstdict,key,value);
+    pdf_dict_put(ctx,dstdict,key,value);
 
     /* This does NOT work--you can't just convert the value into an array of values */
     /* PDF will become non-conformant. */
     /*
     array=pdf_new_array(ctx,2);
-    pdf_array_push(array,dstval);
-    pdf_array_push(array,value);
-    pdf_dict_put(dstdict,key,array);
-    pdf_drop_obj(array);
+    pdf_array_push(ctx,array,dstval);
+    pdf_array_push(ctx,array,value);
+    pdf_dict_put(ctx,dstdict,key,array);
+    pdf_drop_obj(ctx,array);
     */
     }
 
@@ -1243,12 +1276,12 @@ static void wmupdf_array_merge(fz_context *ctx,char *arrayname,pdf_obj *dstarray
     int i,len;
 
 /*
-printf("    Merging %s arrays:  %d <-- %d\n",arrayname,pdf_to_num(dstarray),pdf_to_num(srcarray));
+printf("    Merging %s arrays:  %d <-- %d\n",arrayname,pdf_to_num(ctx,dstarray),pdf_to_num(ctx,srcarray));
 */
-    len=pdf_array_len(srcarray);
+    len=pdf_array_len(ctx,srcarray);
     for (i=0;i<len;i++)
-        if (!pdf_array_contains(dstarray,pdf_array_get(srcarray,i)))
-            pdf_array_push(dstarray,pdf_array_get(srcarray,i));
+        if (!pdf_array_contains(ctx,dstarray,pdf_array_get(ctx,srcarray,i)))
+            pdf_array_push(ctx,dstarray,pdf_array_get(ctx,srcarray,i));
     }
 
 
@@ -1375,44 +1408,44 @@ int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char 
         doc=fz_open_document(ctx,filename);
         if (doc==NULL)
             {
-            fz_free_context(ctx);
+            fz_drop_context(ctx);
             return(-2);
             }
-        if (fz_needs_password(doc) && !fz_authenticate_password(doc,password))
+        if (fz_needs_password(ctx,doc) && !fz_authenticate_password(ctx,doc,password))
             {
-            fz_close_document(doc);
-            fz_free_context(ctx);
+            fz_drop_document(ctx,doc);
+            fz_drop_context(ctx);
             return(-3);
             }
-        page=fz_load_page(doc,pageno-1);
+        page=fz_load_page(ctx,doc,pageno-1);
         if (page==NULL)
             {
-            fz_free_page(doc,page);
-            fz_close_document(doc);
-            fz_free_context(ctx);
+            fz_drop_page(ctx,page);
+            fz_drop_document(ctx,doc);
+            fz_drop_context(ctx);
             return(-3);
             }
         fz_try(ctx)
             {
             list=fz_new_display_list(ctx);
             dev=fz_new_list_device(ctx,list);
-            fz_run_page(doc,page,dev,&fz_identity,NULL);
+            fz_run_page(ctx,page,dev,&fz_identity,NULL);
             }
         fz_always(ctx)
             {
-            fz_free_device(dev);
+            fz_drop_device(ctx,dev);
             dev=NULL;
             }
         fz_catch(ctx)
             {
             fz_drop_display_list(ctx,list);
-            fz_free_page(doc,page);
-            fz_close_document(doc);
-            fz_free_context(ctx);
+            fz_drop_page(ctx,page);
+            fz_drop_document(ctx,doc);
+            fz_drop_context(ctx);
             return(-4);
             }
         fz_var(text);
-        fz_bound_page(doc,page,&bounds);
+        fz_bound_page(ctx,page,&bounds);
         wtc->width=fabs(bounds.x1-bounds.x0);
         wtc->height=fabs(bounds.y1-bounds.y0);
         textsheet=fz_new_text_sheet(ctx);
@@ -1421,35 +1454,35 @@ int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char 
             text=fz_new_text_page(ctx);
             dev=fz_new_text_device(ctx,textsheet,text);
             if (list)
-                fz_run_display_list(list,dev,&fz_identity,&fz_infinite_rect,NULL);
+                fz_run_display_list(ctx,list,dev,&fz_identity,&fz_infinite_rect,NULL);
             else
-                fz_run_page(doc,page,dev,&fz_identity,NULL);
-            fz_free_device(dev);
+                fz_run_page(ctx,page,dev,&fz_identity,NULL);
+            fz_drop_device(ctx,dev);
             dev=NULL;
             wtextchars_add_fz_chars(wtc,ctx,text,boundingbox);
             }
         fz_always(ctx)
             {
-            fz_free_device(dev);
+            fz_drop_device(ctx,dev);
             dev=NULL;
-            fz_free_text_page(ctx,text);
-            fz_free_text_sheet(ctx,textsheet);
+            fz_drop_text_page(ctx,text);
+            fz_drop_text_sheet(ctx,textsheet);
             fz_drop_display_list(ctx,list);
-            fz_free_page(doc,page);
-            fz_close_document(doc);
+            fz_drop_page(ctx,page);
+            fz_drop_document(ctx,doc);
             }
         fz_catch(ctx)
             {
-            fz_free_context(ctx);
+            fz_drop_context(ctx);
             return(-5);
             }
         }
     fz_catch(ctx)
         {
-        fz_free_context(ctx);
+        fz_drop_context(ctx);
         return(-20);
         }
-    fz_free_context(ctx);
+    fz_drop_context(ctx);
     return(0);
     }
 
@@ -1507,7 +1540,7 @@ printf("    indent=%g\n",span->indent);
                         s=strchr(style->font->name,'+');
                         s= s ? s+1 : style->font->name;
                         }
-                    fz_text_char_bbox(&rect,span,char_num);
+                    fz_text_char_bbox(ctx,&rect,span,char_num);
                     textchar.x1=rect.x0;
                     textchar.y1=rect.y0;
                     textchar.x2=rect.x1;
@@ -1588,21 +1621,21 @@ WPDFOUTLINE *wpdfoutline_read_from_pdf_file(char *filename)
         fz_try(ctx) { doc=fz_open_document(ctx,filename); }
         fz_catch(ctx) 
             { 
-            fz_free_context(ctx);
+            fz_drop_context(ctx);
             return(NULL);
             }
-        fzoutline=fz_load_outline(doc);
+        fzoutline=fz_load_outline(ctx,doc);
         wpdfoutline=wpdfoutline_convert_from_fitz_outline(fzoutline);
         if (fzoutline!=NULL)
-            fz_free_outline(ctx,fzoutline);
-        fz_close_document(doc);
+            fz_drop_outline(ctx,fzoutline);
+        fz_drop_document(ctx,doc);
         }
     fz_catch(ctx)
         {
-        fz_free_context(ctx);
+        fz_drop_context(ctx);
         return(NULL);
         }
-    fz_free_context(ctx);
+    fz_drop_context(ctx);
     return(wpdfoutline);
     }
 
@@ -1642,22 +1675,22 @@ static WPDFOUTLINE *wpdfoutline_convert_from_fitz_outline(fz_outline *fzoutline)
 /*
 ** Save outline stored in "outline" to outline_root object.
 */
-static void pdf_create_outline(pdf_document *doc,pdf_obj *outline_root,pdf_obj *orref,WPDFOUTLINE *outline)
+static void pdf_create_outline(fz_context *ctx,pdf_document *doc,pdf_obj *outline_root,pdf_obj *orref,WPDFOUTLINE *outline)
 
     {
     int ref;
     pdf_obj *first,*firstref;
 
-    ref = pdf_create_object(doc);
-    first = pdf_new_dict(doc,4);
-    firstref = pdf_new_indirect(doc,ref,0);
-    pdf_create_outline_1(doc,outline_root,orref,first,firstref,ref,outline);
+    ref = pdf_create_object(ctx,doc);
+    first = pdf_new_dict(ctx,doc,4);
+    firstref = pdf_new_indirect(ctx,doc,ref,0);
+    pdf_create_outline_1(ctx,doc,outline_root,orref,first,firstref,ref,outline);
     }
 
 /*
 ** Recursive
 */
-static void pdf_create_outline_1(pdf_document *doc,pdf_obj *parent,pdf_obj *parentref,pdf_obj *dict,pdf_obj *dictref,int drefnum,WPDFOUTLINE *outline)
+static void pdf_create_outline_1(fz_context *ctx,pdf_document *doc,pdf_obj *parent,pdf_obj *parentref,pdf_obj *dict,pdf_obj *dictref,int drefnum,WPDFOUTLINE *outline)
 
     {
     int count;
@@ -1671,38 +1704,38 @@ static void pdf_create_outline_1(pdf_document *doc,pdf_obj *parent,pdf_obj *pare
         pdf_obj *title,*nextdict,*nextdictref,*aref;
         int nextdictrefnum;
 
-        title=pdf_new_string_utf8(doc,outline->title);
-        pdf_dict_puts(dict,"Title",title);
-        pdf_drop_obj(title);
-        aref=anchor_reference(doc,outline->dstpage);
-        pdf_dict_puts(dict,"A",aref);
-        pdf_drop_obj(aref);
+        title=pdf_new_string_utf8(ctx,doc,outline->title);
+        pdf_dict_puts(ctx,dict,"Title",title);
+        pdf_drop_obj(ctx,title);
+        aref=anchor_reference(ctx,doc,outline->dstpage);
+        pdf_dict_puts(ctx,dict,"A",aref);
+        pdf_drop_obj(ctx,aref);
         count++;
         if (parentref!=NULL)
-           pdf_dict_puts(dict,"Parent",parentref);
+           pdf_dict_puts(ctx,dict,"Parent",parentref);
         if (prev!=NULL)
-           pdf_dict_puts(dict,"Prev",prev);
+           pdf_dict_puts(ctx,dict,"Prev",prev);
         if (outline->down)
             {
             pdf_obj *newdict,*newdictref;
             int newdictrefnum;
 
-            newdictrefnum = pdf_create_object(doc);
-            newdict = pdf_new_dict(doc,4);
-            newdictref = pdf_new_indirect(doc,newdictrefnum,0);
-            pdf_create_outline_1(doc,dict,dictref,newdict,newdictref,newdictrefnum,outline->down);
+            newdictrefnum = pdf_create_object(ctx,doc);
+            newdict = pdf_new_dict(ctx,doc,4);
+            newdictref = pdf_new_indirect(ctx,doc,newdictrefnum,0);
+            pdf_create_outline_1(ctx,doc,dict,dictref,newdict,newdictref,newdictrefnum,outline->down);
             }
-        pdf_update_object(doc,drefnum,dict);
+        pdf_update_object(ctx,doc,drefnum,dict);
         if (outline->next==NULL)
             break;
-        nextdictrefnum = pdf_create_object(doc);
-        nextdict = pdf_new_dict(doc,4);
-        nextdictref = pdf_new_indirect(doc,nextdictrefnum,0);
-        pdf_dict_puts(dict,"Next",nextdictref);
+        nextdictrefnum = pdf_create_object(ctx,doc);
+        nextdict = pdf_new_dict(ctx,doc,4);
+        nextdictref = pdf_new_indirect(ctx,doc,nextdictrefnum,0);
+        pdf_dict_puts(ctx,dict,"Next",nextdictref);
         if (dictref!=first)
             {
-            pdf_drop_obj(dictref);
-            pdf_drop_obj(dict);
+            pdf_drop_obj(ctx,dictref);
+            pdf_drop_obj(ctx,dict);
             }
         prev=dictref;
         dictref=nextdictref;
@@ -1710,22 +1743,22 @@ static void pdf_create_outline_1(pdf_document *doc,pdf_obj *parent,pdf_obj *pare
         drefnum=nextdictrefnum;
         outline = outline->next;
         }
-    pdf_dict_puts(parent,"First",first);
-    pdf_dict_puts(parent,"Last",dictref);
+    pdf_dict_puts(ctx,parent,"First",first);
+    pdf_dict_puts(ctx,parent,"Last",dictref);
     {
     pdf_obj *countobj;
 
-    countobj=pdf_new_int(doc,count);
-    pdf_dict_puts(parent,"Count",countobj);
-    pdf_drop_obj(countobj);
+    countobj=pdf_new_int(ctx,doc,count);
+    pdf_dict_puts(ctx,parent,"Count",countobj);
+    pdf_drop_obj(ctx,countobj);
     }
-    pdf_update_object(doc,drefnum,dict);
-    pdf_drop_obj(dict);
-    pdf_drop_obj(dictref);
+    pdf_update_object(ctx,doc,drefnum,dict);
+    pdf_drop_obj(ctx,dict);
+    pdf_drop_obj(ctx,dictref);
     }
 
 
-static pdf_obj *anchor_reference(pdf_document *doc,int pageno)
+static pdf_obj *anchor_reference(fz_context *ctx,pdf_document *doc,int pageno)
 
     {
     pdf_obj *pageref;
@@ -1734,27 +1767,27 @@ static pdf_obj *anchor_reference(pdf_document *doc,int pageno)
     pdf_obj *name;
     int arefnum;
 
-    pageref=pdf_lookup_page_obj(doc,pageno);
-    arefnum = pdf_create_object(doc);
-    anchor = pdf_new_dict(doc,4);
-    anchorref = pdf_new_indirect(doc,arefnum,0);
-    array = pdf_new_array(doc,2);
-    pdf_array_push(array,pageref);
-    name = pdf_new_name(doc,"Fit");
-    pdf_array_push(array,name);
-    pdf_drop_obj(name);
-    pdf_dict_puts(anchor,"D",array);
-    pdf_drop_obj(array);
-    name = pdf_new_name(doc,"GoTo");
-    pdf_dict_puts(anchor,"S",name);
-    pdf_drop_obj(name);
-    pdf_update_object(doc,arefnum,anchor);
-    pdf_drop_obj(anchor);
+    pageref=pdf_lookup_page_obj(ctx,doc,pageno);
+    arefnum = pdf_create_object(ctx,doc);
+    anchor = pdf_new_dict(ctx,doc,4);
+    anchorref = pdf_new_indirect(ctx,doc,arefnum,0);
+    array = pdf_new_array(ctx,doc,2);
+    pdf_array_push(ctx,array,pageref);
+    name = pdf_new_name(ctx,doc,"Fit");
+    pdf_array_push(ctx,array,name);
+    pdf_drop_obj(ctx,name);
+    pdf_dict_puts(ctx,anchor,"D",array);
+    pdf_drop_obj(ctx,array);
+    name = pdf_new_name(ctx,doc,"GoTo");
+    pdf_dict_puts(ctx,anchor,"S",name);
+    pdf_drop_obj(ctx,name);
+    pdf_update_object(ctx,doc,arefnum,anchor);
+    pdf_drop_obj(ctx,anchor);
     return(anchorref);
     }
 
 
-static pdf_obj *pdf_new_string_utf8(pdf_document *doc,char *string)
+static pdf_obj *pdf_new_string_utf8(fz_context *ctx,pdf_document *doc,char *string)
 
     {
     int *utf16;
@@ -1777,7 +1810,7 @@ static pdf_obj *pdf_new_string_utf8(pdf_document *doc,char *string)
         }
     utfbuf[j]='\0';
     willus_mem_free((double **)&utf16,funcname);
-    pdfobj=pdf_new_string(doc,utfbuf,j);
+    pdfobj=pdf_new_string(ctx,doc,utfbuf,j);
     willus_mem_free((double **)&utfbuf,funcname);
     return(pdfobj);
     }

@@ -1,3 +1,4 @@
+#include "config_auto.h"
 /*
 ** tesscapi.cpp    willus.com attempt at C wrapper for tesseract.
 **                 (Butchered from tesseractmain.cpp)
@@ -21,7 +22,9 @@
 */
 
 #include "config_auto.h"
+/*
 #include "mfcpch.h"
+*/
 // #define USE_VLD //Uncomment for Visual Leak Detector.
 #if (defined _MSC_VER && defined USE_VLD)
 #include <vld.h>
@@ -44,9 +47,9 @@
 #include "strngs.h"
 #include "params.h"
 #include "blobs.h"
+/*
 #include "notdll.h"
-#include <exception>
-#include <new>
+*/
 
 /* C Wrappers */
 #include "tesseract.h"
@@ -59,7 +62,8 @@ static tesseract::TessBaseAPI api;
 ** ocr_type=2:  OEM_CUBE_ONLY
 ** ocr_type=3:  OEM_TESSERACT_CUBE_COMBINED
 */
-int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out)
+int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out,
+                   char *initstr,int maxlen)
 
     {
     int status;
@@ -100,26 +104,13 @@ int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out)
     */
 
     api.SetOutputName(NULL);
-    /* hotfix:
-     * see http://sourceforge.net/p/djvu/discussion/103285/thread/7e6563e3/
-     * For short, djvulibre overloads new operator and eat up bad_alloc
-     * exception. So we will disable the overloading.
-     */
-    std::set_new_handler(0);
-    try {
-		status=api.Init(datapath,lang,
-				 ocr_type==0 ? tesseract::OEM_DEFAULT :
-					(ocr_type==1 ? tesseract::OEM_TESSERACT_ONLY :
-					   (ocr_type==2 ? tesseract::OEM_CUBE_ONLY :
-									  (tesseract::OEM_TESSERACT_CUBE_COMBINED))));
-		if (status)
-			return(status);
-
-    } catch (const std::bad_alloc& ba) {
-    	if (out!=NULL)
-    	    fprintf(out,"tesscapi:  Error during initiating. %s\n", ba.what());
-    	return -1;
-    }
+    status=api.Init(datapath,lang,
+             ocr_type==0 ? tesseract::OEM_DEFAULT :
+                (ocr_type==1 ? tesseract::OEM_TESSERACT_ONLY :
+                   (ocr_type==2 ? tesseract::OEM_CUBE_ONLY :
+                                  (tesseract::OEM_TESSERACT_CUBE_COMBINED))));
+    if (status)
+        return(status);
     /*
     api.Init("tesscapi",lang,tesseract::OEM_DEFAULT,
            &(argv[arg]), argc - arg, NULL, NULL, false);
@@ -138,15 +129,31 @@ int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out)
     // but that doesn't work.
     if (api.GetPageSegMode() == tesseract::PSM_SINGLE_BLOCK)
         api.SetPageSegMode(pagesegmode);
+
+    /*
+    ** Initialization message
+    */
+    {
+    char istr[256];
+
+    sprintf(istr,"Tesseract Open Source OCR Engine v%s ",tesseract::TessBaseAPI::Version());
+    if (ocr_type==0 || ocr_type==3)
+        sprintf(&istr[strlen(istr)],"[CUBE+] (lang=");
+    else if (ocr_type==2)
+        sprintf(&istr[strlen(istr)],"[CUBE] (lang=");
+    strncpy(&istr[strlen(istr)],language,253-strlen(istr));
+    istr[253]='\0';
+    strcat(istr,")");
     if (out!=NULL)
+        fprintf(out,"%s\n",istr);
+    if (initstr!=NULL)
         {
-        fprintf(out,"Tesseract Open Source OCR Engine v%s ",tesseract::TessBaseAPI::Version());
-        if (ocr_type==0 || ocr_type==3)
-            fprintf(out,"[CUBE+] ");
-        else if (ocr_type==2)
-            fprintf(out,"[CUBE] ");
-        fprintf(out,"(lang=%s)\n",language);
+        strncpy(initstr,istr,maxlen-1);
+        initstr[maxlen-1]='\0';
         }
+    }
+
+
     /* Turn off CUBE debugging output */
     api.SetVariable("cube_debug_level","0");
 #if (WILLUSDEBUG & 1)
@@ -164,57 +171,20 @@ int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out)
 int tess_capi_get_ocr(PIX *pix,char *outstr,int maxlen,FILE *out)
 
     {
-    STRING text_out;
-    try {
-		if (!api.ProcessPage(pix,0,NULL,NULL,0,&text_out))
-			{
-			/* pixDestroy(&pix); */
-			if (out!=NULL)
-				fprintf(out,"tesscapi:  Error during bitmap processing.\n");
-			api.Clear();
-			return(-1);
-			}
-    } catch (const std::exception& ex) {
-    	if (out!=NULL)
-    	    fprintf(out,"tesscapi:  Error during bitmap processing. %s\n", ex.what());
-    	api.Clear();
-    	return -1;
-    }
-    strncpy(outstr,text_out.string(),maxlen-1);
+    if (!api.ProcessPage(pix,0,NULL,NULL,0,NULL))
+        {
+        /* pixDestroy(&pix); */
+        if (out!=NULL)
+            fprintf(out,"tesscapi:  Error during bitmap processing.\n");
+        api.Clear();
+        return(-1);
+        }
+    strncpy(outstr,api.GetUTF8Text(),maxlen-1);
     outstr[maxlen-1]='\0';
     api.Clear();
     return(0);
     }
 
-int tess_capi_get_word_boxes(PIX *pix, BOXA **out_boxa, int is_cjk, FILE *out)
-
-    {
-    try {
-		api.InitForAnalysePage();
-		api.SetPageSegMode(tesseract::PSM_AUTO);
-		api.SetImage(pix);
-		if (is_cjk) {
-			api.SetVariable("textord_use_cjk_fp_model","1");
-			*out_boxa = api.GetConnectedComponents(NULL);
-		} else {
-			api.SetVariable("textord_use_cjk_fp_model","0");
-			*out_boxa = api.GetWords(NULL);
-		}
-    } catch (const std::exception& ex) {
-    	if (out!=NULL)
-    	    fprintf(out,"tesscapi:  Error during page segmentation. %s\n", ex.what());
-    	api.Clear();
-    	return -1;
-    }
-    printf("engine inited in %s\n", api.GetInitLanguagesAsString());
-    api.ClearAdaptiveClassifier();
-    api.Clear();
-    return(0);
-    }
-
-const char* tess_capi_get_init_language() {
-	return api.GetInitLanguagesAsString();
-}
 
 void tess_capi_end(void)
 

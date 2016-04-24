@@ -1,12 +1,14 @@
 #include "mupdf/fitz.h"
 
 #include <jpeglib.h>
+
+#ifndef SHARE_JPEG
 typedef void * backing_store_ptr;
-/* willus.com -- comment out jmemcust include */
+/* willus mod -- comment out jmemcust include */
 /*
 #include "jmemcust.h"
 */
-#include <setjmp.h>
+#endif
 
 typedef struct fz_dctd_s fz_dctd;
 
@@ -31,7 +33,7 @@ struct fz_dctd_s
 	unsigned char buffer[4096];
 };
 
-/* willus mod:  make sure SHARE_JPEG is defined */
+/* willus mod: make sure SHARE_JPEG is defined */
 #ifndef SHARE_JPEG
 #define SHARE_JPEG
 #endif
@@ -115,13 +117,13 @@ static boolean fill_input_buffer(j_decompress_ptr cinfo)
 {
 	struct jpeg_source_mgr *src = cinfo->src;
 	fz_dctd *state = JZ_DCT_STATE_FROM_CINFO(cinfo);
+	fz_context *ctx = state->ctx;
 	fz_stream *curr_stm = state->curr_stm;
-	fz_context *ctx = curr_stm->ctx;
 
 	curr_stm->rp = curr_stm->wp;
 	fz_try(ctx)
 	{
-		src->bytes_in_buffer = fz_available(curr_stm, 1);
+		src->bytes_in_buffer = fz_available(ctx, curr_stm, 1);
 	}
 	fz_catch(ctx)
 	{
@@ -157,7 +159,7 @@ static void skip_input_data(j_decompress_ptr cinfo, long num_bytes)
 }
 
 static int
-next_dctd(fz_stream *stm, int max)
+next_dctd(fz_context *ctx, fz_stream *stm, int max)
 {
 	fz_dctd *state = stm->state;
 	j_decompress_ptr cinfo = &state->cinfo;
@@ -172,7 +174,7 @@ next_dctd(fz_stream *stm, int max)
 	{
 		if (cinfo->src)
 			state->curr_stm->rp = state->curr_stm->wp - cinfo->src->bytes_in_buffer;
-		fz_throw(stm->ctx, FZ_ERROR_GENERIC, "jpeg error: %s", state->msg);
+		fz_throw(ctx, FZ_ERROR_GENERIC, "jpeg error: %s", state->msg);
 	}
 
 	if (!state->init)
@@ -189,8 +191,8 @@ next_dctd(fz_stream *stm, int max)
 		state->init = 1;
 
 		/* Skip over any stray returns at the start of the stream */
-		while ((c = fz_peek_byte(state->chain)) == '\n' || c == '\r')
-			(void)fz_read_byte(state->chain);
+		while ((c = fz_peek_byte(ctx, state->chain)) == '\n' || c == '\r')
+			(void)fz_read_byte(ctx, state->chain);
 
 		cinfo->src = &state->srcmgr;
 		cinfo->src->init_source = init_source;
@@ -250,7 +252,7 @@ next_dctd(fz_stream *stm, int max)
 		jpeg_start_decompress(cinfo);
 
 		state->stride = cinfo->output_width * cinfo->output_components;
-		state->scanline = fz_malloc(state->ctx, state->stride);
+		state->scanline = fz_malloc(ctx, state->stride);
 		state->rp = state->scanline;
 		state->wp = state->scanline;
 	}
@@ -314,30 +316,22 @@ skip:
 	fz_dct_mem_term(state);
 
 	fz_free(ctx, state->scanline);
-	fz_close(state->chain);
-	fz_close(state->jpegtables);
+	fz_drop_stream(ctx, state->chain);
+	fz_drop_stream(ctx, state->jpegtables);
 	fz_free(ctx, state);
-}
-
-static fz_stream *
-rebind_dctd(fz_stream *s)
-{
-	fz_dctd *state = s->state;
-	return state->chain;
 }
 
 /* Default: color_transform = -1 (unset), l2factor = 0, jpegtables = NULL */
 fz_stream *
-fz_open_dctd(fz_stream *chain, int color_transform, int l2factor, fz_stream *jpegtables)
+fz_open_dctd(fz_context *ctx, fz_stream *chain, int color_transform, int l2factor, fz_stream *jpegtables)
 {
-	fz_context *ctx = chain->ctx;
 	fz_dctd *state = NULL;
 
 	fz_var(state);
 
 	fz_try(ctx)
 	{
-		state = fz_malloc_struct(chain->ctx, fz_dctd);
+		state = fz_malloc_struct(ctx, fz_dctd);
 		state->ctx = ctx;
 		state->chain = chain;
 		state->jpegtables = jpegtables;
@@ -350,10 +344,10 @@ fz_open_dctd(fz_stream *chain, int color_transform, int l2factor, fz_stream *jpe
 	fz_catch(ctx)
 	{
 		fz_free(ctx, state);
-		fz_close(chain);
-		fz_close(jpegtables);
+		fz_drop_stream(ctx, chain);
+		fz_drop_stream(ctx, jpegtables);
 		fz_rethrow(ctx);
 	}
 
-	return fz_new_stream(ctx, state, next_dctd, close_dctd, rebind_dctd);
+	return fz_new_stream(ctx, state, next_dctd, close_dctd);
 }

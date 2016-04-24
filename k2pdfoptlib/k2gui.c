@@ -1,7 +1,7 @@
 /*
 ** k2gui2.c      K2pdfopt Generic WILLUSGUI functions.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -50,6 +50,7 @@ static int  k2gui_window_size_changed(WILLUSGUIWINDOW *window);
 static void k2gui_main_window_init(int normal_size);
 static void k2gui_window_menus_init(WILLUSGUIWINDOW *win);
 static int  k2gui_set_device_from_listbox(WILLUSGUICONTROL *control);
+static void k2gui_display_info(void);
 static WILLUSGUICONTROL *k2gui_control_with_focus(int *index);
 static void k2gui_update_controls(void);
 static void k2gui_error_out(char *message);
@@ -60,9 +61,11 @@ static void k2gui_save_settings_to_file(void);
 static void k2gui_restore_settings_from_file(void);
 static int  k2gui_determine_fontsize(void);
 static void k2gui_add_children(int already_drawn);
-static double mar_eval(double x);
+static void k2gui_cropbox_eval(char *buf,int cmindex,int fieldindex);
 static void filebox_populate(void);
 static void k2gui_destroy_mainwin(void);
+static void k2gui_get_selection(void);
+static void k2gui_apply_selection(void);
 static void k2gui_destroy_children(void);
 static WILLUSGUICONTROL *k2gui_control_by_name(char *name);
 /* Preview functions */
@@ -87,7 +90,7 @@ int k2gui_main(K2PDFOPT_CONVERSION  *k2conv0,void *hInstance,void *hPrevInstance
     /* K2PDFOPT_CONVERSION *k2conv; */
     /* static char *funcname="k2gui_main"; */
 
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("@k2gui_main, k2conv=%p, k2settings=%p\n",k2conv0,&k2conv0->k2settings);
 #endif
     willusgui_init();
@@ -144,6 +147,9 @@ printf("guicmds='%s', k2gui->cmdxtra='%s'\n",guicmds.s,k2gui->cmdxtra.s);
     parse_cmd_args(&k2c,&guicmds,NULL,NULL,1,1);
     k2pdfopt_settings_copy(&k2gui->k2conv->k2settings,&k2c.k2settings);
     }
+    k2gui->opfontsize = k2gui->k2conv->k2settings.dst_fontsize_pts;
+    if (fabs(k2gui->opfontsize)<1e-8)
+        k2gui->opfontsize=12.;
     /*
     k2pdfopt_settings_copy(&k2gui->k2conv->k2settings,&k2conv->k2settings);
     willus_mem_free((double **)&k2conv,funcname);
@@ -156,7 +162,7 @@ printf("guicmds='%s', k2gui->cmdxtra='%s'\n",guicmds.s,k2gui->cmdxtra.s);
     ** Process messages
     */
     k2gui->active=1;
-    status=k2gui_osdep_window_proc_messages(&k2gui->mainwin,NULL,NULL);
+    status=k2gui_osdep_window_proc_messages(&k2gui->mainwin,NULL,0,NULL);
     k2gui->active=0;
     strbuf_free(&k2gui->cmdxtra);
     k2gui_close();
@@ -318,7 +324,7 @@ static void k2gui_get_settings(int index,K2PDFOPT_SETTINGS *k2settings,STRBUF *e
     sprintf(envname,"K2PDFOPT_CUSTOM%d",index);
     willus_mem_alloc_warn((void **)&cmdbuf,4096,funcname,10);
     wsys_get_envvar_ex(envname,cmdbuf,4095);
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("Getenv: %s=%s\n",envname,cmdbuf);
 #endif
     for (i=0;cmdbuf[i]!='\0' && cmdbuf[i]!=';';i++);
@@ -340,15 +346,15 @@ printf("Getenv: %s=%s\n",envname,cmdbuf);
     strbuf_cpy(extra,pxtra);
     strbuf_init(&cmdline);
     strbuf_cpy(&cmdline,pcmd);
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("   parsing '%s'\n",cmdline.s);
 #endif
     parse_cmd_args(k2conv,&cmdline,NULL,NULL,1,1);
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("    k2conv->k2settings.gui=%d\n",k2conv->k2settings.gui);
 #endif
     k2pdfopt_settings_copy(k2settings,&k2conv->k2settings);
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("    k2settings->gui=%d\n",k2settings->gui);
 #endif
     strbuf_free(&cmdline);
@@ -390,7 +396,7 @@ static void k2gui_save_settings(int index,K2PDFOPT_SETTINGS *k2settings,STRBUF *
                        settings->s==NULL?"":settings->s,
                        extra->s==NULL?"":extra->s);
     sprintf(envname,"K2PDFOPT_CUSTOM%d",index);
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("Setenv %s=%s\n",envname,envvar->s);
 #endif
     wsys_set_envvar(envname,envvar->s,0);
@@ -647,7 +653,7 @@ static void k2gui_window_menus_init(WILLUSGUIWINDOW *win)
     static char *menus[] = {"_File","&Add Source File...","Add &Folder...","&Save Settings...",
                                     "&Restore Settings...","E&xit",
                             "_Help","&Website help page...","&Command-line Options...",
-                                    "&About k2pdfopt...",
+                                    "&PDF File Info","&About k2pdfopt...",
                             ""};
 
     willusgui_window_menus_init(win,menus);
@@ -724,6 +730,9 @@ void k2gui_process_message(WILLUSGUIMESSAGE *message)
     K2PDFOPT_SETTINGS *k2settings;
     static char *funcname="k2gui_process_message";
 
+#if (WILLUSDEBUGX & 0x2000000)
+k2dprintf("@k2gui_process_message: action=%d\n",message->guiaction);
+#endif
     k2settings=&k2gui->k2conv->k2settings;
     control=message->control;
     action=message->guiaction;
@@ -738,7 +747,7 @@ void k2gui_process_message(WILLUSGUIMESSAGE *message)
         control=&k2gui->control[control_index];
     if (action==WILLUSGUIACTION_SETFOCUS)
         {
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("Got WILLUSGUIACTION_SETFOCUS.\n");
 #endif
         if (control!=NULL
@@ -746,7 +755,7 @@ printf("Got WILLUSGUIACTION_SETFOCUS.\n");
                    || control->type == WILLUSGUICONTROL_TYPE_UPDOWN
                    || control->type == WILLUSGUICONTROL_TYPE_UPDOWN2))
 {
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("Selecting all in control %d.\n",control_index);
 #endif
             willusgui_control_text_select_all(control);
@@ -763,6 +772,34 @@ printf("Selecting all in control %d.\n",control_index);
             action=WILLUSGUIACTION_CONTROL_PRESS;
         else
             control=NULL;
+        }
+    if (action==WILLUSGUIACTION_RBUTTONDOWN)
+        {
+        /* See if right-click on any of the control labels */
+/*
+printf("Mouse at %d,%d\n",message->param[0],message->param[1]);
+*/
+        for (i=0;i<k2gui->ncontrols;i++)
+            {
+            WILLUSGUIRECT rect;
+
+            if (k2gui->control[i].type==WILLUSGUICONTROL_TYPE_CHECKBOX)
+                continue;
+            willusgui_control_draw_label(&k2gui->control[i],&rect);
+/*
+printf("label[%d]='%s' (%d,%d) - (%d,%d)\n",i,k2gui->control[i].name,rect.left,rect.top,rect.right,rect.bottom);
+*/
+            if (message->param[0]<rect.left || message->param[0]>rect.right)
+                continue;
+            if (message->param[1]<rect.top || message->param[1]>rect.bottom)
+                continue;
+/*
+printf("fits!\n");
+*/
+            k2gui_contextmenu_by_control(&k2gui->control[i]);
+            return;
+            }
+        return;
         }
     if (control->type==WILLUSGUICONTROL_TYPE_UPDOWN && action==WILLUSGUIACTION_CONTROL_PRESS)
         action=WILLUSGUIACTION_UPDOWN_EDIT;
@@ -800,7 +837,7 @@ printf("Selecting all in control %d.\n",control_index);
                         x=&k2settings->dst_userheight_units;
                         xf=&k2settings->dst_userheight;
                         }
-                    dpi=k2settings->dst_dpi;
+                    dpi=k2settings->dst_userdpi;
                     for (ii=0;unitname[ii][0]!='\0';ii++)
                         if (!strcmp(buf,unitname[ii]))
                             break;
@@ -889,7 +926,7 @@ printf("Selecting all in control %d.\n",control_index);
                 willusgui_control_dropdownlist_get_selected_item(control,buf);
                 if (buf[0]!='\0')
                     {
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("k2gui_process_message:  -mode %s\n",buf);
 #endif
                     k2settings_sprintf(NULL,k2settings,"-mode def");
@@ -897,7 +934,7 @@ printf("k2gui_process_message:  -mode %s\n",buf);
                         k2gui_set_device_from_listbox(devcontrol);
                     if (stricmp(buf,"default"))
                         k2settings_sprintf(NULL,k2settings,"-mode %s",buf);
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("k2gpm:  settings->textwrap=%d\n",k2settings->text_wrap);
 printf("settings->native=%d\n",k2settings->use_crop_boxes);
 printf("settings->src_trim=%d\n",k2settings->src_trim);
@@ -929,6 +966,32 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                         }
                     willus_mem_free((double **)&buf,funcname);
                     }
+                else if (!strnicmp(control->name,"cbox",4))
+                    {
+                    int cbindex;
+                    K2CROPBOX *box;
+                    char *buf;
+                    int ib;
+
+                    willus_mem_alloc_warn((void **)&buf,1024,funcname,10);
+                    willusgui_control_get_text(control,buf,1023);
+                    cbindex=atoi(&control->name[strlen(control->name)-1])-1;
+                    box=&k2settings->cropboxes.cropbox[cbindex];
+                    ib=-1;
+                    if (in_string(control->name,"left")>=0)
+                        ib=0;
+                    else if (in_string(control->name,"top")>=0)
+                        ib=1;
+                    else if (in_string(control->name,"width")>=0)
+                        ib=2;
+                    else if (in_string(control->name,"height")>=0)
+                        ib=3;
+                    if (ib>=0)
+                        k2parsecmd_set_value_with_units(buf,&box->box[ib],&box->units[ib],UNITS_INCHES);
+                    else
+                        strcpy(box->pagelist,buf);
+                    willus_mem_free((double **)&buf,funcname);
+                    }
                 else if (!strcmp(control->name,"env"))
                     {
                     /* Nothing to do--must press buttons */
@@ -951,6 +1014,12 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                         k2settings->word_spacing = fabs(atof(buf));
                     k2gui_update_controls();
                     }
+                else if (!strcmp(control->name,"landscapepages"))
+                    {
+                    willusgui_control_get_text(control,k2settings->dst_landscape_pages,1023);
+                    clean_line(k2settings->dst_landscape_pages);
+                    k2gui_update_controls();
+                    }
                 return;
                 }
 
@@ -968,6 +1037,8 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                 else if (!strcmp(control->name,"ppgs"))
                     k2settings->ppgs= checked ? 1 : 0;
 #endif
+                else if (!strcmp(control->name,"autocrop"))
+                    k2settings->autocrop = checked ? 1 : 0;
                 else if (!strcmp(control->name,"color"))
                     {
                     k2settings->dst_color= checked ? 1 : 0;
@@ -977,6 +1048,8 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                     }
                 else if (!strcmp(control->name,"landscape"))
                     k2settings->dst_landscape = checked ? 1 : 0;
+                else if (!strcmp(control->name,"opfontsize"))
+                    k2settings->dst_fontsize_pts= checked ? k2gui->opfontsize : 0.;
                 else if (!strcmp(control->name,"native"))
                     {
                     k2settings->use_crop_boxes = checked ? 1 : 0;
@@ -1018,12 +1091,32 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
 #endif
                 else if (!strcmp(control->name,"evl"))
                     k2settings->erase_vertical_lines = checked ? 1 : 0;
+                else if (!strcmp(control->name,"ehl"))
+                    k2settings->erase_horizontal_lines = checked ? 1 : 0;
                 else if (!strcmp(control->name,"bpm"))
                     k2settings->dst_break_pages = checked ? 4 : 1;
                 else if (!strcmp(control->name,"autorot"))
                     k2settings->src_rot = checked ? SRCROT_AUTO : SRCROT_AUTOPREV;
                 else if (!strcmp(control->name,"defects"))
                     k2settings->defect_size_pts = checked ? 1.5 : 0.75;
+                else if (!strnicmp(control->name,"cboxactive",10))
+                    {
+                    K2CROPBOX *box;
+                    int cbindex;
+
+                    cbindex=control->name[10]-'1';
+                    box=&k2settings->cropboxes.cropbox[cbindex];
+                    box->cboxflags ^= K2CROPBOX_FLAGS_NOTUSED;
+                    }
+                else if (!strnicmp(control->name,"cboxignore",10))
+                    {
+                    K2CROPBOX *box;
+                    int cbindex;
+
+                    cbindex=control->name[10]-'1';
+                    box=&k2settings->cropboxes.cropbox[cbindex];
+                    box->cboxflags ^= K2CROPBOX_FLAGS_IGNOREBOXEDAREA;
+                    }
                 k2gui_update_controls();
                 }
                  
@@ -1042,6 +1135,8 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                     k2gui_get_settings(preset,k2settings,&k2gui->cmdxtra);
                     k2gui_update_controls();
                     }
+                else if (!stricmp(control->name,"info"))
+                    k2gui_display_info();
                 else if (in_string(control->name,"add folder")>=0)
                     k2gui_add_folder();
                 else if (in_string(control->name,"add file")>=0)
@@ -1092,6 +1187,91 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                         k2gui_update_controls();
                         }
                     }
+                else if (in_string(control->name,"cboxselect")>=0)
+                    {
+                    int maxsel;
+                    int cbindex;
+                    K2CROPBOX *box;
+
+                    cbindex=control->name[10]-'1';
+                    box=&k2settings->cropboxes.cropbox[cbindex];
+                    maxsel=k2gui->k2conv->k2files.n;
+                    if (maxsel>0)
+                        {
+                        int *selected;
+                        int i,n,index;
+                        char filename[MAXFILENAMELEN];
+                        double margins[6];
+                        WILLUSGUICONTROL *filelistbox;
+
+                        willus_mem_alloc_warn((void **)&selected,sizeof(int)*maxsel,funcname,10);
+                        for (i=0;i<k2gui->ncontrols;i++)
+                            if (!stricmp(k2gui->control[i].name,"file list"))
+                                break;
+                        if (i>=k2gui->ncontrols)
+                            k2gui_error_out("Can't find file list control!");
+                        filelistbox = &k2gui->control[i];
+                        n=willusgui_control_listbox_get_selected_items_count(filelistbox,
+                                                                            selected,maxsel);
+                        if (n==0)
+                            index=0;
+                        else
+                            index=selected[0];
+                        willus_mem_free((double **)&selected,funcname);
+                        willusgui_control_listbox_get_item_text(filelistbox,index,filename);
+                        /*
+                        for (i=0;i<4;i++)
+                            margins[i]=k2settings->srccropmargins.box[i];
+                        */
+                        for (i=0;i<4;i++)
+                            margins[i]=box->box[i];
+                        {
+                        char optpagelist[256];
+                        static int bcolors[3]={0x6060b0,0xf0f0f0,0xf0f0f0};
+                        int status;
+
+                        strncpy(optpagelist,box->pagelist,255);
+                        optpagelist[255]='\0';                    
+                        status=willusgui_message_box(&k2gui->mainwin,"Optional page range",
+                                        "Specify the page range to display:",
+                                        "*&OK","&Cancel","",optpagelist,255,18,600,
+                                         0xe0e0e0,bcolors,NULL,1);
+                        if (status==1)
+                            {
+                            n=k2gui_overlay_get_crop_margins(k2gui,filename,optpagelist,margins);
+                            if (n)
+                                {
+                                WILLUSGUIRECT wrect,rect;
+
+                                willusgui_window_get_rect(&k2gui->mainwin,&wrect);
+                                for (i=0;i<4;i++)
+                                    box->box[i]=margins[i];
+                                if (margins[4]<0.)
+                                    margins[4]=0.;
+                                if (margins[5]<0.)
+                                    margins[5]=0.;
+                                sprintf(optpagelist,
+                                        "\r\nCrop-box:\r\n-cbox %gin,%gin,%gin,%gin\r\n\r\n"
+                                        "Margins:\r\n-m %gin,%gin,%gin,%gin",
+                                        margins[0],margins[1],margins[2],margins[3],
+                                        margins[0],margins[1],margins[4],margins[5]);
+                                rect=wrect;
+                                rect.left = (wrect.left+wrect.right)/2-300;
+                                rect.right = rect.left+600;
+                                rect.top = (wrect.top+wrect.bottom)/2-90;
+                                rect.bottom = rect.top + 180;
+                                willusgui_message_box(&k2gui->mainwin,"Selected crop box",
+                                        "Command-line options:",
+                                        "*&OK","","",optpagelist,255,18,rect.right-rect.left,
+                                         0xe0e0e0,bcolors,&rect,1);
+                                k2gui_update_controls();
+                                }
+                            }
+                        }
+                        }
+                    else
+                        k2gui_messagebox(0,"Overlay","No source files selected.");
+                    }
                 else if (in_string(control->name,"convert all")>=0)
                     {
                     if (k2gui->k2conv->k2files.n<=0)
@@ -1124,6 +1304,33 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                         k2gui_messagebox(0,"Convert","No files selected for conversion.");
                     k2gui_preview_start();
                     k2gui_update_controls();
+                    }
+                else if (!stricmp(control->name,"opclear"))
+                    {
+                    control=k2gui_control_by_name("opfolder");
+                    if (control!=NULL)
+                        {
+                        strcpy(k2settings->dst_opname_format,"%s_k2opt");
+                        k2gui_update_controls();
+                        }
+                    }
+                else if (!stricmp(control->name,"opselect"))
+                    {
+                    control=k2gui_control_by_name("opfolder");
+                    if (control!=NULL)
+                        {
+                        char foldername[MAXFILENAMELEN];
+                        int status;
+
+                        status=willusgui_folder_select(foldername,MAXFILENAMELEN-1);
+                        if (status)
+                            {
+                            char basename[MAXFILENAMELEN];
+                            strcpy(basename,"%b_k2opt");
+                            wfile_fullname(k2settings->dst_opname_format,foldername,basename);
+                            k2gui_update_controls();
+                            }
+                        }
                     }
                 else if (!stricmp(control->name,"restore"))
                     {
@@ -1234,7 +1441,7 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                 {
                 strcpy(fmt,"%d");
                 del = 10.;
-                xi=&k2settings->dst_dpi;
+                xi=&k2settings->dst_userdpi;
                 min = del;
                 max = -1.;
                 vtype=0;
@@ -1248,7 +1455,7 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                 max=4;
                 vtype=0;
                 }
-            else if (!strcmp(control->name,"drf"))
+            else if (!strcmp(control->name,"ddr"))
                 {
                 strcpy(fmt,"%.1f");
                 del=0.1;
@@ -1257,40 +1464,13 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                 max=10.;
                 vtype=1;
                 }
-            else if (!strcmp(control->name,"cropleft"))
+            else if (!strcmp(control->name,"opfontsizeval"))
                 {
-                strcpy(fmt,"%.2f");
-                del=0.05;
-                xf=&k2settings->srccropmargins.box[0];
-                min=0.;
-                max=-1.;
-                vtype=1;
-                }
-            else if (!strcmp(control->name,"croptop"))
-                {
-                strcpy(fmt,"%.2f");
-                del=0.05;
-                xf=&k2settings->srccropmargins.box[1];
-                min=0.;
-                max=-1.;
-                vtype=1;
-                }
-            else if (!strcmp(control->name,"cropright"))
-                {
-                strcpy(fmt,"%.2f");
-                del=0.05;
-                xf=&k2settings->srccropmargins.box[2];
-                min=0.;
-                max=-1.;
-                vtype=1;
-                }
-            else if (!strcmp(control->name,"cropbottom"))
-                {
-                strcpy(fmt,"%.2f");
-                del=0.05;
-                xf=&k2settings->srccropmargins.box[3];
-                min=0.;
-                max=-1.;
+                strcpy(fmt,"%.1f");
+                del=0.5;
+                xf=&k2gui->opfontsize;
+                min=1.;
+                max=99.;
                 vtype=1;
                 }
             if (action==WILLUSGUIACTION_UPDOWN_EDIT)
@@ -1339,6 +1519,8 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                             fnew = -1.;
                         */
                         (*xf)=fnew;
+                        if (!strcmp(control->name,"opfontsizeval") && fabs(k2settings->dst_fontsize_pts)>1e-8)
+                            k2settings->dst_fontsize_pts=fnew;
                         k2gui_update_controls();
                         }
                     break;
@@ -1387,6 +1569,7 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                     {
                     char *buf;
                     int status;
+                    double fontsize;
                     WILLUSGUIRECT wrect,rect;
 
                     willusgui_window_get_rect(&k2gui->mainwin,&wrect);
@@ -1397,20 +1580,28 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                     rect.right -= 40;
                     rect.top += 40;
                     rect.bottom -= 40;
+                    fontsize=(wrect.right-wrect.left)*.020;
+                    if (fontsize > 16.)
+                        fontsize = 16.;
+                    winmbox_set_font("Courier New");
                     status=willusgui_message_box(&k2gui->mainwin,
                            "K2pdfopt Command-line Options",
                            "K2pdfopt Command-line Options",
                            "*&DISMISS","&GO TO WEBSITE",NULL,
                            buf,strlen(buf),
-                           (wrect.right-wrect.left)*.029,
+                           fontsize,
                            (wrect.right-wrect.left),
                            0xffb080,NULL,&rect,1);
+                    winmbox_set_font("");
                     if (status==2)
                         willusgui_start_browser("http://willus.com/k2pdfopt/");
                     willus_mem_free((double **)&buf,funcname);
                     break;
                     }
-                case 712:  /* About box */
+                case 712:  /* PDF file info */
+                    k2gui_display_info();
+                    break;
+                case 713:  /* About box */
                     {
                     char buf[256];
                     int status;
@@ -1508,6 +1699,75 @@ printf("K2PDFOPT <-- '%s'\n",buf);
     }
 
 
+static void k2gui_display_info(void)
+
+    {
+    int *selected;
+    char *buf;
+    char buf0[MAXFILENAMELEN+128];
+    int *pagelist;
+    int i,n,index,maxsel;
+    WILLUSGUIRECT wrect,rect;
+    WILLUSGUICONTROL *filelistbox;
+    char filename[MAXFILENAMELEN];
+    double fontsize;
+    static char *funcname="k2gui_display_info";
+
+    /* Get selected file name */
+    maxsel=k2gui->k2conv->k2files.n;
+    willus_mem_alloc_warn((void **)&selected,sizeof(int)*maxsel,funcname,10);
+    for (i=0;i<k2gui->ncontrols;i++)
+        if (!stricmp(k2gui->control[i].name,"file list"))
+            break;
+    if (i>=k2gui->ncontrols)
+        k2gui_error_out("Can't find file list control!");
+    filelistbox = &k2gui->control[i];
+    n=willusgui_control_listbox_get_selected_items_count(filelistbox,
+                                                        selected,maxsel);
+    if (n==0)
+        index=0;
+    else
+        index=selected[0];
+    willus_mem_free((double **)&selected,funcname);
+    willusgui_control_listbox_get_item_text(filelistbox,index,filename);
+    if (filename[0]=='\0')
+        {
+        k2gui_messagebox(0,"Convert","No files selected for conversion.");
+        return;
+        }
+    pagelist_get_array(&pagelist,k2gui->k2conv->k2settings.pagelist);
+    wmupdfinfo_get(filename,pagelist,&buf);
+    if (pagelist!=NULL)
+        free(pagelist);
+    if (buf==NULL)
+        {
+        buf=buf0;
+        sprintf(buf,"FILE: %s\n\nCannot obtain information.\n",filename);
+        }
+    willusgui_window_get_rect(&k2gui->mainwin,&wrect);
+    rect=wrect;
+    rect.left += 40;
+    rect.right -= 40;
+    rect.top += 40;
+    rect.bottom -= 40;
+    fontsize=(wrect.right-wrect.left)*.020;
+    if (fontsize > 16.)
+        fontsize = 16.;
+    winmbox_set_font("Courier New");
+    willusgui_message_box(&k2gui->mainwin,
+           "PDF File Info",
+           filename,
+           "*&DISMISS",NULL,NULL,
+           buf,strlen(buf),
+           fontsize,
+           (wrect.right-wrect.left),
+           0xffb080,NULL,&rect,1);
+    winmbox_set_font("");
+    if (buf!=NULL && buf!=buf0)
+        free(buf);
+    }
+
+
 static int k2gui_set_device_from_listbox(WILLUSGUICONTROL *control)
 
     {
@@ -1570,6 +1830,7 @@ int status;
 sprintf(buf,"@k2gui_update_controls, needs_redraw=%d",needs_redraw);
 status=willusgui_message_box(&k2gui->mainwin,"Debug",buf,
 "*&OK","","",NULL,0,24,600,0xe0e0e0,NULL,NULL,1);
+printf("@k2gui_update_controls\n");
 */
     /* Make checkboxes consistent */
     if (k2gui!=NULL && k2gui->k2conv!=NULL)
@@ -1808,7 +2069,6 @@ printf("Calling wincomdlg...\n");
     willus_mem_alloc_warn((void **)&filename,size,funcname,10);
     status=willusgui_file_select_dialog(filename,size-1,allowed_files,"Select source file",
                                         "pdf",0);
-/* printf("status=%d\n",status); */
     if (status)
         {
         char *p;
@@ -1839,25 +2099,7 @@ static void k2gui_add_folder(void)
     char foldername[MAXFILENAMELEN];
     int status;
 
-#ifdef MSWINGUI
-    short fnamew[MAXFILENAMELEN];
-    status=winshell_get_foldernamew(fnamew,"Select a folder");
-    if (!status)
-        return;
-    utf16_to_utf8(foldername,fnamew,MAXFILENAMELEN-1);
-    /*
-    if (!wide_is_legal_ascii_filename(fnamew))
-        {
-        k2gui_alertbox(0,"Non-ASCII characters!",
-                   "Cannot select a folder name with non-ASCII characters!\n\n"
-                   "Please re-choose a folder.");
-        continue;
-        }
-    wide_to_char(foldername,fnamew);
-    */
-#else
-    status=0;
-#endif
+    status=willusgui_folder_select(foldername,MAXFILENAMELEN-1);
     if (status)
         k2gui_add_file(foldername);
     }
@@ -1871,14 +2113,14 @@ static int k2gui_determine_fontsize(void)
 
     willusgui_window_get_rect(&k2gui->mainwin,&rect);
     fontsize=(rect.right-rect.left)/47;
-    if (fontsize > 24)
-        fontsize = 24;
+    if (fontsize > 28)
+        fontsize = 28;
     return(fontsize);
     }
 
 
 /*
-** Add children windows / controls to main window
+** Add child windows / controls to main window
 */
 static void k2gui_add_children(int already_drawn)
 
@@ -1891,6 +2133,7 @@ static void k2gui_add_children(int already_drawn)
     int x1,y1,x0,y0,w1,ybmax;
     int pmbw; /* Preview magnification button width */
     double fm;
+    /* static double fontscale=0.; */
     WILLUSGUIRECT _crect,*crect;
     WILLUSGUICONTROL *control,*flcontrol;
     WILLUSGUICONTROL *focus_control;
@@ -1916,7 +2159,7 @@ status=willusgui_message_box(&k2gui->mainwin,"Debug",buf,
     DestroyWindow(dummy);
     }
 */
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
 #endif
     if (!already_drawn)
@@ -1940,7 +2183,33 @@ printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
     /*
     wh = crect->bottom-crect->top;
     */
-    nr=(crect->bottom*.3-crect->top)/k2gui->font.size-3;
+    /* fontscale calculation:  For Calibri = 1.1, for Arial = 1.0 */
+    /*
+    if (fontscale<0.1)
+        {
+        WILLUSGUIRECT r1;
+        WILLUSGUIFONT f1;
+        int i,rectsum,ssum;
+
+        willusgui_font_init(&f1);
+        for (rectsum=ssum=0,i=10;i<25;i++)
+            {
+            f1.size=i;
+            willusgui_font_get(&f1);
+            willusgui_window_text_extents(&k2gui->mainwin,&f1,"0123456789",&r1);
+            rectsum+=(r1.right-r1.left);
+            ssum+=i;
+            }
+        willusgui_font_release(&f1);
+        fontscale = (double)4.63*ssum/rectsum;
+        if (fontscale < 0.8 || fontscale > 1.25)
+            fontscale = 1.0;
+        }
+    k2gui->font.size=fs;
+    */
+    nr=(crect->bottom*.3-crect->top)/k2gui->font.size-3.;
+    /* Windows weirdness--works best if nr is even */
+    nr=nr&(~1);
     fs=k2gui->font.size;
     f2=fs/2;
     f4=fs/4;
@@ -1955,14 +2224,12 @@ printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
     */
     for (i=0;i<1;i++)
         {
-        double xl;
         int recreate;
 
-        xl = 1.00;
         x1 = x0;
         w = wmax;
         y1 = y0;
-        h = (k2gui->font.size+2)*nr+4;
+        h = k2gui->font.size*(nr+1);
         control=&k2gui->control[k2gui->ncontrols];
         control->index=100+k2gui->ncontrols;
         k2gui->ncontrols++;
@@ -1974,7 +2241,7 @@ printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
             control->rect.top=y1;
             control->rect.right=x1+w-1;
             control->rect.bottom=y1+h-1;
-            control->font.size = k2gui->font.size*xl;
+            control->font.size = k2gui->font.size;
             willusgui_font_get(&control->font);
             strcpy(control->name,"File list");
             control->type=WILLUSGUICONTROL_TYPE_LISTBOX;
@@ -1987,15 +2254,14 @@ printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
             willusgui_control_create(control);
             filebox_populate();
             /* Windows Weirdness */
-            h=k2gui->font.size*nr+2;
             control->rect.right++;
-            control->rect.bottom=control->rect.top+h;
+            control->rect.bottom=control->rect.top+k2gui->font.size*nr+2;
             }
         else
             willusgui_control_redraw(control,0);
         /*
         willusgui_window_text_render(&k2gui->mainwin,&k2gui->font,"File list",
-                                        x1,y1,0x000000,-1,6);
+                                        x1,y1,0x000000,-1,6,NULL);
         */
         flcontrol=control;
         }
@@ -2003,15 +2269,17 @@ printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
     /* Buttons by file list */
     x0 = k2gui->control[k2gui->ncontrols-1].rect.right;
     y0 = k2gui->control[k2gui->ncontrols-1].rect.top - linesize;
-    for (x1=x0,j=0,i=2;i>=0;i--,j++,x1-=(w+fs))
+    for (x1=x0,j=0,i=3;i>=0;i--,j++,x1-=(w+fs))
         {
         double xl;
-        static char *button_label[3]={"&ADD FILE","ADD FOLDER","&REMOVE ITEM"};
+        static char *button_label[4]={"INFO","&ADD FILE","ADD FOLDER","&REMOVE ITEM"};
         WILLUSGUIRECT trect;
 
         xl = 1.00;
         willusgui_window_text_extents(&k2gui->mainwin,&k2gui->font,button_label[i],&trect);
         w = trect.right*1.2;
+        if (i==0)
+            w *= 1.25;
         y1 = y0;
         h = k2gui->font.size*(xl+.4);
         control=&k2gui->control[k2gui->ncontrols+i];
@@ -2019,6 +2287,7 @@ printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
             {
             willusgui_control_init(control);
             strcpy(control->name,button_label[i]);
+            strcpy(control->label,button_label[i]);
             control->color=0xd0d0ff;
             control->font.size = k2gui->font.size*xl;
             willusgui_font_get(&control->font);
@@ -2029,11 +2298,10 @@ printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
             control->type=WILLUSGUICONTROL_TYPE_BUTTON;
             control->index=100+k2gui->ncontrols+i;
             control->parent=&k2gui->mainwin;
-            }
-        if (already_drawn)
-            willusgui_control_redraw(control,0);
-        else
             willusgui_control_create(control);
+            }
+        else
+            willusgui_control_redraw(control,0);
         }
     k2gui->ncontrols+=j;
 
@@ -2059,6 +2327,7 @@ printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
             {
             willusgui_control_init(control);
             k2gui_get_custom_name(i+1,control->name,31);
+            strcpy(control->label,control->name);
             control->flags=i+1;
             control->color=0xffffd0;
             control->font.size=k2gui->font.size*xl;
@@ -2095,7 +2364,7 @@ printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
 
     willusgui_window_text_extents(&k2gui->mainwin,&k2gui->font,cps,&r1);
     willusgui_window_text_render(&k2gui->mainwin,&k2gui->font,cps,
-                              (xmax+xmin)/2-r1.right/2,ymin+fs/2,0,-1,6);
+                              (xmax+xmin)/2-r1.right/2,ymin+fs/2,0,-1,6,NULL);
     willusgui_font_init(&font);
     font.size=(int)(fs*.7);
     willusgui_font_get(&font);
@@ -2104,7 +2373,7 @@ printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
         WILLUSGUIRECT r2;
         willusgui_window_text_extents(&k2gui->mainwin,&font,cah[i],&r2);
         willusgui_window_text_render(&k2gui->mainwin,&font,cah[i],
-                              (xmax+xmin)/2-r2.right/2,y1+r2.bottom,0,-1,6);
+                              (xmax+xmin)/2-r2.right/2,y1+r2.bottom,0,-1,6,NULL);
         y1 += r2.bottom*1.1;
         }
     willusgui_font_release(&font);
@@ -2214,7 +2483,7 @@ printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
             willusgui_control_redraw(control,0);
         if (i==0)
             {
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("dst_userwidth = %g\n",k2settings->dst_userwidth);
 printf("dst_userwidth_units = %d\n",k2settings->dst_userwidth_units);
 #endif
@@ -2231,7 +2500,7 @@ printf("dst_userwidth_units = %d\n",k2settings->dst_userwidth_units);
                 sprintf(buf,"%.2f",k2settings->dst_userheight);
             }
         else
-            sprintf(buf,"%d",k2settings->dst_dpi);
+            sprintf(buf,"%d",k2settings->dst_userdpi);
         willusgui_control_set_text(control,buf);
         if (i<2)
             {
@@ -2431,7 +2700,7 @@ printf("    control->handle=%p\n",control->handle);
         control->rect.left = x1;
         control->rect.top = y1;
         control->rect.right = x1 + h*5;
-        ppbb=control->rect.bottom = y1+h-1;
+        control->rect.bottom = y1+h-1;
         control->type=WILLUSGUICONTROL_TYPE_UPDOWN2;
         control->parent=&k2gui->mainwin;
         strcpy(control->label,ppname);
@@ -2442,6 +2711,7 @@ printf("    control->handle=%p\n",control->handle);
         }
     else
         willusgui_control_redraw(control,0);
+    ppbb=control->rect.bottom = y1+h-1;
     {
     char buf[16];
 
@@ -2468,11 +2738,11 @@ printf("    control->handle=%p\n",control->handle);
             control->font.size=k2gui->font.size;
             willusgui_font_get(&control->font);
             control->type=WILLUSGUICONTROL_TYPE_BUTTON;
-            control->label[0]='\0';
             control->parent=&k2gui->mainwin;
             }
         control->color=k2gui->preview_processing?0x806080:0xffd0ff;
         strcpy(control->name,k2gui->preview_processing?"Cancel":"Pre&view");
+        strcpy(control->label,control->name);
         if (already_drawn)
             willusgui_control_redraw(control,0);
         else
@@ -2512,7 +2782,7 @@ printf("    control->handle=%p\n",control->handle);
             control->type=WILLUSGUICONTROL_TYPE_BUTTON;
             control->color=0xffd0ff;
             strcpy(control->name,bname[i]);
-            control->label[0]='\0';
+            strcpy(control->label,bname[i]);
             control->parent=&k2gui->mainwin;
             }
         if (already_drawn)
@@ -2536,38 +2806,52 @@ printf("    control->handle=%p\n",control->handle);
     x0=crect->left+xmar;
     y0=k2gui->control[0].rect.bottom+fs*1.4;
     w= k2gui->control[0].rect.right - x0;
-    for (y1=y0-eheight*0.9,i=0;i<3;i++)
+    for (y1=y0-eheight*0.9,i=0;i<4;i++)
         {
-        static char *label[]={"Env. var:","Additional options:","Command-line version of options:"};
-        static char *name[]={"env","extra","cmdline args"};
+        static char *label[]={"Output Folder:","Env. var:","Additional options:","Command-line version of options:"};
+        static char *name[]={"opfolder","env","extra","cmdline args"};
         WILLUSGUIRECT r1;
 
         x1=x0;
+        /* v2.32: Incorporate label into control */
+        /*
         willusgui_window_text_render(&k2gui->mainwin,&k2gui->font,label[i],x1,
-                                         y1+(i<2?eheight*.1:0),0,-1,0);
+                                         y1+(i<2?eheight*.1:0),0,-1,0,NULL);
         willusgui_window_text_extents(&k2gui->mainwin,&k2gui->font,label[i],&r1);
+        */
         control=&k2gui->control[k2gui->ncontrols];
         if (!already_drawn)
             {
             willusgui_control_init(control);
-            if (i==2)
+            if (i==0)
+                control->attrib |= WILLUSGUICONTROL_ATTRIB_READONLY;
+            else if (i==3)
                 control->attrib |= (WILLUSGUICONTROL_ATTRIB_MULTILINE | WILLUSGUICONTROL_ATTRIB_READONLY);
+            strcpy(control->label,label[i]);
+            control->labelx=x1;
+            control->labely=y1+(i<2?eheight*.1:0);
+            control->labeljust=0;
+            control->parent=&k2gui->mainwin;
+            control->index=100+k2gui->ncontrols;
+            control->font.size=k2gui->font.size;
+            control->type=WILLUSGUICONTROL_TYPE_EDITBOX;
+            willusgui_font_get(&control->font);
+            strcpy(control->name,name[i]);
+            willusgui_control_draw_label(control,&r1);
+            r1.right = (r1.right-r1.left+1);
+            r1.bottom -= (r1.bottom-r1.top+1);
             control->rect.left= i<2 ? x1+r1.right+f4 : x1;
             /* control->rect.top = i<2 ? y1-eheight*.9 : y1-eheight+linesize; */
             control->rect.top = i<2 ? y1 : y1+eheight*0.1+linesize*0.6;
             if (i==0)
                 control->rect.right = control->rect.left + w-(r1.right+f4)-1-(bw+f4)*2;
             else if (i==1)
+                control->rect.right = control->rect.left + w-(r1.right+f4)-1-(bw+f4)*2;
+            else if (i==2)
                 control->rect.right = control->rect.left + w-(r1.right+f4)-1;
             else
                 control->rect.right = control->rect.left + w-1;
             control->rect.bottom = control->rect.top + (i<2 ? eheight-1 : eheight*2-1);
-            control->index=100+k2gui->ncontrols;
-            control->font.size=k2gui->font.size;
-            control->type=WILLUSGUICONTROL_TYPE_EDITBOX;
-            willusgui_font_get(&control->font);
-            strcpy(control->name,name[i]);
-            control->parent=&k2gui->mainwin;
             }
         if (already_drawn)
             willusgui_control_redraw(control,0);
@@ -2575,6 +2859,13 @@ printf("    control->handle=%p\n",control->handle);
             willusgui_control_create(control);
         k2gui->ncontrols++;
         if (i==0)
+            {
+            char foldername[MAXFILENAMELEN];
+
+            wfile_basepath(foldername,k2settings->dst_opname_format);
+            willusgui_control_set_text(control,foldername);
+            }
+        else if (i==1)
             {
             char *buf;
             static char *funcname="k2gui_add_children";
@@ -2585,23 +2876,66 @@ printf("    control->handle=%p\n",control->handle);
             willus_mem_free((double **)&buf,funcname);
             /* willusgui_control_set_text(control,k2gui->env->s==NULL?"":k2gui->env->s); */
             }
-        else if (i==1)
+        else if (i==2)
 {
 
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
 #endif
 
             willusgui_control_set_text(control,k2gui->cmdxtra.s==NULL?"":k2gui->cmdxtra.s);
 }
-        else if (i==2)
+        else if (i==3)
             {
             willusgui_control_set_text(control,settings->s==NULL?"":settings->s);
             /* y1 += eheight+linesize; */
             }
- 
-        /* Env. var set button */
+
+        /* Output folder select */ 
         if (i==0)
+            {
+            WILLUSGUIRECT r;
+            int j;
+
+            r=control->rect;
+            for (j=0;j<2;j++)
+                {
+                control=&k2gui->control[k2gui->ncontrols];
+                control->index=100+k2gui->ncontrols;
+                k2gui->ncontrols++;
+                if (!already_drawn)
+                    {
+                    willusgui_control_init(control);
+                    control->rect.left=r.right + (j+1)*f4 + j*bw;
+                    control->rect.top=r.top;
+                    /* control->rect.right=r.left+w-(r1.right+f4)-1; */
+                    control->rect.right=r.right + (j+1)*(bw+f4);
+                    control->rect.bottom=r.bottom;
+                    control->font.size=k2gui->font.size;
+                    willusgui_font_get(&control->font);
+                    control->type=WILLUSGUICONTROL_TYPE_BUTTON;
+                    control->color=0xd0d0ff;
+                    if (j==0)
+                        {
+                        strcpy(control->name,"opclear");
+                        strcpy(control->label,"Clear");
+                        }
+                    else
+                        {
+                        strcpy(control->name,"opselect");
+                        strcpy(control->label,"Select");
+                        }
+                    control->parent=&k2gui->mainwin;
+                    }
+                if (already_drawn)
+                    willusgui_control_redraw(control,0);
+                else
+                    willusgui_control_create(control);
+                }
+            }
+
+        /* Env. var buttons */
+        if (i==1)
             {
             WILLUSGUIRECT r;
             int j;
@@ -2626,7 +2960,7 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
                     control->type=WILLUSGUICONTROL_TYPE_BUTTON;
                     control->color=0xd0d0ff;
                     strcpy(control->name,bname[j]);
-                    control->label[0]='\0';
+                    strcpy(control->label,bname[j]);
                     control->parent=&k2gui->mainwin;
                     }
                 if (already_drawn)
@@ -2643,38 +2977,55 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
 
     /* More up/down selectors: columns, display resolution factor, crop margins */
     {
+    WILLUSGUIFONT _font,*font;
+    WILLUSGUIRECT te;
+    int fsize,bmar;
+    int xb[3],yb[3];
+
     fm = 1.0;
-    h=eheight*fm;
-    if (h&1)
-        h++;
+    fsize=k2gui->font.size*fm+.5;
+    if (fsize<8)
+        fsize=8;
+    bmar=fsize/4;
     x0=crect->left+xmar;
     w= (k2gui->control[0].rect.right - x0)/2;
     y1 += eheight*0.1;
-    for (i=0;i<6;i++)
+
+    font=&_font;
+    willusgui_font_init(font);
+    font->size=fsize;
+    willusgui_font_get(font);
+    willusgui_window_text_extents(&k2gui->mainwin,font,"Crop areas",&te);
+    xb[0]=x0;
+    yb[0]=y1+eheight*0.5;
+    xb[1]=x0+te.right;
+    yb[1]=yb[0]+fsize;
+    xb[2]=yb[2]=0; /* Avoid compiler warning */
+    willusgui_window_text_render(&k2gui->mainwin,&k2gui->font,"Crop areas",x0,y1+eheight*0.5,0x000000,-1,0,NULL);
+    x0 +=  te.right+eheight*1.2;
+    for (i=0;i<2;i++)
         {
         char buf[32];
-        static char *names[]={"maxcols","drf","cropleft","croptop","cropright","cropbottom"};
-        static char *labels[]={"Max columns:","Document Resolution Factor:",
-                              "Crop Margins (in): Left","Top","Right","Bottom"};
+        static char *names[]={"maxcols","ddr"};
+        static char *labels[]={"Max columns:","Document Resolution Factor:"};
 
         control=&k2gui->control[k2gui->ncontrols];
         control->index=100+k2gui->ncontrols;
         k2gui->ncontrols++;
         if (!already_drawn)
             {
-            WILLUSGUIRECT te;
 
             willusgui_control_init(control);
             strcpy(control->name,names[i]);
             control->flags=0;
             control->color=0xffb060;
-            control->font.size=k2gui->font.size*fm;
+            control->font.size=fsize;
             willusgui_font_get(&control->font);
             willusgui_window_text_extents(&k2gui->mainwin,&control->font,labels[i],&te);
             control->rect.left=x0+te.right+eheight*.15;
             control->rect.top=y1;
             control->rect.right=control->rect.left+eheight*(i<2 ? 1.8 : 2.1);
-            control->rect.bottom=control->rect.top+eheight-1;
+            control->rect.bottom=control->rect.top+fsize+3;
             control->type=WILLUSGUICONTROL_TYPE_UPDOWN;
             control->parent=&k2gui->mainwin;
             strcpy(control->label,labels[i]);
@@ -2693,22 +3044,131 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
             case 1:
                 sprintf(buf,"%.1f",k2settings->dst_display_resolution);
                 break;
-            case 2:
-            case 3:
-            case 4:
-            case 5:
-                sprintf(buf,"%.2f",mar_eval(k2settings->srccropmargins.box[i-2]));
-                break;
             }
         willusgui_control_set_text(control,buf);
+        /*
         if (i==1 || i==5)
             {
             y1 += eheight*1.15;
             x0=crect->left+xmar;
             }
         else
-            x0=control->rect.right + eheight*(i==0 ? 1.5 : 0.4);
+        */
+        x0=control->rect.right + eheight*0.5;
         }
+    y1 += eheight*1.2;
+
+    {
+    int k,boxheight,boxgapv,boxgaph,fsize;
+    double ytop,xleft;
+
+    /* Apply K2SETTINGS cropboxes to GUI storage */
+    fm = 0.78;
+    fsize=k2gui->font.size*fm+.5;
+    if (fsize<8)
+        fsize=8;
+    boxheight=eheight*fm+.5;
+    boxgapv = boxheight*0.07;
+    boxgaph = boxheight*0.15;
+    if (boxgapv<2)
+        boxgapv=2;
+    if (boxgaph<4)
+        boxgaph=4;
+    x0=crect->left+xmar;
+    w= (k2gui->control[0].rect.right - x0)/2;
+    for (k=-1,ytop=y1;k<3;k++,ytop+=(k==0 ? boxheight*0.8 : boxheight+boxgapv))
+        {
+        static char *names[]={"cboxactive%d","cboxleft%d","cboxtop%d",
+                              "cboxwidth%d","cboxheight%d",
+                              "cboxpages%d","cboxignore%d","cboxselect%d",""};
+        static char *labels[]={"Active","Left","Top","Width","Height","Page Range",
+                               "Ignore","Select"};
+        static char *position[]={"XXXXXX","XXXXXXXX","XXXXXXXX","XXXXXXXX","XXXXXXXX",
+                                 "XXXXXXXXXXXXXX","XXXXXX","XXXXXXXX"};
+        int row_enabled;
+
+        row_enabled=1;
+        for (i=0,xleft=x0;names[i][0]!='\0';i++)
+            {
+            char buf[32];
+            WILLUSGUIFONT _font,*font;
+            WILLUSGUIRECT te;
+
+            font=&_font;
+            willusgui_font_init(font);
+            font->size=fsize;
+            willusgui_font_get(font);
+            willusgui_window_text_extents(&k2gui->mainwin,font,position[i],&te);
+            if (k<0)
+                {
+                willusgui_window_text_render(&k2gui->mainwin,font,labels[i],xleft,ytop,
+                                             0x000000,-1,0,NULL);
+                }
+            else
+                {
+                control=&k2gui->control[k2gui->ncontrols];
+                control->index=100+k2gui->ncontrols;
+                k2gui->ncontrols++;
+                if (!already_drawn)
+                    {
+                    willusgui_control_init(control);
+                    sprintf(control->name,names[i],k+1);
+                    if (i==6)
+                        strcpy(control->label,labels[i]);
+                    control->flags=0;
+                    control->color=(i<6 ? 0xffb060 : 0x70a0ff);
+                    control->font.size=k2gui->font.size*fm;
+                    control->font = (*font);
+                    control->rect.left=xleft;
+                    if (i==0 || i==6)
+                        control->rect.left += te.right*.13;
+                    control->rect.top=ytop;
+                    control->rect.right=xleft+te.right-boxgaph;
+                    control->rect.bottom=control->rect.top+fsize+3;
+                    control->type=(i==0 || i==6) ? WILLUSGUICONTROL_TYPE_CHECKBOX 
+                                       : (i==7 ? WILLUSGUICONTROL_TYPE_BUTTON
+                                               : WILLUSGUICONTROL_TYPE_EDITBOX);
+                    control->parent=&k2gui->mainwin;
+                    if (i==7)
+                        strcpy(control->label,"Select");
+                    else
+                        control->label[0]='\0';
+                    control->labeljust=0;
+                    control->labelx=xleft;
+                    control->labely=ytop + h*.15;
+                    willusgui_control_create(control);
+                    }
+                else
+                    willusgui_control_redraw(control,0);
+                k2gui_cropbox_eval(buf,k,i);
+                if (i==0)
+                    row_enabled = (buf[0]!='\0');
+                if (i>0 && i<6)
+                    willusgui_control_set_text(control,buf);
+                else if (i==0 || i==6)
+                    {
+                    if (buf[0]!='\0')
+                        control->attrib |= WILLUSGUICONTROL_ATTRIB_CHECKED;
+                    else
+                        control->attrib &= (~WILLUSGUICONTROL_ATTRIB_CHECKED);
+                    }
+                willusgui_control_enable(control,i==0?1:row_enabled);
+                }
+            xleft += te.right;
+            }
+        if (k<0)
+            xb[2]=xleft;
+        } /* k loop */
+    yb[2]=ytop;
+    /* Draw little box around crop area controls */
+    willusgui_window_draw_line(&k2gui->mainwin,xb[0]-bmar,yb[0]-bmar+5,xb[1]+bmar-1,yb[0]-bmar+5,0,0);
+    willusgui_window_draw_line(&k2gui->mainwin,xb[1]+bmar-1,yb[0]-bmar+5,xb[1]+bmar-1,yb[1]-bmar+1,0,0);
+    willusgui_window_draw_line(&k2gui->mainwin,xb[1]+bmar-1,yb[1]-bmar+1,xb[2]+bmar-3,yb[1]-bmar+1,0,0);
+    willusgui_window_draw_line(&k2gui->mainwin,xb[2]+bmar-3,yb[1]-bmar+1,xb[2]+bmar-3,yb[2]+bmar-2,0,0);
+    willusgui_window_draw_line(&k2gui->mainwin,xb[0]-bmar,yb[2]+bmar-2,xb[2]+bmar-3,yb[2]+bmar-2,0,0);
+    willusgui_window_draw_line(&k2gui->mainwin,xb[0]-bmar,yb[0]-bmar+5,xb[0]-bmar,yb[2]+bmar-2,0,0);
+    y1=ytop+eheight*.3;
+    }
     }
 
     /* Page range edit box */
@@ -2716,26 +3176,39 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
     static char *label[]={"Pages to convert:"};
     static char *name[]={"pages"};
     WILLUSGUIRECT r1;
+    int fsize;
     
     i=0;
     x1=x0;
-    willusgui_window_text_render(&k2gui->mainwin,&k2gui->font,label[i],x1,y1+eheight*.1,0,-1,0);
+    fsize=k2gui->font.size*.9+.5;
+    if (fsize<8)
+        fsize=8;
+    /* Incorporate as label, v2.32 */
+    /*
+    willusgui_window_text_render(&k2gui->mainwin,&k2gui->font,label[i],x1,y1+eheight*.1,0,-1,0,NULL);
     willusgui_window_text_extents(&k2gui->mainwin,&k2gui->font,label[i],&r1);
+    */
     control=&k2gui->control[k2gui->ncontrols];
     control->index=100+k2gui->ncontrols;
     k2gui->ncontrols++;
     if (!already_drawn)
         {
         willusgui_control_init(control);
-        control->rect.left= x0+r1.right+f4;
-        control->rect.top = y1;
-        control->rect.right = control->rect.left + eheight*8;
-        control->rect.bottom = control->rect.top + eheight-1;
-        control->font.size=k2gui->font.size;
         control->type=WILLUSGUICONTROL_TYPE_EDITBOX;
+        control->font.size=fsize;
         willusgui_font_get(&control->font);
         strcpy(control->name,name[i]);
         control->parent=&k2gui->mainwin;
+        strcpy(control->label,label[0]);
+        control->labelx=x1;
+        control->labely=y1+eheight*.1;
+        control->labeljust=0;
+        willusgui_control_draw_label(control,&r1);
+        r1.right = (r1.right-r1.left+1);
+        control->rect.left= x0+r1.right+f4;
+        control->rect.top = y1;
+        control->rect.right = control->rect.left + eheight*8;
+        control->rect.bottom = control->rect.top + fsize + 3;
         }
     if (already_drawn)
         willusgui_control_redraw(control,0);
@@ -2744,20 +3217,54 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
     willusgui_control_set_text(control,k2settings->pagelist[0]=='\0'
                              ? "(all)" : k2settings->pagelist);
     y1 = control->rect.bottom + ((int)(linesize*0.1)<2 ? 2 : (int)(linesize*0.1));
+/*
+    {
+    static char *blabel="Margin Select";
+    WILLUSGUIRECT trect;
+    double xl;
+
+    xl = 0.9;
+    willusgui_window_text_extents(&k2gui->mainwin,&k2gui->font,blabel,&trect);
+    w = trect.right*1.1;
+    h = k2gui->font.size*(xl+.4);
+    control=&k2gui->control[k2gui->ncontrols];
+    control->index=100+k2gui->ncontrols;
+    k2gui->ncontrols++;
+    if (!already_drawn)
+        {
+        willusgui_control_init(control);
+        strcpy(control->name,blabel);
+        control->color=0x70a0ff;
+        control->font.size = k2gui->font.size*xl;
+        willusgui_font_get(&control->font);
+        control->rect.left = k2gui->control[k2gui->ncontrols-2].rect.right+h/2;
+        control->rect.right = control->rect.left + w;
+        control->rect.top = k2gui->control[k2gui->ncontrols-2].rect.top;
+        control->rect.bottom = k2gui->control[k2gui->ncontrols-2].rect.bottom;
+        control->type=WILLUSGUICONTROL_TYPE_BUTTON;
+        control->parent=&k2gui->mainwin;
+        willusgui_control_create(control);
+        }
+    else
+        willusgui_control_redraw(control,0);
+    }
+*/
+
     }
 
     /* Checkboxes */
     {
     static char *checkboxlabel[] = {"Auto&straighten","&Break after each source page",
-                               "Color o&utput","Rotate output to &landscape",
+                               "Color o&utput","Output in &landscape",
                                "&Native PDF output","Right-&to-left text",
                                "Smart line brea&ks",
 #ifdef HAVE_GHOSTSCRIPT
                                "&Post-process w/Ghostscript",
 #endif
                                "Generate &marked-up source","Re-flow te&xt",
-                               "Erase vertical l&ines","Fast Previe&w",
+                               "Erase vertical l&ines","Erase hori&zontal lines","Fast Previe&w",
                                "Avoi&d Text Select Overlap","I&gnore small defects",
+                               "Auto-crop","Fixed output font size",
 #ifdef HAVE_OCR_LIB
                                "&OCR (Tesseract)",
 #endif
@@ -2767,25 +3274,38 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
 #ifdef HAVE_GHOSTSCRIPT
                                    "ppgs",
 #endif
-                                   "markup","wrap","evl","autorot","bpm","defects"
+                                   "markup","wrap","evl","ehl","autorot","bpm","defects",
+                                   "autocrop","opfontsize"
 #ifdef HAVE_OCR_LIB
                                    ,"ocr"
 #endif
                                    };
-    int n,n2,vspacing;
+    int n,n2,vspacing,fsize;
+    double fm;
 
+    fm=0.8;
+    fsize = k2gui->font.size*fm+.5;
+    if (fsize<10)
+        fsize = 10;
     for (n=0;checkboxlabel[n][0]!='\0';n++);
-    y1 += eheight/2;
+    y1 += eheight*0.2;
     n2=(n+1)/2;
     x0=crect->left+xmar;
     w= (k2gui->control[0].rect.right - x0 - pmbw)/2;
-    vspacing = k2gui->font.size*1.35;
+    vspacing = fsize+1;
     ybmax = 0;
     for (i=0;i<n;i++)
         {
-        int c,r,checked,lbreak,ii;
+        int c,r,checked,textbox,ii;
 
-        lbreak=!stricmp(checkboxname[i],"linebreak");
+        if (!stricmp(checkboxname[i],"linebreak"))
+            textbox=1;
+        else if (!stricmp(checkboxname[i],"landscape"))
+            textbox=2;
+        else if (!stricmp(checkboxname[i],"opfontsize"))
+            textbox=3;
+        else
+            textbox=0;
         c=i/n2;
         r=i%n2;
         control=&k2gui->control[k2gui->ncontrols];
@@ -2797,16 +3317,19 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
             control->rect.left=x0 + c*w;
             control->rect.top=y1+vspacing*r;
             control->rect.right=control->rect.left+w-10;
-            control->rect.bottom=control->rect.top+vspacing-1;
+            control->rect.bottom=control->rect.top+fsize+3;
             if (control->rect.bottom > ybmax)
                 ybmax = control->rect.bottom;
-            control->font.size=k2gui->font.size;
+            control->font.size=fsize;
             willusgui_font_get(&control->font);
-            if (lbreak)
+            if (textbox)
                 {
                 WILLUSGUIRECT r1;
                 willusgui_window_text_extents(&k2gui->mainwin,&control->font,checkboxlabel[i],&r1);
-                control->rect.right=control->rect.left+(r1.right-r1.left)+eheight*0.85;
+                if (textbox==3)
+                    control->rect.right=control->rect.left+(r1.right-r1.left)+eheight*1.0;
+                else
+                    control->rect.right=control->rect.left+(r1.right-r1.left)+eheight*0.85;
                 }
             control->type=WILLUSGUICONTROL_TYPE_CHECKBOX;
             control->color=0xd0ffd0;
@@ -2862,16 +3385,25 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
                 checked=k2settings->erase_vertical_lines;
                 break;
             case 11:
-                checked=fabs(k2settings->src_rot-SRCROT_AUTO)<.5;
+                checked=k2settings->erase_horizontal_lines;
                 break;
             case 12:
-                checked=(k2settings->dst_break_pages==4);
+                checked=fabs(k2settings->src_rot-SRCROT_AUTO)<.5;
                 break;
             case 13:
+                checked=(k2settings->dst_break_pages==4);
+                break;
+            case 14:
                 checked=fabs(k2settings->defect_size_pts-1.5)<.001;
                 break;
+            case 15:
+                checked=k2settings->autocrop;
+                break;
+            case 16:
+                checked=fabs(k2settings->dst_fontsize_pts)>1e-8;
+                break;
 #ifdef HAVE_OCR_LIB
-            case 14:
+            case 17:
                 checked=(k2settings->dst_ocr=='t');
                 break;
 #endif
@@ -2884,36 +3416,67 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
             willusgui_control_create(control);
         else
             willusgui_control_redraw(control,0);
-        if (lbreak)
+        if (textbox)
             {
             char xbuf[32];
             WILLUSGUICONTROL *ctrl1;
-            int dy;
 
             ctrl1=control;
-            dy=ctrl1->rect.bottom-ctrl1->rect.top+1;
             control=&k2gui->control[k2gui->ncontrols];
             control->index=100+k2gui->ncontrols;
             k2gui->ncontrols++;
             if (!already_drawn)
                 {
                 willusgui_control_init(control);
-                control->rect.left= ctrl1->rect.right + eheight/2;
-                control->rect.top = ctrl1->rect.top+dy*.1;
-                control->rect.bottom = ctrl1->rect.bottom-dy*.1;
-                control->rect.right = control->rect.left + eheight*1.5;
-                control->font.size=k2gui->font.size*0.75;
-                control->type=WILLUSGUICONTROL_TYPE_EDITBOX;
+                if (textbox==3)
+                    control->rect.left= ctrl1->rect.right + eheight;
+                else
+                    control->rect.left= ctrl1->rect.right + eheight/2;
+                control->rect.top = ctrl1->rect.top+2;
+                control->rect.bottom = control->rect.top+fsize-1;
+                if (textbox==1)
+                    control->rect.right = control->rect.left + eheight*1.5;
+                else if (textbox==2)
+                    control->rect.right = control->rect.left + eheight*2.5;
+                else
+                    control->rect.right = control->rect.left + eheight*2.0;
+                if (textbox==3)
+                    control->font.size=fsize;
+                else
+                    control->font.size=fsize-4;
+                if (textbox==3)
+                    control->type=WILLUSGUICONTROL_TYPE_UPDOWN;
+                else
+                    control->type=WILLUSGUICONTROL_TYPE_EDITBOX;
                 willusgui_font_get(&control->font);
-                strcpy(control->name,"linebreakval");
+                if (textbox==1)
+                    strcpy(control->name,"linebreakval");
+                else if (textbox==2)
+                    strcpy(control->name,"landscapepages");
+                else if (textbox==3)
+                    strcpy(control->name,"opfontsizeval");
+                control->label[0]='\0';
+                control->labelx=control->rect.left;
+                control->labely=control->rect.top;
                 control->parent=&k2gui->mainwin;
                 }
             if (already_drawn)
                 willusgui_control_redraw(control,0);
             else
                 willusgui_control_create(control);
-            sprintf(xbuf,"%.3f",fabs(k2settings->word_spacing));
-            willusgui_control_set_text(control,xbuf);
+            if (textbox==1)
+                {
+                sprintf(xbuf,"%.3f",fabs(k2settings->word_spacing));
+                willusgui_control_set_text(control,xbuf);
+                }
+            else if (textbox==2)
+                willusgui_control_set_text(control,k2settings->dst_landscape_pages);
+            else
+                {
+                char buf[32];
+                sprintf(buf,"%.1f",k2gui->opfontsize);
+                willusgui_control_set_text(control,buf);
+                }
             }
         }
     }
@@ -2951,6 +3514,7 @@ printf("cmdxtra.s='%s'\n",k2gui->cmdxtra.s);
             willusgui_font_get(&control->font);
             control->type=WILLUSGUICONTROL_TYPE_BUTTON;
             control->color=buttoncolors[i];
+            strcpy(control->label,buttonnames[i]);
             strcpy(control->name,buttonnames[i]);
             control->parent=&k2gui->mainwin;
             }
@@ -2982,13 +3546,59 @@ aprintf(ANSI_YELLOW "\nCHILDREN REDRAWN.  ncontrols=%d.\n" ANSI_NORMAL,k2gui->nc
              || focus_control->type == WILLUSGUICONTROL_TYPE_UPDOWN2)
             willusgui_control_text_select_all(focus_control);
         }
+/*
+printf("Done drawing controls.  ncontrols=%d\n",k2gui->ncontrols);
+{
+int i;
+for (i=0;i<k2gui->ncontrols;i++)
+printf("index[%03d]= %-20s %03d\n",i,k2gui->control[i].name,k2gui->control[i].index);
+}
+*/
     }
 
 
-static double mar_eval(double x)
+/*
+** Determine crop margin setting
+*/
+static void k2gui_cropbox_eval(char *buf,int cmindex,int fieldindex)
 
     {
-    return(x<0. ? 0. : x);
+    K2CROPBOX *box;
+    K2PDFOPT_SETTINGS *k2settings;
+
+    k2settings=&k2gui->k2conv->k2settings;
+    buf[0]='\0';
+    if (cmindex<0 || cmindex>=MAXK2CROPBOXES)
+        return;
+    box = &k2settings->cropboxes.cropbox[cmindex];
+    if (fieldindex==0)
+        {
+        if (!(box->cboxflags&K2CROPBOX_FLAGS_NOTUSED))
+            strcpy(buf,"x");
+        return;
+        }
+    if (fieldindex==6)
+        {
+        if (box->cboxflags&K2CROPBOX_FLAGS_IGNOREBOXEDAREA)
+            strcpy(buf,"x");
+        return;
+        }
+    if (fieldindex==5)
+        {
+        strcpy(buf,box->pagelist);
+        return;
+        }
+    if (fieldindex>=1 && fieldindex<=4)
+        {
+        char fmtstr[16];
+
+        if (box->units[fieldindex-1]==UNITS_INCHES || box->units[fieldindex-1]==UNITS_CM)
+            strcpy(fmtstr,"%.2f%s");
+        else
+            strcpy(fmtstr,"%.3f%s");
+        sprintf(buf,fmtstr,box->box[fieldindex-1],k2pdfopt_settings_unit_string(box->units[fieldindex-1]));
+        return;
+        }
     }
 
 
@@ -3009,7 +3619,7 @@ sprintf(buf,"@k2gui_main_repaint, changing=%d, needs_redraw=%d",changing,needs_r
 status=willusgui_message_box(&k2gui->mainwin,"Debug",buf,
 "*&OK","","",NULL,0,24,600,0xe0e0e0,NULL,NULL,1);
 */
-#if (WILLUSDEBUG & 0x2000)
+#if (WILLUSDEBUGX & 0x2000)
 printf("@k2gui_main_repaint(changing=%d, needs_redraw=%d)\n",changing,needs_redraw);
 #endif
     willusgui_window_get_useable_rect(&k2gui->mainwin,&rect);
@@ -3052,7 +3662,15 @@ printf("@k2gui_main_repaint(changing=%d, needs_redraw=%d)\n",changing,needs_redr
         {
         k2gui->font.size = k2gui_determine_fontsize();
         willusgui_font_get(&k2gui->font);
+        /* v2.32--remember selected text edit */
+        k2gui_get_selection();
+/*
+if (k2gui->sel_index>=0)
+printf("get_selection: k2gui->sel_index=%d (%d-%d)\n",k2gui->sel_index,k2gui->sel_start,k2gui->sel_end);
+*/
         k2gui_add_children(children_created);
+        /* v2.32--restore selected text edit */
+        k2gui_apply_selection();
         children_created=1;
         needs_redraw=0;
         /* k2gui_window_size_changed(&k2gui->mainwin); */
@@ -3084,6 +3702,59 @@ static void k2gui_destroy_mainwin(void)
     k2gui_destroy_children();
     willusgui_font_release(&k2gui->font);
     willusgui_control_close(&k2gui->mainwin);
+    }
+
+
+/* If any of the text controls have selected text, remember it. */
+static void k2gui_get_selection(void)
+
+    {
+    int i;
+    void *fhandle;
+
+    fhandle=willusgui_control_handle_with_focus();
+    k2gui->sel_index=-1;
+    for (i=0;i<k2gui->ncontrols;i++)
+        {
+        int seltext,start,end;
+
+        if (k2gui->control[i].handle!=fhandle)
+            continue;
+        /* Preserve selected text position */
+        seltext=willusgui_control_text_selected(&k2gui->control[i],&start,&end);
+        if (seltext)
+            {
+/*
+printf("Getting selection from index=%d, handle=0x%X\n",k2gui->control[i].index,k2gui->control[i].handle);
+printf("        seltext=%d, start=%d, end=%d\n",seltext,start,end);
+printf("        handle w/focus = 0x%X\n",willusgui_control_handle_with_focus());
+*/
+            k2gui->sel_index=k2gui->control[i].index;
+            k2gui->sel_start=start;
+            k2gui->sel_end=end;
+            }
+        }
+    }
+
+
+/* Re-apply the remembered text selection */
+static void k2gui_apply_selection(void)
+
+    {
+    int i;
+
+    if (k2gui->sel_index<0)
+        return;
+    for (i=0;i<k2gui->ncontrols;i++)
+        if (k2gui->control[i].index==k2gui->sel_index)
+            {
+/*
+printf("Applying selection, index=%d, %d-%d\n",k2gui->sel_index,k2gui->sel_start,k2gui->sel_end);
+printf("      hwnd=0x%X\n",k2gui->control[i].handle);
+*/
+            willusgui_control_text_select(&k2gui->control[i],k2gui->sel_start,k2gui->sel_end);
+            break;
+            }
     }
 
 
@@ -3164,12 +3835,13 @@ printf("@k2gui_preview_start...\n");
         k2gui_preview_fail(1);
         return;
         }
-    k2gui->prevthread[0]=willusgui_semaphore_create("k2pdfopt_preview");
+    k2gui->prevthread[0]=willusgui_semaphore_create_ex("k2pdfopt_preview",1,1);
     if (k2gui->prevthread[0]==NULL)
         {
         k2gui_preview_fail(2);
         return;
         }
+    willusgui_semaphore_status_wait(k2gui->prevthread[0]);
     k2gui->prevthread[1]=willusgui_thread_create(k2gui_preview_make_bitmap,
                                                    (void *)k2gui->prevthread);
     if (k2gui->prevthread[1]==NULL)
@@ -3200,7 +3872,7 @@ static void k2gui_preview_make_bitmap(char *data)
     int n,index;
     WILLUSGUICONTROL *filelistbox,*ppage,*preview;
     K2PDFOPT_CONVERSION *k2conv;
-    K2PDFOPT_OUTPUT k2out;
+    K2PDFOPT_FILELIST_PROCESS k2listproc;
     STRBUF *cmdline,_cmdline;
     char *buf;
     static char *funcname="k2gui_preview_make_bitmap";
@@ -3232,6 +3904,7 @@ printf("@k2gui_preview_make_bitmap...\n");
     strbuf_init(cmdline);
     k2gui_settings_to_cmdline(cmdline,&k2gui->k2conv->k2settings);
     parse_cmd_args(k2conv,k2gui->env,cmdline,&k2gui->cmdxtra,1,1);
+    parse_cmd_args(k2conv,k2gui->env,cmdline,&k2gui->cmdxtra,1,1);
 
     /* Clear the files and only process the first file */
     willusgui_control_listbox_get_item_text(filelistbox,index,buf);
@@ -3247,15 +3920,16 @@ printf("@k2gui_preview_make_bitmap...\n");
     k2conv->k2settings.dst_ocr=0;
 #endif
 
-    k2out.bmp = &k2gui->pbitmap;
-    k2out.filecount = 0;
-    k2out.outname=NULL;
-    k2out.bmp->width=-1;
+    k2listproc.bmp = &k2gui->pbitmap;
+    k2listproc.filecount = 0;
+    k2listproc.outname=NULL;
+    k2listproc.bmp->width=-1;
 
     /* Convert it, baby! */
     overwrite_set(1);
-    k2pdfopt_proc_wildarg(&k2conv->k2settings,k2conv->k2files.file[0],1,&k2out);
-    willus_mem_free((double **)&k2out.outname,funcname);
+    k2listproc.mode = K2PDFOPT_FILELIST_PROCESS_MODE_CONVERT_FILES;
+    k2pdfopt_proc_wildarg(&k2conv->k2settings,k2conv->k2files.file[0],&k2listproc);
+    willus_mem_free((double **)&k2listproc.outname,funcname);
 
     /* Faux conversion */
     /*
@@ -3448,257 +4122,388 @@ void k2gui_preview_refresh(void)
 static void k2gui_contextmenu_by_control(WILLUSGUICONTROL *control)
 
     {
-    if (!strcmp(control->name,"evl"))
+    static char *contextmenu_help[] =
         {
-        k2gui_contextmenu("Erase vertical lines",
-                          "Erases vertical lines that may be preventing "
-                          "your text from getting re-flowed.");
-        return;
-        }
-    else if (!strcmp(control->name,"straighten"))
+        "evl",
+            "Erase vertical lines",
+            "The \"Erase vertical lines\" checkbox, when checked, causes "
+            "k2pdfopt to erase vertical lines that may be preventing "
+            "your text from getting re-flowed.",
+        "ehl",
+            "Erase horizontal lines",
+            "The \"Erase horizontal lines\" checkbox, when checked, causes "
+            "k2pdfopt to erase horizontal lines that may be preventing "
+            "your file from being processed the way you want.",
+        "straighten",
+            "Autostraighten",
+            "The \"Autostraighten\" checkbox, when checked, causes k2pdfopt "
+            "to analyze and straighten (de-skew) each source page.",
+        "break",
+            "Break after each source page",
+            "The \"Break after each source page\" checkbox, when checked "
+            "causes k2pdfopt to insert a page break into the output file after each "
+            "source page has been processed.",
+        "color",
+            "Color output",
+            "The \"Color output\" checkbox, when checked, causes k2pdfopt "
+            "to generate the output PDF in color.",
+        "landscape",
+            "Output in landscape",
+            "The \"Output in landscape\" checkbox, when checked, causes "
+            "k2pdfopt to rotate the output PDF such that you will hold your "
+            "e-reader sideways (in landscape mode) in order to read it.  "
+            "This effectively gives you a wider screen.  The text box "
+            "next to the checkbox allows you to specify a source page range "
+            "to convert to landscape (e.g. 2,4,10-12).",
+        "opfontsize",
+            "Fixed output font size",
+            "Magnify the output PDF so that the font size matches the specified value.  "
+            "Use a negative value to individually set each page; otherwise the whole "
+            "document is magnified by a uniform value based on the median font size.",
+        "native",
+            "Native PDF output",
+            "The \"Native PDF Output\" checkbox, when checked, causes "
+            "k2pdfopt to generate an output PDF in \"native\" mode--i.e. if the "
+            "source PDF has scaleable graphics and fonts, the output "
+            "PDF will also have scaleable graphics and fonts.  If native "
+            "PDF output is unchecked, the output PDF will be made up of "
+            "fixed resolution bitmaps (with an optional OCR text layer).  "
+            "Note that on most e-readers, bitmapped PDF files often render "
+            "faster than native PDF files.  Also, native PDF output is not "
+            "allowed if text re-flow is checked.",
+        "r2l",
+            "Right-to-left text",
+            "The \"Right-to-left text\" checkbox, when checked, causes k2dfopt "
+            "to processed the source PDF file from right to left.  "
+            "This is best for arabic and hebrew texts, for example.",
+        "linebreak",
+            "Smart line breaks",
+            "The \"Smart Line Breaks\" checkbox, when checked, causes "
+            "k2pdfopt to group letters into words using a heuristic "
+            "algorithm.  The value in the box is an override in case "
+            "the algorithm fails (or if the option is not checked).  "
+            "It represents the fraction of the height of a lowercase "
+            "'o'.  In manual mode (unchecked), if the gap between "
+            "letters exceeds this distance, it is considered to be "
+            "a word separator.",
+    #ifdef HAVE_GHOSTSCRIPT
+        "ppgs",
+            "Post-process with Ghostscript",
+            "The \"Post-process with Ghostscript\" checkbox, when checked, "
+            "causes k2pdfopt to post-process the converted PDF file "
+            "using Ghostscript's pdfwrite device.  This requires that "
+            "you have Ghostscript installed on your PC.  This is a good "
+            "way to solve text selection overlap problems if you are "
+            "using native PDF output, particularly if processing a two-column "
+            "source PDF.  See the -ppgs option in the command-line help "
+            "for more information.",
+    #endif
+        "markup",
+            "Generate marked-up source",
+            "The \"Generate Marked-up Source\" checkbox, when checked, causes "
+            "k2pdfopt to generate a separate \"markup\" output PDF file "
+            "(with the ending _marked.pdf) that "
+            "shows how k2pdfopt is processing the "
+            "source PDF file.  If this option is checked, the preview "
+            "window will also show the contents of this markup file.",
+        "wrap",
+            "Re-flow text",
+            "The \"Re-flow text\" checkbox, when checked, causes k2pdfopt to "
+            "try to re-flowed text to fit the output device screen.  "
+            "Note that this option is not compatible with native PDF output.",
+        "autorot",
+            "Fast Preview",
+            "The \"Fast Preview\" checkbox, when checked, prevents k2pdfopt "
+            "from trying to automatically determine the "
+            "source PDF orientation when generating previews since this "
+            "takes extra processing time.",
+        "bpm",
+            "Avoid Text Select Overlap",
+            "The \"Avoid Text Select Overlap\" checkbox, when checked, will "
+            "cause k2pdfopt to force each cropped area from the source PDF "
+            "onto a new "
+            "output PDF page.  This is one way to avoid text selection "
+            "overlap issues.  See also the post-processing with Ghostscript "
+            "option.",
+        "defects",
+            "Ignore small defects",
+            "The \"Ignore small defects\" checkbox, when checked, will cause "
+            "k2pdfopt to ignore scanning / copying artifacts (speckles) smaller "
+            "than 1.5 points "
+            "in size will be ignored when processing the source PDF.",
+        "autocrop",
+            "Auto-crop",
+            "The \"Auto-crop\" checkbox, when checked, will cause k2pdfopt "
+            "to attempt to "
+            "automatically crop out dark scanning artifacts from "
+            "the edges of pages.  This is typically used on book scans or "
+            "photocopied images.",
+    #ifdef HAVE_OCR_LIB
+        "ocr",
+            "OCR (Tesseract)",
+            "The \"OCR (Tesseract)\" checkbox, when checked, will cause "
+            "k2pdfopt to analyze the source PDF using optical character "
+            "recognition (OCR) using the Tesseract library.  An invisible "
+            "layer of text will be added to the output PDF so that the "
+            "text can be selected and/or searched.  You must have a "
+            "Tesseract language library installed.  See "
+            "http://willus.com/k2pdfopt/help/ocr.shtml for more details.",
+    #endif
+        "_fitpage_",
+            "Fit to Preview Window",
+            "Fits the preview page to the window.",
+        "_magplus_",
+            "Increase Preview Magnification",
+            "Increases the magnification in the preview window.",
+        "_magminus_",
+            "Decrease Preview Magnification",
+            "Decreases the magnification in the preview window.",
+        "Restore Defaults",
+            "Restore Default Settings",
+            "The \"Restore Defaults\" button returns all settings "
+            "(except for the custom presets) to the default k2pdfopt values.",
+        "*&Convert all files",
+            "Convert All Files",
+            "The \"Convert All Files\" button processes all of the "
+            "files in the file list.",
+        "File list",
+            "File list",
+            "The \"File list\" shows all source PDF files which "
+            "will be processed.  The "
+            "selected file will be the one shown in the preview window.",
+        "Save",
+            "Save Environment Variable",
+            "The \"Save\" button saves the contents of the text field "
+            "to the K2PDFOPT environment variable.",
+        "Restore",
+            "Restore Environment Variable",
+            "The \"Restore\" button restores the contents of the "
+            "K2PDFOPT environment variable into the text field.",
+        "info",
+            "Info",
+            "Display information about the selected PDF file.  "
+            "The shortcut key is CTRL-D.  The information is specific "
+            "to the page range in the 'Pages to Convert' box.",
+        "&add file",
+            "Add File",
+            "The \"Add File\" button adds a source PDF file to the file "
+            "list to be converted.",
+        "add folder",
+            "Add Folder",
+            "The \"Add Folder\" button allows you to add an entire folder "
+            "to the file list.  All files in that "
+            "folder will be converted.  If the folder contains a sequence "
+            "of bitmaps, those bitmaps will be converted, in alphabetic order, "
+            "as if they were pages of a PDF file.",
+        "ignore*",
+            "Ignore Cropped Area",
+            "If the \"Ignore\" box is checked, the corresponding crop region "
+            "is ignored / excluded from the output PDF conversion.",
+        "cboxactive*",
+            "Crop-box activation",
+            "Activates / de-activates the crop-box settings in the given row.  "
+            "Each crop-box can be used to select a specific area of the source document "
+            "(or multiple specific areas if "
+            "you specify more than one crop-box on a page) for processing (or for "
+            "ignoring if you check the ignore box).  The crop-box can be "
+            "graphically selected using the Select button or you can manually "
+            "put in the left,top corner plus the width and height in various "
+            "different units.",
+        "cboxleft*",
+            "Crop-box left side",
+            "Sets the left side position of the crop-box."
+            "Default units are inches.  You can put, for example, "
+            "1.0cm or 0.5s for other types of units.",
+        "cboxtop*",
+            "Crop-box top side",
+            "Sets the top side position of the crop-box."
+            "Default units are inches.  You can put, for example, "
+            "1.0cm or 0.5s for other types of units.",
+        "cboxwidth*",
+            "Crop-box width",
+            "Sets the width of the crop-box."
+            "Default units are inches.  You can put, for example, "
+            "1.0cm or 0.5s for other types of units.",
+        "cboxheight*",
+            "Crop-box height",
+            "Sets the height of the crop-box."
+            "Default units are inches.  You can put, for example, "
+            "1.0cm or 0.5s for other types of units.",
+        "cboxignore*",
+            "Crop-box ignore",
+            "If checked, the region within the crop-box is ignored (internally "
+            "it is painted white).  Otherwise, the regions outside the crop-box "
+            "are ignored.",
+        "cboxpages*",
+            "Crop-box page range",
+            "The page range for which the crop box applies.  For example, you "
+            "can put 1,10,20e-40,61o- to specify pages 1, 10, 20 to 40 even, "
+            "and 61 to the end of the document odd.",
+        "cboxselect*",
+            "Crop-box / Margin Select",
+            "The \"Select\" buttons allow you to set the crop margins "
+            "graphically using an overlay of all selected "
+            "source pages (using the page range in the correponding "
+            "\"Pages Range\" box).",
+        "&remove item",
+            "Remove Item",
+            "The \"Remove Item\" button removes the selected item "
+            "from the file list.",
+        "heightunits;widthunits;devwidth;devheight",
+            "Device Height and Width and Units",
+            "Select the output page width and height and dimensional units.",
+        "crop*",
+            "Crop Margins",
+            "The \"Crop Margins\" controls set the amount of margin on each "
+            "side of the "
+            "source document which you wish to crop out and not show in the "
+            "converted document.  You can use the \"Margin Select\" button "
+            "to graphically set these numbers.  The units are inches.",
+        "maxcols",
+            "Max Columns",
+            "The \"Max Columns\" value will control the maximum number of "
+            "columns that k2pdfopt attempts to detect in the source document.  "
+            "If you don't want to detect multiple columns, set this to 1.",
+        "ddr",
+            "Document Display Resolution",
+            "The \"Document Resolution Factor\" value can be used to "
+            "increase or decrease the resolution of "
+            "the converted document.  For example, set this to 2 to double "
+            "the default output document resolution.",
+        "opfolder",
+            "Output Folder",
+            "The \"Output Folder\" text box shows the name of the folder "
+            "where the converted files will be saved.  You can choose "
+            "this folder by clicking the \"Select\" button next to it.",
+        "opselect",
+            "Output Folder Select",
+            "The \"Select\" button next to the Output Folder text box "
+            "selects the output folder where the converted files will be saved.",
+        "opclear",
+            "Output Folder Clear",
+            "The \"Clear\" button next to the Output Folder text box "
+            "clears the output folder.  With no output folder selected, the "
+            "converted files are saved into the same folder as their associated "
+            "source files.",
+        "env",
+            "Environment Variable",
+            "The \"Environment Variable\" text box shows the value "
+            "of the K2PDFOPT environment variable. "
+            "You can change the value and then click the neighboring "
+            "\"SAVE\" button to store it.",
+        "extra",
+            "Additional Options",
+            "In the \"Additional Options\" text box, you can enter "
+            "command-line arguments that will be appended to the GUI "
+            "command-line arguments in order to allow access to k2pdfopt "
+            "features that are not supported by the GUI.",
+        "cmdline args",
+            "Command-line version of options",
+            "The \"Command-line version of options\" text box shows the actual "
+            "arguments that would be used on the command line.  "
+            "If you need to write a script that does the same type of "
+            "conversion as the GUI, you can copy and paste these arguments "
+            "to your script.",
+        "mode",
+            "Conversion Mode",
+            "The \"Conversion Mode\" pull-down menu can be used to select "
+            "a specific conversion mode.  Each mode selects multiple options "
+            "in order to best "
+            "process your source document in a number of custom ways. "
+            "See the command-line usage (Help menu -> Command-line), under "
+            "-mode, to see what each conversion mode is best suited for.  "
+            "For instance, if you have a 2-column source PDF, you "
+            "may want to selet \"2-column.\"  If you want to best preserve "
+            "the source PDF formatting and don't need to re-flow the text, "
+            "try the \"fit width\" mode.  The default mode tries to best "
+            "detect what type of source document you have.",
+        "devdpi",
+            "DPI",
+            "The \"DPI\" setting sets your e-reader screen DPI, or "
+            "dots per inch.  Increasing "
+            "this will increase the magnification of the converted "
+            "document assuming that the deevice width and height are set "
+            "in pixels.",
+        "device",
+            "Device",
+            "The \"Device\" drop-down menu allows you to select your device "
+            "type from a drop-down menu.  "
+            "If your device is not listed, you can "
+            "enter your e-reader dimensions and DPI into the boxes below "
+            "this menu.",
+        "previewpage;Pre&view",
+            "Preview Window",
+            "The \"Preview\" button shows a preview of your converted "
+            "file.  Select the page you wish to preview and then press the "
+            "\"Preview\" button to see it in the preview window.  Also, "
+            "you can check the \"Generate marked-up source\" checkbox "
+            "and then the preview window will show the marked up source "
+            "page instead of the converted page.",
+        "pages",
+            "Pages to convert",
+            "The \"Pages to convert\" text box allows you to enter a list "
+            "of the pages which you wish to convert.  "
+            "Some examples are:\n"
+            "    1,3,10-27,30-   Converts pages 1, 3, 10 through 27, "
+            "and 30 and higher.\n"
+            "    6e-    Converts all even pages from 6 up.",
+        "*",
+            "Custom Preset",
+            "The \"Custom Preset\" buttons store or recall a snapshot of all of the "
+            "selected settings.  To store the settings, press and hold the "
+            "button for two seconds (much like your FM radio presets work "
+            "in your car).  To recall settings, just click on the desired button."
+        };
+    int i;
+    static char *unithelp =
+        "px = pixels\n"
+        "in = inches\n"
+        "cm = centimeters\n"
+        "s = fraction of the source page (e.g. 1 = same as source page)\n"
+        "t = fraction of the trimmed source page\n"
+        "x = fraction of the text-layer width/height on the source page";
+
+    for (i=0;contextmenu_help[i][0]!='\0';i+=3)
         {
-        k2gui_contextmenu("Autostraighten",
-                          "Autostraightens (de-skews) text on pages.");
-        return;
+        char *p;
+        int j;
+        for (j=0,p=&contextmenu_help[i][j];1;p=&p[j+1])
+            {
+            int match,len;
+            char buf[128];
+
+            strncpy(buf,p,127);
+            buf[127]='\0';
+            j=in_string(buf,";");
+            if (j>0)
+                buf[j]='\0';
+            len=strlen(buf);
+            if (!strcmp(buf,"*"))
+                match=1;
+            else if (buf[len-1]=='*')
+                match=!strnicmp(control->name,buf,len-1);
+            else
+                match=!stricmp(control->name,buf);
+            if (match)
+                {
+                if (!strcmp(&contextmenu_help[i+2][strlen(contextmenu_help[i+2])-7]," units."))
+                    {
+                    char *buf2;
+                    static char *funcname="k2gui_contextmenu_by_control";
+
+                    willus_mem_alloc_warn((void **)&buf2,strlen(contextmenu_help[i+2])+strlen(unithelp)+4,funcname,10);
+                    sprintf(buf2,"%s\n%s",contextmenu_help[i+2],unithelp);
+                    k2gui_contextmenu(contextmenu_help[i+1],buf2);
+                    willus_mem_free((double **)&buf2,funcname);
+                    }
+                else
+                    k2gui_contextmenu(contextmenu_help[i+1],contextmenu_help[i+2]);
+                return;
+                }
+            if (j<0)
+                break;
+            }
         }
-    else if (!strcmp(control->name,"break"))
-        {
-        k2gui_contextmenu("Break after each source page",
-                          "Inserts a page break into the output file after each "
-                          "source page has been processed.");
-        return;
-        }
-    else if (!strcmp(control->name,"color"))
-        {
-        k2gui_contextmenu("Color output",
-                          "The output PDF will be in color.");
-        return;
-        }
-    else if (!strcmp(control->name,"landscape"))
-        {
-        k2gui_contextmenu("Rotate output to landscape",
-                          "The output PDF will be such that you will hold your "
-                          "e-reader sideways (in landscape mode) in order to read it.  "
-                          "This effectively gives you a wider screen.");
-        return;
-        }
-    else if (!strcmp(control->name,"native"))
-        {
-        k2gui_contextmenu("Native PDF output",
-                          "The output PDF will be in \"native\" mode--i.e. if the "
-                          "source PDF has scaleable graphics and fonts, the output "
-                          "PDF will also have scaleable graphics and fonts.  If native "
-                          "PDF output is unchecked, the output PDF will be made up of "
-                          "fixed resolution bitmaps (with an optional OCR text layer).  "
-                          "Note that on most e-readers, bitmapped PDF files often render "
-                          "faster than native PDF files.  Also, native PDF output is not "
-                          "allowed if text re-flow is checked.");
-        return;
-        }
-    else if (!strcmp(control->name,"r2l"))
-        {
-        k2gui_contextmenu("Right-to-left text",
-                          "Text will be processed right to left.  This is best for "
-                          "arabic texts, for example.");
-        return;
-        }
-    else if (!strcmp(control->name,"linebreak"))
-        {
-        k2gui_contextmenu("Smart line breaks",
-                          "Letters will be grouped into words using a heuristic "
-                          "algorithm.  The value in the box is an override in case "
-                          "the algorithm fails (or if the option is not checked).  "
-                          "It represents the fraction of the height of a lowercase "
-                          "'o'.  In manual mode (unchecked), if the gap between "
-                          "letters exceeds this distance, it is considered to be "
-                          "a word separator.");
-        return;
-        }
-#ifdef HAVE_GHOSTSCRIPT
-    else if (!strcmp(control->name,"ppgs"))
-        {
-        k2gui_contextmenu("Post-process with Ghostscript",
-                          "The normal PDF output file will be further post-processed "
-                          "using Ghostscript's pdfwrite device.  This requires that "
-                          "you have Ghostscript installed on your PC.  This is a good "
-                          "way to solve text selection overlap problems if you are "
-                          "using native PDF output, particularly if processing a two-column "
-                          "source PDF.  See the -ppgs option in the command-line help "
-                          "for more information.");
-        return;
-        }
-#endif
-    else if (!strcmp(control->name,"markup"))
-        {
-        k2gui_contextmenu("Generate marked-up source",
-                          "A separate \"markup\" output PDF file (with the ending _marked.pdf) "
-                          "will "
-                          "be generated which shows how k2pdfopt is processing the "
-                          "source PDF file.  If this option is checked, the preview "
-                          "window will also show the contents of this markup file.");
-        return;
-        }
-    else if (!strcmp(control->name,"wrap"))
-        {
-        k2gui_contextmenu("Re-flow text",
-                          "Text will be re-flowed to fit the output device screen.  "
-                          "Note that this option is not compatible with native PDF output.");
-        return;
-        }
-    else if (!strcmp(control->name,"autorot"))
-        {
-        k2gui_contextmenu("Fast Preview",
-                          "Prevents k2pdfopt from trying to automatically determine the "
-                          "source PDF orientation when generating previews since this "
-                          "takes extra processing time.");
-        return;
-        }
-    else if (!strcmp(control->name,"bpm"))
-        {
-        k2gui_contextmenu("Avoid Text Select Overlap",
-                          "Forces each cropped area from the source PDF onto a new "
-                          "output PDF page.  This is one way to avoid text selection "
-                          "overlap issues.  See also the post-processing with Ghostscript "
-                          "option.");
-        return;
-        }
-    else if (!strcmp(control->name,"defects"))
-        {
-        k2gui_contextmenu("Ignore small defects",
-                          "Scanning / copying artifacts (speckles) smaller than 1.5 points "
-                          "in size will be ignored when processing the source PDF.");
-        return;
-        }
-#ifdef HAVE_OCR_LIB
-    else if (!strcmp(control->name,"ocr"))
-        {
-        k2gui_contextmenu("OCR (Tesseract)",
-                          "The source PDF will be analyzed using optical character "
-                          "recognition (OCR) using the Tesseract library.  An invisible "
-                          "layer of text will be added to the output PDF so that the "
-                          "text can be selected and/or searched.  You must have a "
-                          "Tesseract language library installed.  See "
-                          "http://willus.com/k2pdfopt/help/ocr.shtml for more details.");
-        return;
-        }
-#endif
-    else if (!stricmp(control->name,"device"))
-        {
-        k2gui_contextmenu("Device Menu",
-                          "Select your e-reader dimensions, or, if not listed, you can "
-                          "enter your e-reader dimensions and DPI into the boxes below "
-                          "this menu.");
-        return;
-        }
-    else if (!stricmp(control->name,"mode"))
-        {
-        k2gui_contextmenu("Conversion Mode Menu",
-                          "Select the type of conversion, depending on your source PDF "
-                          "file.  For instance, if you have a 2-column source PDF, you "
-                          "may want to selet \"2-column.\"  If you want to best preserve "
-                          "the source PDF formatting and don't need to re-flow the text, "
-                          "try the \"fit width\" mode.  The default mode tries to best "
-                          "detect what type of source document you have.");
-        return;
-        }
-    else if (!strcmp(control->name,"_fitpage_"))
-        {
-        k2gui_contextmenu("Fit to Preview Window",
-                          "Fits the preview page to the window.");
-        return;
-        }
-    else if (!strcmp(control->name,"_magplus_"))
-        {
-        k2gui_contextmenu("Increase Preview Magnification",
-                          "Increases the magnification in the preview window.");
-        return;
-        }
-    else if (!strcmp(control->name,"_magminus_"))
-        {
-        k2gui_contextmenu("Decrease Preview Magnification",
-                          "Decreases the magnification in the preview window.");
-        return;
-        }
-    else if (!stricmp(control->name,"Pre&view"))
-        {
-        k2gui_contextmenu("Show Preview Page",
-                          "Processes the source PDF file and displays a preview of the "
-                          "selected output page.");
-        return;
-        }
-    else if (!stricmp(control->name,"Restore Defaults"))
-        {
-        k2gui_contextmenu("Restore Default Settings",
-                          "Return all settings (except for the custom presets) to the "
-                          "default k2pdfopt values.");
-        return;
-        }
-    else if (!stricmp(control->name,"*&Convert all files"))
-        {
-        k2gui_contextmenu("Convert All Files",
-                          "Processes all of the files in the file list.");
-        return;
-        }
-    else if (!stricmp(control->name,"File list"))
-        {
-        k2gui_contextmenu("File list",
-                          "Shows all source PDF files which will be processed.  The "
-                          "selected file will be the one shown in the preview window.");
-        return;
-        }
-    else if (!stricmp(control->name,"Save"))
-        {
-        k2gui_contextmenu("Save Environment Variable",
-                          "Saves the contents of the text field to the K2PDFOPT "
-                          "environment variable.");
-        return;
-        }
-    else if (!stricmp(control->name,"Restore"))
-        {
-        k2gui_contextmenu("Restore Environment Variable",
-                          "Puts the contents of the K2PDFOPT environment variable "
-                          "into the text field.");
-        return;
-        }
-    else if (!stricmp(control->name,"&add file"))
-        {
-        k2gui_contextmenu("Add File",
-                          "Adds a source PDF file to the file list to be converted.");
-        return;
-        }
-    else if (!stricmp(control->name,"add folder"))
-        {
-        k2gui_contextmenu("Add Folder",
-                          "Adds an entire folder to the file list.  All files in that "
-                          "folder will be converted.  If the folder contains a sequence "
-                          "of bitmaps, those bitmaps will be converted, in alphabetic order, "
-                          "as if they were pages of a PDF file.");
-        return;
-        }
-    else if (!stricmp(control->name,"&remove item"))
-        {
-        k2gui_contextmenu("Remove Item",
-                          "Removes the selected item from the file list.");
-        return;
-        }
-    else if (!stricmp(control->name,"heightunits") || !stricmp(control->name,"widthunits"))
-        {
-        k2gui_contextmenu("Height and Width Units",
-                          "Select the output page width and height dimensional units.\n"
-                          "px = pixels\n"
-                          "in = inches\n"
-                          "cm = centimeters\n"
-                          "s = fraction of the source page (e.g. 1 = same as source page)\n"
-                          "t = fraction of the trimmed source page\n"
-                          "x = fraction of the text-layer width/height on the source page");
-        return;
-        }
-    else
-        k2gui_contextmenu("Custom Preset",
-                          "The custom preset buttons store or recall a snapshot of all of the "
-                          "selected settings.  To store the settings, press and hold the "
-                          "button for two seconds (much like your FM radio presets work "
-                          "in your car).  To recall settings, just click on the desired button.");
     }
 
 
@@ -3708,6 +4513,6 @@ static void k2gui_contextmenu(char *title,char *content)
     static int bcolors[3]={0x60b060,0xe0ffe0,0xe0ffe0};
 
     willusgui_message_box(&k2gui->mainwin,title,content,"*&OK",NULL,NULL,
-                               NULL,0,20,600,0xe0ffe0,bcolors,NULL,1);
+                           NULL,0,20,600,0xe0ffe0,bcolors,NULL,1);
     }
 #endif /* HAVE_K2GUI */

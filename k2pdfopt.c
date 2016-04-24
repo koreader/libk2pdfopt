@@ -8,7 +8,7 @@
 **               downloads for MS Windows, Mac OSX, and Linux. The MS Windows
 **               version has an integrated GUI. K2pdfopt is open source.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -27,6 +27,49 @@
 ** VERSION HISTORY
 **
 **     See k2version.c.
+**
+**
+** SOURCE CODE FLOW (BRIEF)
+**
+** Conversion process:
+**     k2pdfopt_proc_wildarg()  (k2file.c)   Convert wildcard arg, e.g. *.pdf
+**             |
+**             V
+**     k2pdfopt_proc_arg()      (k2file.c)   Handle arg if it is a folder
+**             |
+**             V
+**     k2pdfopt_proc_one()      (k2file.c)   Process a single PDF/DJVU file.
+**             |                             (Embarrassingly long function.)
+**             V
+**     bmpregion_source_page_add()  (k2proc.c)  Processes a source page of the file.
+**                                              This adds rectangular regions
+**                                              (BMPREGION structure) to the
+**                                              PAGEREGIONS structure.
+**
+**     Some other key functions:
+**
+**     bmpregion_vertically_break() (k2proc.c) looks for "text rows" in each region,
+**         segmenting it into consecutive "rows."
+**
+**     bmpregion_add_textrow() (k2proc.c) is called by bmpregion_vertically_break()
+**         to accumulate the BMPEREGIONs row by row.
+**
+**     bmpregion_add() (k2proc.c) processes a "row" or rectangular region of the
+**         source page.  It is fairly well commented.
+**
+**     bmpregion_analyze_justification_and_line_spacing() (k2proc.c) analyzes the
+**         "rows" and attempts to determine things like if they are regular, uniform
+**         rows of text, how the text is justified, what the line spacing and font
+**         size is, and if any lines are indented or terminate a section.
+**
+**     bmpregion_one_row_wrap_and_add() (k2proc.c) parses through one row and looks
+**         for words.  It parses out each word to wrapbmp_add().
+**
+**     wrapbmp_add() (wrapbmp.c) adds a graphical word (as a rectangular bitmap region)
+**         to the WRAPBMP structure, which stores up a row of text until it is too
+**         wide for the destination file and the flushes that row of text to the
+**         destination file.
+**     
 **
 */
 
@@ -112,7 +155,7 @@ int main(int argc,char *argv[])
         return(0);
         }
 #endif
-    if (k2settings->show_usage)
+    if (k2settings->show_usage[0]!='\0')
         {
         k2sys_header(NULL);
         if (k2settings->query_user==0 
@@ -120,10 +163,10 @@ int main(int argc,char *argv[])
               || !win_has_own_window()
 #endif
                           )
-            k2usage_show_all(stdout);
+            k2pdfopt_usage(k2settings->show_usage,0);
         else
             {
-            if (!k2pdfopt_usage())
+            if (!k2pdfopt_usage(k2settings->show_usage,1))
                 {
                 k2sys_close(k2settings);
                 strbuf_free(usermenu);
@@ -191,13 +234,14 @@ int main(int argc,char *argv[])
     */
     for (i=0;i<k2conv->k2files.n;i++)
         {
-        K2PDFOPT_OUTPUT k2out;
+        K2PDFOPT_FILELIST_PROCESS k2listproc;
 
-        k2out.outname=NULL;
-        k2out.filecount=0;
-        k2out.bmp=NULL;
-        k2pdfopt_proc_wildarg(k2settings,k2conv->k2files.file[i],1,&k2out);
-        willus_mem_free((double **)&k2out.outname,funcname);
+        k2listproc.outname=NULL;
+        k2listproc.filecount=0;
+        k2listproc.bmp=NULL;
+        k2listproc.mode=K2PDFOPT_FILELIST_PROCESS_MODE_CONVERT_FILES;
+        k2pdfopt_proc_wildarg(k2settings,k2conv->k2files.file[i],&k2listproc);
+        willus_mem_free((double **)&k2listproc.outname,funcname);
         }
 
     /*

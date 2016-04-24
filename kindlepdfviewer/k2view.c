@@ -54,8 +54,8 @@ int main(int argc,char *argv[])
     k2settings->src_rot=0;
     k2settings->erase_vertical_lines=0;
     k2settings->src_autostraighten=0;
-    k2pdfopt_settings_sanity_check(k2settings);
-    k2settings->src_dpi=(int)(src->width/8.5+.5);
+    k2pdfopt_settings_quick_sanity_check(k2settings);
+    k2settings->user_src_dpi=(int)(src->width/8.5+.5);
     k2settings->dst_dpi=k2settings->src_dpi/2;
     k2settings->dst_userwidth=3.;
     k2settings->dst_userwidth_units=UNITS_INCHES;
@@ -70,8 +70,9 @@ int main(int argc,char *argv[])
 
     /* Init new source bitmap */
     bmpregion_init(&region);
-    masterinfo_new_source_page_init(masterinfo,k2settings,src,srcgrey,NULL,&region,0.,NULL,NULL,1,NULL);
-
+    masterinfo_new_source_page_init(masterinfo,k2settings,src,srcgrey,NULL,&region,0.,NULL,NULL,1,-1,NULL);
+    /* Set output size */
+    k2pdfopt_settings_set_margins_and_devsize(k2settings,&region,masterinfo,-1.,0);
     /* Process single source page */
     pages_done=0;
     bmpregion_source_page_add(&region,k2settings,masterinfo,1,pages_done++);

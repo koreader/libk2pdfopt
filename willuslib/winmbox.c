@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -388,9 +388,10 @@ unsigned char xfitpage[1096] = {
 
 
 
-static int wmb_inuse=0;
+static int wmb_inuse=-1;
 static WINMBOX _wmb,*wmb;
 
+static void winmbox_init(void);
 static void winmbox_message_box_calc_size(WINMBOX *wmb);
 static void winmbox_message_box_add_children(void);
 static LRESULT CALLBACK winmbox_edit_proc(HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam);
@@ -405,6 +406,14 @@ static void winmbox_display_line(HFONT hf,char *s,SIZE *size,int maxwidth,
                                   HDC hdc,int x0,int y0);
 static void winmbox_display_text_1(HFONT hf,char *buf,SIZE *size,HDC hdc,int x0,int y0);
 static HFONT winmbox_get_font(double fsize);
+
+
+static void winmbox_init(void)
+
+    {
+    if (wmb_inuse < 0)
+        winmbox_set_font("");
+    }
 
 
 /*
@@ -508,6 +517,7 @@ int winmbox_message_box_ex2(void *parent,char *title,char *message,
 /*
 ansi_dprintf(NULL,"@winmbox_message_box_ex(%s,...) wmb_inuse=%d\n",message,wmb_inuse);
 */
+    winmbox_init();
     if (wmb_inuse)
         return(0);
     wmb_inuse=1;
@@ -765,7 +775,7 @@ wmb->msg,wmb->inbuf,wmb->aboutbox.right-wmb->aboutbox.left);
         else
             {
             dx=(int)(wmb->width*.9);
-            dy=(int)(wmb->mfsize*1.2);
+            dy=(int)(wmb->mfsize*1.25);
             flags=WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP;
             }
         x1=(wmb->width - dx)/2;
@@ -1037,7 +1047,9 @@ void winmbox_checkbox_button_draw(void *hdc0,void *rect0,int state,void *hfont0,
     cbw=h/2;
     dx=cbw*3/2;
     n8=cbw*4/3;
-
+/*
+printf("@winmbox_checkbox_button_draw: text='%s'\n",text);
+*/
 #if (defined(HAVE_PNG_LIB))
     /* Get checkmark bitmap */
     if (checked && n8!=x8)
@@ -1230,67 +1242,70 @@ void winmbox_checkbox_button_draw(void *hdc0,void *rect0,int state,void *hfont0,
     FrameRect(hdc,&r,tbrush);
     }
 */
-    oldfont=SelectObject(hdc,hfont);
-    SetTextColor(hdc,tcolor);
-    SetBkMode(hdc,TRANSPARENT);
-    ulx1=ulx2=uly=-1;
-    for (i=j=0;text[i]!='\0' && j<255;i++)
+    if (text[0]!='\0')
         {
-        if (i==0 && text[i]=='*')
-            continue;
-        if (text[i]=='&')
-            {
-            i++;
-            if (text[i]!='&')
-                ulx1=j;
-            }
-        t2[j++]=text[i];
-        }
-    t2[j]='\0';
-    win_gettextextentpoint_utf8((void *)hdc,t2,&size.cx,&size.cy);
-    if (ulx1>=0)
-        {
-        if (ulx1>0)
-            {
-            int c;
-            c=t2[ulx1];
-            t2[ulx1]='\0';
-            win_gettextextentpoint_utf8((void *)hdc,t2,&tusize.cx,&tusize.cy);
-            t2[ulx1]=c;
-            ulx1=tusize.cx;
-            }
-        else
-            ulx1=0;
-        tu[0]=t2[0];
-        tu[1]='\0';
-        win_gettextextentpoint_utf8((void *)hdc,tu,&tusize.cx,&tusize.cy);
-        ulx1 += rect->left+cbw+dx;
-        ulx2 = ulx1 + tusize.cx - 1;
-        uly = (rect->top+rect->bottom)/2+size.cy/2-3;
-        }
-    SetTextAlign(hdc,TA_TOP|TA_LEFT);
-    win_textout_utf8((void *)hdc,rect->left+cbw+dx,(rect->top+rect->bottom-size.cy)/2,t2);
-    SelectObject(hdc,oldfont);
-    if (ulx1 > 0)
-        {
-        SelectObject(hdc,pen);
+        oldfont=SelectObject(hdc,hfont);
+        SetTextColor(hdc,tcolor);
         SetBkMode(hdc,TRANSPARENT);
-        MoveToEx(hdc,ulx1,uly,NULL);
-        LineTo(hdc,ulx2,uly);
-        }
-    if (state&ODS_FOCUS)
-        {
-        int x1;
-        j= 5;
-        SelectObject(hdc,pen_dotted);
-        SetBkMode(hdc,TRANSPARENT);
-        x1=rect->left+j+cbw+dx-5;
-        MoveToEx(hdc,x1,rect->top+j,NULL);
-        LineTo(hdc,rect->right-j-1,rect->top+j);
-        LineTo(hdc,rect->right-j-1,rect->bottom-j-1);
-        LineTo(hdc,x1,rect->bottom-j-1);
-        LineTo(hdc,x1,rect->top+j);
-        }
+        ulx1=ulx2=uly=-1;
+        for (i=j=0;text[i]!='\0' && j<255;i++)
+            {
+            if (i==0 && text[i]=='*')
+                continue;
+            if (text[i]=='&')
+                {
+                i++;
+                if (text[i]!='&')
+                    ulx1=j;
+                }
+            t2[j++]=text[i];
+            }
+        t2[j]='\0';
+        win_gettextextentpoint_utf8((void *)hdc,t2,&size.cx,&size.cy);
+        if (ulx1>=0)
+            {
+            if (ulx1>0)
+                {
+                int c;
+                c=t2[ulx1];
+                t2[ulx1]='\0';
+                win_gettextextentpoint_utf8((void *)hdc,t2,&tusize.cx,&tusize.cy);
+                t2[ulx1]=c;
+                ulx1=tusize.cx;
+                }
+            else
+                ulx1=0;
+            tu[0]=t2[0];
+            tu[1]='\0';
+            win_gettextextentpoint_utf8((void *)hdc,tu,&tusize.cx,&tusize.cy);
+            ulx1 += rect->left+cbw+dx;
+            ulx2 = ulx1 + tusize.cx - 1;
+            uly = (rect->top+rect->bottom)/2+size.cy/2-3;
+            }
+        SetTextAlign(hdc,TA_TOP|TA_LEFT);
+        win_textout_utf8((void *)hdc,rect->left+cbw+dx,(rect->top+rect->bottom-size.cy)/2,t2);
+        SelectObject(hdc,oldfont);
+        if (ulx1 > 0)
+            {
+            SelectObject(hdc,pen);
+            SetBkMode(hdc,TRANSPARENT);
+            MoveToEx(hdc,ulx1,uly,NULL);
+            LineTo(hdc,ulx2,uly);
+            }
+        if (state&ODS_FOCUS)
+            {
+            int x1;
+            j= 5;
+            SelectObject(hdc,pen_dotted);
+            SetBkMode(hdc,TRANSPARENT);
+            x1=rect->left+j+cbw+dx-5;
+            MoveToEx(hdc,x1,rect->top+j,NULL);
+            LineTo(hdc,rect->right-j-1,rect->top+j);
+            LineTo(hdc,rect->right-j-1,rect->bottom-j-1);
+            LineTo(hdc,x1,rect->bottom-j-1);
+            LineTo(hdc,x1,rect->top+j);
+            }
+        } /* text[0]!='\0' */
     /* Delete pens / brushes */
     DeleteObject(pen_dotted);
     DeleteObject(pen);
@@ -1903,13 +1918,26 @@ static void winmbox_display_text_1(HFONT hf,char *buf,SIZE *size,
     }
 
 
+static char winmbox_fontname[64];
+
+void winmbox_set_font(char *fontname)
+
+    {
+    strncpy(winmbox_fontname,fontname,63);
+    winmbox_fontname[63]='\0';
+    if (wmb_inuse < 0)
+        wmb_inuse = 0;
+    }
+
+
 static HFONT winmbox_get_font(double fsize)
 
     {
     HFONT hf;
     hf=CreateFont((int)(fsize+.5),0,0,0,FW_NORMAL,0,0,0,ANSI_CHARSET,
                       OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,
-                      DEFAULT_QUALITY,DEFAULT_PITCH|FF_DONTCARE,"Calibri");
+                      DEFAULT_QUALITY,DEFAULT_PITCH|FF_DONTCARE,
+                      winmbox_fontname[0]!='\0' ? winmbox_fontname : "Calibri");
     if (hf==NULL)
         hf=CreateFont((int)(fsize+.5),0,0,0,FW_NORMAL,0,0,0,ANSI_CHARSET,
                       OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,

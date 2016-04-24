@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2015  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -1679,7 +1679,7 @@ int bmp_read(WILLUSBITMAP *bmap,char *filename,FILE *out)
         }
     fseek(f,28L,0);
     bpp=fgetc(f);
-    if (bpp!=8 && bpp!=24)
+    if (bpp!=8 && bpp!=24 && bpp!=32)
         {
         if (out!=NULL)
             fprintf(out,"BMP file %s is not 8-bit or 24-bit.\n",filename);
@@ -1687,8 +1687,8 @@ int bmp_read(WILLUSBITMAP *bmap,char *filename,FILE *out)
         return(-9);
         }
     fclose(f);
-    return(bpp==24 ? bmp_read_bmp24(bmap,filename,out)
-                   : bmp_read_bmp8(bmap,filename,out));
+    return(bpp==8 ? bmp_read_bmp8(bmap,filename,out)
+                  : bmp_read_bmp24(bmap,filename,out));
     }
 
 
@@ -1896,8 +1896,9 @@ int bmp_read_bmp24(WILLUSBITMAP *bmap,char *filename,FILE *out)
     {
     FILE   *f;
     char    a[20];
-    int     k,pixwidth,pixheight,extra;
+    int     k,pixwidth,pixheight,extra,bpp;
     long    filelen,bytewidth,bw32,totalbytes;
+    static char *funcname="bmp_read_bmp24";
 
 
     f=wfile_fopen_utf8(filename,"rb");
@@ -1913,7 +1914,7 @@ int bmp_read_bmp24(WILLUSBITMAP *bmap,char *filename,FILE *out)
         {
         fclose(f);
         if (out!=NULL)
-            fprintf(out,"Input file %s is too small to be an 24-bit BMP file.\n",filename);
+            fprintf(out,"Input file %s is too small to be an 24/32-bit BMP file.\n",filename);
         return(-2);
         }
     fseek(f,18L,0);
@@ -1924,11 +1925,12 @@ int bmp_read_bmp24(WILLUSBITMAP *bmap,char *filename,FILE *out)
             fprintf(out,"Error reading BMP file %s.\n",filename);
         return(-3);
         }
-    if (a[10]!=24)
+    bpp=a[10];
+    if (bpp!=24 && bpp!=32)
         {
         fclose(f);
         if (out!=NULL)
-            fprintf(out,"BMP file %s is not 24-bit.\n",filename);
+            fprintf(out,"BMP file %s is not 24/32-bit.\n",filename);
         return(-9);
         }
     bmap->bpp=24;
@@ -1936,9 +1938,7 @@ int bmp_read_bmp24(WILLUSBITMAP *bmap,char *filename,FILE *out)
     bmap->height=pixheight=retrieve_int32lsbmsb(&a[4]);
     if (out!=NULL)
         fprintf(out,"Image %s is %d x %d pixels.\n",filename,pixwidth,pixheight);
-    bytewidth=pixwidth*3;
     bw32 = bmp_bytewidth_win32(bmap);
-    extra = bw32 - bytewidth;
     totalbytes = bw32*pixheight;
     if (filelen < totalbytes+54)
         {
@@ -1978,8 +1978,11 @@ int bmp_read_bmp24(WILLUSBITMAP *bmap,char *filename,FILE *out)
             return(-7);
             }
         }
-    else
+    else if (bpp==24)
         {
+        bytewidth=pixwidth*3;
+        extra = bw32 - bytewidth;
+
         for (k=0;k<bmap->height;k++)
             {
             int     n;
@@ -1998,6 +2001,40 @@ int bmp_read_bmp24(WILLUSBITMAP *bmap,char *filename,FILE *out)
             if (extra)
                 fseek(f,extra,1);
             }
+        bmp24_flip_rgb(bmap);
+        }
+    else /* bpp==32 */
+        {
+        unsigned char *fdata;
+        int bw4;
+
+        bytewidth=pixwidth*3;
+        bw4=bmap->width*4;
+        willus_mem_alloc_warn((void **)&fdata,bw4,funcname,10);
+        for (k=0;k<bmap->height;k++)
+            {
+            int     m;
+            char   *p;
+            unsigned char *fd0;
+
+            p=(char *)&bmap->data[bytewidth*(bmap->height-1-k)];
+            if (fread(fdata,sizeof(char),bw4,f)<bw4)
+                {
+                if (out!=NULL)
+                    fprintf(out,"Premature EOF reading BMP file %s.\n",filename);
+                willus_mem_free((double **)&fdata,funcname);
+                bmp_free(bmap);
+                fclose(f);
+                return(-7);
+                }
+            for (fd0=fdata,m=0;m<bmap->width;m++,fd0++)
+                {
+                int kk;
+                for (kk=0;kk<3;kk++,fd0++,p++)
+                    (*p)=(*fd0);
+                }
+            }
+        willus_mem_free((double **)&fdata,funcname);
         bmp24_flip_rgb(bmap);
         }
     fclose(f);
@@ -2462,6 +2499,69 @@ void bmp_integer_resample(WILLUSBITMAP *dest,WILLUSBITMAP *src,int n)
                 pixsum /= np;
                 (*dp)=pixsum;
                 }
+            }
+        }
+    }
+
+
+void bmp_draw_filled_rect(WILLUSBITMAP *bmp,int col1,int row1,int col2,int row2,
+                          int r,int g,int b)
+
+    {
+    if (row1<0)
+        row1=0;
+    if (row1>bmp->height-1)
+        row1=bmp->height-1;
+    if (row2<0)
+        row2=0;
+    if (row2>bmp->height-1)
+        row2=bmp->height-1;
+    if (col1<0)
+        col1=0;
+    if (col1>bmp->width-1)
+        col1=bmp->width-1;
+    if (col2<0)
+        col2=0;
+    if (col2>bmp->width-1)
+        col2=bmp->width-1;
+    if (row2<row1)
+        {
+        int t;
+        t=row2;
+        row2=row1;
+        row1=t;
+        }
+    if (col2<col1)
+        {
+        int t;
+        t=col2;
+        col2=col1;
+        col1=t;
+        }
+    if (bmp->bpp==24)
+        {
+        int row;
+        for (row=row1;row<=row2;row++)
+            {
+            int col;
+            unsigned char *p;
+            p=bmp_rowptr_from_top(bmp,row)+col1*3;
+            for (col=col1;col<=col2;col++,p+=3)
+                {
+                RGBSET24(bmp,p,r,g,b);
+                }
+            }
+        }
+    else
+        {
+        int row;
+        for (row=row1;row<=row2;row++)
+            {
+            int col;
+            unsigned char *p;
+            p=bmp_rowptr_from_top(bmp,row)+col1;
+            for (col=col1;col<=col2;col++,p++)
+                (*p)=r;
             }
         }
     }

@@ -64,6 +64,120 @@ fz_strlcat(char *dst, const char *src, int siz)
 	return dlen + (s - src);	/* count does not include NUL */
 }
 
+void
+fz_dirname(char *dir, const char *path, int n)
+{
+	int i;
+
+	if (!path || !path[0])
+	{
+		fz_strlcpy(dir, ".", n);
+		return;
+	}
+
+	fz_strlcpy(dir, path, n);
+
+	i = strlen(dir);
+	for(; dir[i] == '/'; --i) if (!i) { fz_strlcpy(dir, "/", n); return; }
+	for(; dir[i] != '/'; --i) if (!i) { fz_strlcpy(dir, ".", n); return; }
+	for(; dir[i] == '/'; --i) if (!i) { fz_strlcpy(dir, "/", n); return; }
+	dir[i+1] = 0;
+}
+
+static int ishex(int a)
+{
+	return (a >= 'A' && a <= 'F') ||
+		(a >= 'a' && a <= 'f') ||
+		(a >= '0' && a <= '9');
+}
+
+static int tohex(int c)
+{
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 0xA;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 0xA;
+	return 0;
+}
+
+char *
+fz_urldecode(char *url)
+{
+	char *s = url;
+	char *p = url;
+	while (*s)
+	{
+		int c = (unsigned char) *s++;
+		if (c == '%' && ishex(s[0]) && ishex(s[1]))
+		{
+			int a = tohex(*s++);
+			int b = tohex(*s++);
+			*p++ = a << 4 | b;
+		}
+		else
+		{
+			*p++ = c;
+		}
+	}
+	*p = 0;
+	return url;
+}
+
+#define SEP(x) ((x)=='/' || (x) == 0)
+
+char *
+fz_cleanname(char *name)
+{
+	char *p, *q, *dotdot;
+	int rooted;
+
+	rooted = name[0] == '/';
+
+	/*
+	 * invariants:
+	 *		p points at beginning of path element we're considering.
+	 *		q points just past the last path element we wrote (no slash).
+	 *		dotdot points just past the point where .. cannot backtrack
+	 *				any further (no slash).
+	 */
+	p = q = dotdot = name + rooted;
+	while (*p)
+	{
+		if(p[0] == '/') /* null element */
+			p++;
+		else if (p[0] == '.' && SEP(p[1]))
+			p += 1; /* don't count the separator in case it is nul */
+		else if (p[0] == '.' && p[1] == '.' && SEP(p[2]))
+		{
+			p += 2;
+			if (q > dotdot) /* can backtrack */
+			{
+				while(--q > dotdot && *q != '/')
+					;
+			}
+			else if (!rooted) /* /.. is / but ./../ is .. */
+			{
+				if (q != name)
+					*q++ = '/';
+				*q++ = '.';
+				*q++ = '.';
+				dotdot = q;
+			}
+		}
+		else /* real path element */
+		{
+			if (q != name+rooted)
+				*q++ = '/';
+			while ((*q = *p) != '/' && *q != 0)
+				p++, q++;
+		}
+	}
+
+	if (q == name) /* empty string is really "." */
+		*q++ = '.';
+	*q = '\0';
+	return name;
+}
+
 enum
 {
 	UTFmax = 4, /* maximum bytes per rune */
@@ -244,7 +358,6 @@ float fz_atof(const char *s)
 #if (!defined(__SSE__))
     return(atof(s));
 #else
-
 	double d;
 
 	/* The errno voodoo here checks for us reading numbers that are too
@@ -267,4 +380,11 @@ int fz_atoi(const char *s)
 	if (s == NULL)
 		return 0;
 	return atoi(s);
+}
+
+fz_off_t fz_atoo(const char *s)
+{
+	if (s == NULL)
+		return 0;
+	return fz_atoo_imp(s);
 }

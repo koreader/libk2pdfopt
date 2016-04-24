@@ -1,9 +1,11 @@
 #include "config_auto.h"
 /**********************************************************************
  * File:        tessedit.cpp  (Formerly tessedit.c)
- * Description: Main program for merge of tess and editor.
- * Author:					Ray Smith
- * Created:					Tue Jan 07 15:21:46 GMT 1992
+ * Description: (Previously) Main program for merge of tess and editor.
+ *              Now just code to load the language model and various
+ *              engine-specific data files.
+ * Author:      Ray Smith
+ * Created:     Tue Jan 07 15:21:46 GMT 1992
  *
  * (C) Copyright 1992, Hewlett-Packard Ltd.
  ** Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,31 +20,21 @@
  *
  **********************************************************************/
 
-#include "mfcpch.h"
-//#include                                                      <osfcn.h>
-//#include                                                      <signal.h>
-//#include                                                      <time.h>
-//#include                                                      <unistd.h>
-#include          "tfacep.h"     //must be before main.h
-//#include                                                      "fileerr.h"
+// Include automatically generated configuration file if running autoconf.
+#ifdef HAVE_CONFIG_H
+#include "config_auto.h"
+#endif
+
 #include          "stderr.h"
 #include          "basedir.h"
 #include          "tessvars.h"
-//#include                                                      "debgwin.h"
-//#include                                      "epapdest.h"
 #include          "control.h"
-#include          "imgs.h"
 #include          "reject.h"
 #include          "pageres.h"
-//#include                                                      "gpapdest.h"
 #include          "nwmain.h"
 #include          "pgedit.h"
 #include          "tprintf.h"
-//#include                                      "ipeerr.h"
-//#include                                                      "restart.h"
 #include          "tessedit.h"
-//#include                                                      "fontfind.h"
-#include "permute.h"
 #include "stopper.h"
 #include "intmatcher.h"
 #include "chop.h"
@@ -51,8 +43,6 @@
 #include "globals.h"
 #include "tesseractclass.h"
 #include "params.h"
-
-#include          "notdll.h"     //phils nn stuff
 
 #define VARDIR        "configs/" /*variables files */
                                  //config under api
@@ -132,6 +122,7 @@ bool Tesseract::init_tesseract_lang_data(
           }
       }
   /* end willus.com mod */
+
 
   // Initialize TessdataManager.
   STRING tessdata_path = language_data_path_prefix + kTrainedDataSuffix;
@@ -219,16 +210,29 @@ bool Tesseract::init_tesseract_lang_data(
   if (tessdata_manager_debug_level) tprintf("Loaded unicharset\n");
   right_to_left_ = unicharset.major_right_to_left();
 
+  // Setup initial unichar ambigs table and read universal ambigs.
+  UNICHARSET encoder_unicharset;
+  encoder_unicharset.CopyFrom(unicharset);
+  unichar_ambigs.InitUnicharAmbigs(unicharset, use_ambigs_for_adaption);
+  unichar_ambigs.LoadUniversal(encoder_unicharset, &unicharset);
+
   if (!tessedit_ambigs_training &&
       tessdata_manager.SeekToStart(TESSDATA_AMBIGS)) {
+    TFile ambigs_file;
+    ambigs_file.Open(tessdata_manager.GetDataFilePtr(),
+                     tessdata_manager.GetEndOffset(TESSDATA_AMBIGS) + 1);
     unichar_ambigs.LoadUnicharAmbigs(
-        tessdata_manager.GetDataFilePtr(),
-        tessdata_manager.GetEndOffset(TESSDATA_AMBIGS),
+        encoder_unicharset,
+        &ambigs_file,
         ambigs_debug_level, use_ambigs_for_adaption, &unicharset);
     if (tessdata_manager_debug_level) tprintf("Loaded ambigs\n");
   }
 
-  // Load Cube objects if necessary.
+  // The various OcrEngineMode settings (see publictypes.h) determine which
+  // engine-specific data files need to be loaded. Currently everything needs
+  // the base tesseract data, which supplies other useful information, but
+  // alternative engines, such as cube and LSTM are optional.
+#ifndef NO_CUBE_BUILD
   if (tessedit_ocr_engine_mode == OEM_CUBE_ONLY) {
     /* willus mod */
     // ASSERT_HOST(init_cube_objects(false, &tessdata_manager));
@@ -246,6 +250,23 @@ bool Tesseract::init_tesseract_lang_data(
     if (tessdata_manager_debug_level)
       tprintf("Loaded Cube with combiner\n");
   }
+#endif
+  // Init ParamsModel.
+  // Load pass1 and pass2 weights (for now these two sets are the same, but in
+  // the future separate sets of weights can be generated).
+  for (int p = ParamsModel::PTRAIN_PASS1;
+      p < ParamsModel::PTRAIN_NUM_PASSES; ++p) {
+    language_model_->getParamsModel().SetPass(
+        static_cast<ParamsModel::PassEnum>(p));
+    if (tessdata_manager.SeekToStart(TESSDATA_PARAMS_MODEL)) {
+      if (!language_model_->getParamsModel().LoadFromFp(
+          lang.string(), tessdata_manager.GetDataFilePtr(),
+          tessdata_manager.GetEndOffset(TESSDATA_PARAMS_MODEL))) {
+        return false;
+      }
+    }
+  }
+  if (tessdata_manager_debug_level) language_model_->getParamsModel().Print();
 
   return true;
 }
@@ -335,7 +356,7 @@ int Tesseract::init_tesseract(
         if (result < 0) {
           /* willus mod */
           return -1;
-          /* end willu mod */
+          /* end willus mod */
           tprintf("Failed loading language '%s'\n", lang_str);
         } else {
           if (tessdata_manager_debug_level)
@@ -349,7 +370,7 @@ int Tesseract::init_tesseract(
           /* willus mod */
           delete tess_to_init;
           return -1;
-          /* end willu mod */
+          /* end willus mod */
           tprintf("Failed loading language '%s'\n", lang_str);
           delete tess_to_init;
         } else {
@@ -367,6 +388,31 @@ int Tesseract::init_tesseract(
     tprintf("Tesseract couldn't load any languages!\n");
     return -1;  // Couldn't load any language!
   }
+  if (!sub_langs_.empty()) {
+    // In multilingual mode word ratings have to be directly comparable,
+    // so use the same language model weights for all languages:
+    // use the primary language's params model if
+    // tessedit_use_primary_params_model is set,
+    // otherwise use default language model weights.
+    if (tessedit_use_primary_params_model) {
+      for (int s = 0; s < sub_langs_.size(); ++s) {
+        sub_langs_[s]->language_model_->getParamsModel().Copy(
+            this->language_model_->getParamsModel());
+      }
+      tprintf("Using params model of the primary language\n");
+      if (tessdata_manager_debug_level)  {
+        this->language_model_->getParamsModel().Print();
+      }
+    } else {
+      this->language_model_->getParamsModel().Clear();
+      for (int s = 0; s < sub_langs_.size(); ++s) {
+        sub_langs_[s]->language_model_->getParamsModel().Clear();
+      }
+      if (tessdata_manager_debug_level)
+        tprintf("Using default language params\n");
+    }
+  }
+
   SetupUniversalFontIds();
   return 0;
 }
@@ -464,7 +510,7 @@ int Tesseract::init_tesseract_lm(const char *arg0,
   if (!init_tesseract_lang_data(arg0, textbase, language, OEM_TESSERACT_ONLY,
                                 NULL, 0, NULL, NULL, false))
     return -1;
-  getDict().Load();
+  getDict().Load(Dict::GlobalDawgCache());
   tessdata_manager.End();
   return 0;
 }
@@ -482,5 +528,4 @@ enum CMD_EVENTS
   RECOG_PSEUDO,
   ACTION_2_CMD_EVENT
 };
-
 }  // namespace tesseract

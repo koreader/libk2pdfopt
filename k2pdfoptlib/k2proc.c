@@ -4,7 +4,7 @@
 **             columns, rows of text, and individual words, and laying out the
 **             output pages.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -29,13 +29,19 @@ static void pageregions_grid(PAGEREGIONS *pageregions,BMPREGION *region,
                              K2PDFOPT_SETTINGS *k2settings,int level);
 static void pageregions_from_cropboxes(PAGEREGIONS *pageregions,BMPREGION *region,
                                        K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo);
+static int k2cropboxes_skip_box(K2CROPBOXES *cropboxes,int index,int srcpage,int npages,int iboxes);
+static void bmpregion_whiteout_cropboxes(BMPREGION *srcregion,K2PDFOPT_SETTINGS *k2settings,
+                                         MASTERINFO *masterinfo);
+static void bmpregion_set_cropbox_pixels(BMPREGION *dstregion,K2CROPBOX *cropbox,
+                                         BMPREGION *srcregion,MASTERINFO *masterinfo);
 static void pageregions_find_next_level(PAGEREGIONS *pageregions_sorted,BMPREGION *srcregion,
                                         K2PDFOPT_SETTINGS *k2settings,int level,K2NOTES *notes);
 static double median_val(double *x,int n);
 #ifdef HAVE_MUPDF_LIB
-static int add_crop_boxes(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo);
+static int add_crop_boxes(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo,
+                          int bmp_rotation_deg);
 static int add_crop_box(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
-                        MASTERINFO *masterinfo);
+                        MASTERINFO *masterinfo,int bmp_rotation_deg);
 #endif
 static int bmpregion_find_multicolumn_divider(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                                               int *row_black_count,PAGEREGIONS *pageregions,
@@ -65,9 +71,8 @@ static int get_line_spacing_pixels(TEXTROW *tr1,TEXTROW *tr2,MULTILINE_PARAMS *m
 static void textrow_mark_source(TEXTROW *textrow,BMPREGION *region,MASTERINFO *masterinfo,
                                 K2PDFOPT_SETTINGS *k2settings,int marking_flags);
 static void bmpregion_one_row_wrap_and_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
-                                    MASTERINFO *masterinfo,int justflags,
-                                    int line_spacing,int mean_row_gap,int rowbase,
-                                    int marking_flags,int pi);
+                                    MASTERINFO *masterinfo,int justflags,int line_spacing,
+                                    int mean_row_gap,int marking_flags,int pi);
 
 
 /*
@@ -78,6 +83,56 @@ void k2proc_init_one_document(void)
     {
     /* Init vert break routine */
     bmpregion_vertically_break(NULL,NULL,NULL,0.,0,0,NULL);
+    }
+
+
+/*
+** Determine median font size (based on row heights) in a region.
+** Graphically determine median font size in a rectangular region.
+** Break into columns if necessary.
+*/
+void k2proc_get_fontsize_histogram(BMPREGION *srcregion,MASTERINFO *masterinfo,
+                                   K2PDFOPT_SETTINGS *k2settings,FONTSIZE_HISTOGRAM *fsh)
+
+    {
+    PAGEREGIONS *pageregions,_pageregions;
+    BMPREGION *region,_region;
+    int i,maxlevels;
+
+#if (WILLUSDEBUGX & 0x10000)
+bmpregion_write(region,"fontsize_bmpregion_major.png");
+#endif
+/*
+printf("@k2proc_determine_median_font_size\n");
+*/
+
+    /* Parse region into columns */
+    region=&_region;
+    bmpregion_init(region);
+    bmpregion_copy(region,srcregion,0);
+    pageregions=&_pageregions;
+    pageregions_init(pageregions);
+    if (k2settings->max_columns>2)
+        maxlevels = 3;
+    else if (k2settings->max_columns>1)
+        maxlevels = 2;
+    else
+        maxlevels = 1;
+    pageregions_find_columns(pageregions,region,k2settings,masterinfo,maxlevels);
+    for (i=0;i<pageregions->n;i++)
+        {
+        BMPREGION *region1;
+        int j;
+
+        region1=&pageregions->pageregion[i].bmpregion;
+        bmpregion_find_textrows(region1,k2settings,0,1);
+        for (j=0;j<region1->textrows.n;j++)
+            if (region1->textrows.textrow[j].type==REGION_TYPE_TEXTLINE)
+                fontsize_histogram_add_fontsize(fsh,
+                              2.*72.*region1->textrows.textrow[j].h5050/region1->dpi);
+        }
+    pageregions_free(pageregions);
+    bmpregion_free(region);
     }
 
 
@@ -104,8 +159,12 @@ void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
         k2printf("@bmpregion_source_page_add (%d,%d) - (%d,%d) dpi=%d, lev=%d, pagesdone=%d\n",
                region->c1,region->r1,region->c2,region->r2,region->dpi,level,pages_done);
 
+    /* White-out all crop boxes with K2CROPBOX_FLAGS_IGNOREBOXEDAREA set */
+    bmpregion_whiteout_cropboxes(region,k2settings,masterinfo);
+
+
     gridded = (k2settings->src_grid_cols > 0 && k2settings->src_grid_rows > 0);
-    if (k2settings->cropboxes.n==0 && !gridded)
+    if (!k2settings_has_cropboxes(k2settings) && !gridded)
         {
         bmpregion_source_box_process(region,k2settings,masterinfo,level,pages_done);
         return;
@@ -116,7 +175,7 @@ void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
     pageregions_init(pageregions);
 
     /* Get regions from cropboxes or grid areas */
-    if (k2settings->cropboxes.n>0)
+    if (k2settings_has_cropboxes(k2settings))
         pageregions_from_cropboxes(pageregions,region,k2settings,masterinfo);
     else
         pageregions_grid(pageregions,region,k2settings,0);
@@ -126,6 +185,79 @@ void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
         bmpregion_source_box_process(&pageregions->pageregion[i].bmpregion,
                                      k2settings,masterinfo,level,pages_done); 
     pageregions_free(pageregions);
+    }
+
+
+void bmpregion_add_cover_image(BMPREGION *coverimage,K2PDFOPT_SETTINGS *k2settings,
+                               MASTERINFO *masterinfo)
+
+    {
+    ADDED_REGION_INFO _added_region,*added_region;
+    BMPREGION *newregion,_newregion;
+    int i,dst_ocr,dst_fit_to_page,dst_figure_rotate,fit_columns;
+
+    newregion=&_newregion;
+    bmpregion_init(newregion);
+    bmpregion_copy(newregion,coverimage,0);
+    added_region=&_added_region;
+    added_region->region=newregion;
+    added_region->firstrow=0;
+    added_region->lastrow=0;
+    added_region->allow_text_wrapping=0;
+    added_region->trim_flags=0;
+    added_region->allow_vertical_breaks=0;
+    added_region->force_scale=-2;
+    added_region->justification_flags=0;
+    added_region->caller_id=0;
+    added_region->rowbase_delta=0;
+    added_region->region_is_centered=1;
+    added_region->notes=0;
+    added_region->count=0;
+    added_region->maps_to_source=0;
+
+    /* White-out all crop boxes with K2CROPBOX_FLAGS_IGNOREBOXEDAREA set */
+    bmpregion_whiteout_cropboxes(coverimage,k2settings,masterinfo);
+
+    /* Apply crop box if found */
+    for (i=0;i<k2settings->cropboxes.n;i++)
+        {
+        K2CROPBOX *cropbox;
+
+        if (k2cropboxes_skip_box(&k2settings->cropboxes,i,masterinfo->pageinfo.srcpage,
+                                 masterinfo->srcpages,0))
+            continue;
+        cropbox=&k2settings->cropboxes.cropbox[i];
+        bmpregion_set_cropbox_pixels(newregion,cropbox,coverimage,masterinfo);
+        break;
+        }
+
+    /* Store k2settings parameters */
+#ifdef HAVE_OCR_LIB
+    dst_ocr=k2settings->dst_ocr;
+#endif
+    dst_fit_to_page=k2settings->dst_fit_to_page;
+    dst_figure_rotate=k2settings->dst_figure_rotate;
+    fit_columns=k2settings->fit_columns;
+
+    /* Modify for cover image */
+    /* Turn off OCR if type 'm' */
+#ifdef HAVE_OCR_LIB
+    if (tolower(dst_ocr)=='m')
+        k2settings->dst_ocr=0;
+#endif
+    k2settings->dst_fit_to_page=-2;
+    k2settings->dst_figure_rotate=0;
+    k2settings->fit_columns=1;
+    bmpregion_add(added_region,k2settings,masterinfo);
+
+    /* Restore k2settings */
+    k2settings->fit_columns=fit_columns;
+    k2settings->dst_figure_rotate=dst_figure_rotate;
+    k2settings->dst_fit_to_page=dst_fit_to_page;
+#ifdef HAVE_OCR_LIB
+    k2settings->dst_ocr=dst_ocr;
+#endif
+    bmpregion_free(newregion);
     }
 
 
@@ -166,7 +298,7 @@ static void bmpregion_source_box_process(BMPREGION *region,K2PDFOPT_SETTINGS *k2
     trim_regions = ((k2settings->vertical_break_threshold<-1.5
                        || k2settings->dst_fit_to_page==-2
                        || gridded
-                       || k2settings->cropboxes.n>0)
+                       || k2settings_has_cropboxes(k2settings))
                        && (k2settings->dst_userwidth_units==UNITS_TRIMMED
                            || k2settings->dst_userheight_units==UNITS_TRIMMED));
 
@@ -186,6 +318,38 @@ static void bmpregion_source_box_process(BMPREGION *region,K2PDFOPT_SETTINGS *k2
                 pageregions->pageregion[i].bmpregion.r2);
         }
 */
+
+    /* v2.33:  Do all trimming up front */
+    /* Trim regions */
+    if (trim_regions && k2settings->src_trim)
+        for (ipr=0;ipr<pageregions->n;ipr++)
+            bmpregion_trim_margins(&pageregions->pageregion[ipr].bmpregion,k2settings,0xf);
+
+    /* v2.33 */
+    /* Special sorting if more than 1 column and no notes--apply ragged column edge logic */
+    if (maxlevels>=2)
+        {
+        int has_notes;
+
+        has_notes=0;
+        for (ipr=0;ipr<pageregions->n;ipr++)
+            if (pageregions->pageregion[ipr].notes)
+                {
+                has_notes=1;
+                break;
+                }
+        if (!has_notes)
+            {
+            /* Find text rows in each region--required for good sorting. */
+            for (ipr=0;ipr<pageregions->n;ipr++)
+                bmpregion_find_textrows(&pageregions->pageregion[ipr].bmpregion,k2settings,1,1);
+            pageregions_sort(pageregions,k2settings->src_dpi,k2settings->src_left_to_right,
+                                         k2settings->column_offset_max,
+                                         k2settings->column_row_gap_height_in,
+                                         k2settings->max_column_gap_inches);
+            }
+        }
+
     for (ipr=0;ipr<pageregions->n;ipr++)
         {
         int level,fitcols;
@@ -210,21 +374,14 @@ static void bmpregion_source_box_process(BMPREGION *region,K2PDFOPT_SETTINGS *k2
         */
 
         /* Check for dynamic adjustment of output page to trimmed source region */
+        /* Set device width/height to trimmed size if requested */
         if (trim_regions)
-            {
-            /* Set device width/height to trimmed size if requested */
-            if (k2settings->src_trim)
-                {
-                if (notes_region!=NULL)
-                    bmpregion_trim_margins(notes_region,k2settings,0xf);
-                bmpregion_trim_margins(main_text_region,k2settings,0xf);
-                }
-            k2pdfopt_settings_set_margins_and_devsize(k2settings,main_text_region,masterinfo,1);
-            }
+            k2pdfopt_settings_set_margins_and_devsize(k2settings,main_text_region,
+                                                      masterinfo,-1.0,1);
 
         /* Process this region */
         level = pageregions->pageregion[ipr].level;
-        if (k2settings->cropboxes.n>0 || gridded || !pageregions->pageregion[ipr].fullspan)
+        if (k2settings_has_cropboxes(k2settings) || gridded || !pageregions->pageregion[ipr].fullspan)
             {
             level *= 2;
             fitcols = k2settings->fit_columns;
@@ -330,25 +487,35 @@ static void pageregions_grid(PAGEREGIONS *pageregions,BMPREGION *region,
 /*
 ** Determine page regions from user-specified crop boxes.
 */
-static void pageregions_from_cropboxes(PAGEREGIONS *pageregions,BMPREGION *region,
+static void pageregions_from_cropboxes(PAGEREGIONS *pageregions,BMPREGION *srcregion,
                                        K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo)
 
     {
     int i;
 
+#if (WILLUSDEBUGX & 0x200)
+int c;
+c=0;
+printf("@pageregions_from_cropboxes:  n boxes=%d\n",k2cropboxes_count(&k2settings->cropboxes,K2CROPBOX_FLAGS_IGNOREBOXEDAREA|K2CROPBOX_FLAGS_NOTUSED,0));
+#endif
     for (i=0;i<k2settings->cropboxes.n;i++)
         {
         K2CROPBOX *cropbox;
-        BMPREGION *srcregion,_srcregion;
-        LINE2D userrect;
-        POINT2D pagedims_inches;
+        BMPREGION *croppedregion,_croppedregion;
         /* int units2[4]; */
 
-
-        srcregion=&_srcregion;
-        bmpregion_init(srcregion);
-        bmpregion_copy(srcregion,region,0);
+        if (k2cropboxes_skip_box(&k2settings->cropboxes,i,masterinfo->pageinfo.srcpage,
+                                 masterinfo->srcpages,0))
+            continue;
         cropbox=&k2settings->cropboxes.cropbox[i];
+        croppedregion=&_croppedregion;
+        bmpregion_init(croppedregion);
+        bmpregion_copy(croppedregion,srcregion,0);
+#if (WILLUSDEBUGX & 0x200)
+printf("    cropbox[%d].pagelist='%s'\n",c++,cropbox->pagelist);
+printf("    srcpage = %d of %d\n",masterinfo->pageinfo.srcpage,masterinfo->srcpages);
+printf("    pagelist includes=%d\n",pagelist_includes_page(cropbox->pagelist,masterinfo->pageinfo.srcpage,masterinfo->srcpages));
+#endif
 /*
 {
 int status;
@@ -356,14 +523,6 @@ status=pagelist_includes_page(cropbox->pagelist,masterinfo->pageinfo.srcpage,mas
 printf("pagelist_includes_page('%s',%d,%d)=%d\n",cropbox->pagelist,masterinfo->pageinfo.srcpage,masterinfo->srcpages,status);
 }
 */
-        /* Don't apply cropbox if page not in pagelist */
-        if (cropbox->pagelist[0]!='\0' 
-              && !pagelist_includes_page(cropbox->pagelist,masterinfo->pageinfo.srcpage,
-                                         masterinfo->srcpages))
-            {
-            bmpregion_free(srcregion);
-            continue;
-            }
 
 /*
 printf("Cropbox:\n");
@@ -373,63 +532,182 @@ for (jj=0;jj<4;jj++)
 printf("    %d. %g %d\n",jj,cropbox->box[jj],cropbox->units[jj]);
 }
 */
-        /* Convert cropbox units to pixels */
-        userrect.p[0].x = cropbox->box[0];
-        userrect.p[0].y = cropbox->box[1];
-        userrect.p[1].x = cropbox->box[0]+cropbox->box[2];
-        userrect.p[1].y = cropbox->box[1]+cropbox->box[3];
-        /* For calculating width/height */
-        /*
-        userrect2.p[0].x = 0.;
-        userrect2.p[0].y = 0.;
-        userrect2.p[1].x = cropbox->box[2];
-        userrect2.p[1].y = cropbox->box[3];
-        units2[0]=units2[2]=cropbox->units[0];
-        units2[1]=units2[3]=cropbox->units[1];
-        */
-        /* Page dimensions in inches */
-        pagedims_inches.x = (double)region->bmp8->width / region->dpi;
-        pagedims_inches.y = (double)region->bmp8->height / region->dpi;
-        masterinfo_convert_to_source_pixels(masterinfo,&userrect,cropbox->units,&pagedims_inches,
-                                            (double)region->dpi,NULL);
-        /*
-        masterinfo_convert_to_source_pixels(masterinfo,&userrect2,units2,&pagedims_inches,
-                                            (double)region->dpi,NULL);
-        */
-
-        /* Establish cropbox */
-        srcregion->c1 = (int)(userrect.p[0].x+.5);
-        if (srcregion->c1<0)
-            srcregion->c1=0;
-        if (srcregion->c1 > region->bmp8->width-1)
-            srcregion->c1=region->bmp8->width-1;
-        if (cropbox->box[2]<=0.)
-            srcregion->c2 = region->bmp8->width-1;
-        else
-            srcregion->c2 = (int)(userrect.p[1].x+.5);
-        if (srcregion->c2<srcregion->c1)
-            srcregion->c2=srcregion->c1;
-        if (srcregion->c2> region->bmp8->width-1)
-            srcregion->c2=region->bmp8->width-1;
-        srcregion->r1 = (int)(userrect.p[0].y+.5);
-        if (srcregion->r1<0)
-            srcregion->r1=0;
-        if (srcregion->r1 > region->bmp8->height-1)
-            srcregion->r1=region->bmp8->height-1;
-        if (cropbox->box[3]<=0.)
-            srcregion->r2 = region->bmp8->height-1;
-        else
-            srcregion->r2 = (int)(userrect.p[1].y+.5);
-        if (srcregion->r2<srcregion->r1)
-            srcregion->r2=srcregion->r1;
-        if (srcregion->r2 > region->bmp8->height-1)
-            srcregion->r2=region->bmp8->height-1;
 /*
-printf("c1,r1 c2,r2 = (%d,%d)-(%d,%d)\n",srcregion->c1,srcregion->r1,srcregion->c2,srcregion->r2);
+printf("c1,r1 c2,r2 = (%d,%d)-(%d,%d)\n",croppedregion->c1,croppedregion->r1,croppedregion->c2,croppedregion->r2);
 */
-        pageregions_add_pageregion(pageregions,srcregion,0,0,0);
-        bmpregion_free(srcregion);
+        bmpregion_set_cropbox_pixels(croppedregion,cropbox,srcregion,masterinfo);
+        pageregions_add_pageregion(pageregions,croppedregion,0,0,0);
+        bmpregion_free(croppedregion);
         }
+    }
+
+
+static int k2cropboxes_skip_box(K2CROPBOXES *cropboxes,int index,int srcpage,int npages,int iboxes)
+
+    {
+    K2CROPBOX *cropbox;
+
+    cropbox=&cropboxes->cropbox[index];
+
+    if (cropbox->cboxflags&K2CROPBOX_FLAGS_NOTUSED)
+        return(1);
+    if (!iboxes && (cropbox->cboxflags&K2CROPBOX_FLAGS_IGNOREBOXEDAREA))
+        return(1);
+    if (iboxes && !(cropbox->cboxflags&K2CROPBOX_FLAGS_IGNOREBOXEDAREA))
+        return(1);
+
+    /* If no page list, crop box used on every page */
+    if (cropbox->pagelist[0]=='\0')
+        return(0);
+
+    /* Unspecified pages */
+    if (!stricmp(cropbox->pagelist,"u"))
+        {
+        int i;
+
+        for (i=0;i<cropboxes->n;i++)
+            {
+            if (i==index)
+                continue;
+            cropbox=&cropboxes->cropbox[i];
+            if (cropbox->cboxflags&K2CROPBOX_FLAGS_NOTUSED)
+                continue;
+            if (!iboxes && (cropbox->cboxflags&K2CROPBOX_FLAGS_IGNOREBOXEDAREA))
+                continue;
+            if (iboxes && !(cropbox->cboxflags&K2CROPBOX_FLAGS_IGNOREBOXEDAREA))
+                continue;
+            if (cropbox->pagelist[0]=='\0' || !stricmp(cropbox->pagelist,"u"))
+                continue;
+            if (pagelist_includes_page(cropbox->pagelist,srcpage,npages))
+                return(1);
+            }
+        return(0);
+        }
+
+    /* Don't apply cropbox if page not in pagelist */
+    return(!pagelist_includes_page(cropbox->pagelist,srcpage,npages));
+    }
+
+
+/*
+** White out source bitmap areas specified by "ignore" boxes
+*/
+static void bmpregion_whiteout_cropboxes(BMPREGION *srcregion,K2PDFOPT_SETTINGS *k2settings,
+                                         MASTERINFO *masterinfo)
+
+    {
+    int i;
+
+#if (WILLUSDEBUGX & 0x200)
+int c;
+c=0;
+printf("@pageregions_whiteout_cropboxes:  n boxes=%d\n",k2cropboxes_count(&k2settings->cropboxes,K2CROPBOX_FLAGS_NOTUSED|K2CROPBOX_FLAGS_IGNOREBOXEDAREA,K2CROPBOX_FLAGS_IGNOREBOXEDAREA));
+#endif
+    for (i=0;i<k2settings->cropboxes.n;i++)
+        {
+        K2CROPBOX *cropbox;
+        BMPREGION *croppedregion,_croppedregion;
+        /* int units2[4]; */
+
+        if (k2cropboxes_skip_box(&k2settings->cropboxes,i,masterinfo->pageinfo.srcpage,
+                                 masterinfo->srcpages,1))
+            continue;
+        cropbox=&k2settings->cropboxes.cropbox[i];
+        croppedregion=&_croppedregion;
+        bmpregion_init(croppedregion);
+        bmpregion_copy(croppedregion,srcregion,0);
+#if (WILLUSDEBUGX & 0x200)
+printf("    cropbox[%d].pagelist='%s'\n",c++,cropbox->pagelist);
+printf("    srcpage = %d of %d\n",masterinfo->pageinfo.srcpage,masterinfo->srcpages);
+printf("    pagelist includes=%d\n",pagelist_includes_page(cropbox->pagelist,masterinfo->pageinfo.srcpage,masterinfo->srcpages));
+#endif
+/*
+{
+int status;
+status=pagelist_includes_page(cropbox->pagelist,masterinfo->pageinfo.srcpage,masterinfo->srcpages);
+printf("pagelist_includes_page('%s',%d,%d)=%d\n",cropbox->pagelist,masterinfo->pageinfo.srcpage,masterinfo->srcpages,status);
+}
+*/
+/*
+printf("Cropbox:\n");
+{
+int jj;
+for (jj=0;jj<4;jj++)
+printf("    %d. %g %d\n",jj,cropbox->box[jj],cropbox->units[jj]);
+}
+*/
+/*
+printf("c1,r1 c2,r2 = (%d,%d)-(%d,%d)\n",croppedregion->c1,croppedregion->r1,croppedregion->c2,croppedregion->r2);
+*/
+        bmpregion_set_cropbox_pixels(croppedregion,cropbox,srcregion,masterinfo);
+        bmpregion_whiteout(srcregion,croppedregion);
+        bmpregion_free(croppedregion);
+        }
+    }
+
+
+/*
+** Set dstregion c1,r1,c2,r2 based on cropbox.
+*/
+static void bmpregion_set_cropbox_pixels(BMPREGION *dstregion,K2CROPBOX *cropbox,
+                                         BMPREGION *srcregion,MASTERINFO *masterinfo)
+
+    {
+    LINE2D userrect;
+    POINT2D pagedims_inches;
+
+    /* Convert cropbox units to pixels */
+    userrect.p[0].x = cropbox->box[0];
+    userrect.p[0].y = cropbox->box[1];
+    userrect.p[1].x = cropbox->box[0]+cropbox->box[2];
+    userrect.p[1].y = cropbox->box[1]+cropbox->box[3];
+
+    /* For calculating width/height */
+    /*
+    userrect2.p[0].x = 0.;
+    userrect2.p[0].y = 0.;
+    userrect2.p[1].x = cropbox->box[2];
+    userrect2.p[1].y = cropbox->box[3];
+    units2[0]=units2[2]=cropbox->units[0];
+    units2[1]=units2[3]=cropbox->units[1];
+    */
+    /* Page dimensions in inches */
+    pagedims_inches.x = (double)srcregion->bmp8->width / srcregion->dpi;
+    pagedims_inches.y = (double)srcregion->bmp8->height / srcregion->dpi;
+    masterinfo_convert_to_source_pixels(masterinfo,&userrect,cropbox->units,&pagedims_inches,
+                                        (double)srcregion->dpi,NULL);
+    /*
+    masterinfo_convert_to_source_pixels(masterinfo,&userrect2,units2,&pagedims_inches,
+                                        (double)region->dpi,NULL);
+    */
+
+    /* Establish cropbox */
+    dstregion->c1 = (int)(userrect.p[0].x+.5);
+    if (dstregion->c1<0)
+        dstregion->c1=0;
+    if (dstregion->c1 > srcregion->bmp8->width-1)
+        dstregion->c1=srcregion->bmp8->width-1;
+    if (cropbox->box[2]<=0.)
+        dstregion->c2 = srcregion->bmp8->width-1;
+    else
+        dstregion->c2 = (int)(userrect.p[1].x+.5);
+    if (dstregion->c2<dstregion->c1)
+        dstregion->c2=dstregion->c1;
+    if (dstregion->c2> srcregion->bmp8->width-1)
+        dstregion->c2=srcregion->bmp8->width-1;
+    dstregion->r1 = (int)(userrect.p[0].y+.5);
+    if (dstregion->r1<0)
+        dstregion->r1=0;
+    if (dstregion->r1 > srcregion->bmp8->height-1)
+        dstregion->r1=srcregion->bmp8->height-1;
+    if (cropbox->box[3]<=0.)
+        dstregion->r2 = srcregion->bmp8->height-1;
+    else
+        dstregion->r2 = (int)(userrect.p[1].y+.5);
+    if (dstregion->r2<dstregion->r1)
+        dstregion->r2=dstregion->r1;
+    if (dstregion->r2 > srcregion->bmp8->height-1)
+        dstregion->r2=srcregion->bmp8->height-1;
     }
 
 
@@ -450,8 +728,10 @@ void pageregions_find_columns(PAGEREGIONS *pageregions_sorted,BMPREGION *srcregi
     int ilevel;
     K2NOTES *notes;
 
+#if (!(WILLUSDEBUGX & 0x200))
     if (k2settings->debug)
-        k2printf("@pageregions_find (%d,%d) - (%d,%d) maxlevels=%d\n",
+#endif
+        k2printf("@pageregions_find_columns (%d,%d) - (%d,%d) maxlevels=%d\n",
                srcregion->c1,srcregion->r1,srcregion->c2,srcregion->r2,maxlevels);
 
     /*
@@ -510,7 +790,9 @@ static void pageregions_find_next_level(PAGEREGIONS *pageregions_sorted,BMPREGIO
     PAGEREGIONS *pageregions,_pageregions;
     int ipr;
 
+#if (!(WILLUSDEBUGX & 0x200))
     if (k2settings->debug)
+#endif
         k2printf("@pageregions_find_next_level (%d,%d) - (%d,%d) lev=%d\n",
                srcregion->c1,srcregion->r1,srcregion->c2,srcregion->r2,level);
 
@@ -529,23 +811,63 @@ static void pageregions_find_next_level(PAGEREGIONS *pageregions_sorted,BMPREGIO
     if (k2settings->verbose)
         k2printf("%d clear rows.\n",cgr);
     if (k2settings->debug)
+        {
+        k2printf("Calculating row histogram.\n");
         bmpregion_row_histogram(srcregion);
+        k2printf("Done calculating row histogram.\n");
+        }
 
     /* Unsorted array */
     pageregions=&_pageregions;
     pageregions_init(pageregions);
 
     /* Find all column dividers in source region and store sequentially in pageregion[] array */
+#if (WILLUSDEBUGX & 0x200)
+printf("Looking for multi-column divider in source region.\n");
+#endif
     for (rh=0;srcregion->r1<=srcregion->r2;srcregion->r1+=rh)
         {
+        int n0;
+
+        n0=pageregions->n;
+#if (WILLUSDEBUGX & 0x200)
+if (notes)
+printf("Looking for multi-column divider with notes.\n");
+else
+printf("Looking for multi-column divider.\n");
+#endif
         rh=bmpregion_find_multicolumn_divider(srcregion,k2settings,row_black_count,pageregions,notes);
+#if (WILLUSDEBUGX & 0x200)
+printf("    rh=%d, found %d regions.\n",rh,pageregions->n-n0);
+{
+int i;
+for (i=n0;i<pageregions->n;i++)
+printf("        Region %d:  (%d,%d)-(%d,%d)\n",i-n0+1,pageregions->pageregion[i].bmpregion.c1,
+pageregions->pageregion[i].bmpregion.r1,
+pageregions->pageregion[i].bmpregion.c2,
+pageregions->pageregion[i].bmpregion.r2);
+}
+#endif
+        if (notes && pageregions->n-n0<=1 && level<k2settings->max_columns)
+            {
+#if (WILLUSDEBUGX & 0x200)
+printf("No notes found--trying multi-column.  level=%d, col=%d\n",level,k2settings->max_columns);
+#endif
+            pageregions->n=n0;
+            rh=bmpregion_find_multicolumn_divider(srcregion,k2settings,row_black_count,pageregions,NULL);
+#if (WILLUSDEBUGX & 0x200)
+printf("    rh=%d, found %d regions.\n",rh,pageregions->n-n0);
+#endif
+            }
         if (k2settings->verbose)
             k2printf("rh=%d/%d\n",rh,srcregion->r2-srcregion->r1+1);
         }
 
     /* Sort pageregions array into pageregions_sorted array (by order of display) */
+#if (!(WILLUSDEBUGX & 0x200))
     if (k2settings->debug)
-        k2printf("Page regions:  %d\n",pageregions->n);
+#endif
+        k2printf("Found %d page regions while looking for columns\n",pageregions->n);
     /* Clear sorted array */
     pageregions_sorted->n=0;
     for (ipr=0;ipr<pageregions->n;)
@@ -671,8 +993,9 @@ void bmpregion_add(ADDED_REGION_INFO *added_region,K2PDFOPT_SETTINGS *k2settings
                    MASTERINFO *masterinfo)
 
     {
-    int w,wmax,i,nc,nr,h,bpp,tall_region;
+    int w,wmax,i,nc,nr,h,bpp,tall_region,is_figure,bmp_rotation_deg;
     double region_width_inches;
+    double region_height_inches;
     WILLUSBITMAP *bmp,_bmp;
     BMPREGION *region;
     BMPREGION *newregion,_newregion;
@@ -681,7 +1004,7 @@ void bmpregion_add(ADDED_REGION_INFO *added_region,K2PDFOPT_SETTINGS *k2settings
     newregion=&_newregion;
     bmpregion_init(newregion);
     bmpregion_copy(newregion,added_region->region,1);
-#if (WILLUSDEBUGX & 1)
+#if (WILLUSDEBUGX & 0x000001)
 k2printf("@bmpregion_add (%d,%d) - (%d,%d)\n",region->c1,region->r1,region->c2,region->r2);
 k2printf("    trimflags = %X\n",added_region->trim_flags);
 k2printf("    allow_text_wrapping = %d\n",added_region->allow_text_wrapping);
@@ -719,6 +1042,55 @@ k2printf("    After trim:  (%d,%d) - (%d,%d)\n",newregion->c1,newregion->r1,newr
         return;
         }
     region_width_inches = (double)nc/newregion->dpi;
+    region_height_inches = (double)nr/newregion->dpi;
+
+    /*
+    ** Break region up if page-break marks are found.
+    */
+    if (added_region->maps_to_source && newregion->k2pagebreakmarks!=NULL 
+                                     && newregion->k2pagebreakmarks->n>0)
+        {
+        int i,c1,c2;
+
+        c1=newregion->c1;
+        c2=newregion->c2;
+        if (k2settings->src_left_to_right)
+            c1 -= newregion->dpi;
+        else
+            c2 += newregion->dpi;
+        for (i=0;i<newregion->k2pagebreakmarks->n;i++)
+            {
+            K2PAGEBREAKMARK *mark;
+
+            mark=&region->k2pagebreakmarks->k2pagebreakmark[i];
+            if (mark->type<0 || mark->col<c1 || mark->col>c2)
+                continue;
+            if (mark->row<=newregion->r1)
+                {
+                masterinfo_add_pagebreakmark(masterinfo,mark->type);
+                mark->type=-1;
+                continue;
+                }
+            /* Region has mark in the middle -- split it. */
+            if (mark->row<newregion->r2)
+                {
+                ADDED_REGION_INFO new_added_region;
+                int r2;
+
+                new_added_region = (*added_region);
+                new_added_region.region = newregion;
+                r2=newregion->r2;
+                new_added_region.region->r2=mark->row-1;
+                bmpregion_add(&new_added_region,k2settings,masterinfo);
+                new_added_region.region->r1=mark->row;
+                new_added_region.region->r2=r2;
+                bmpregion_add(&new_added_region,k2settings,masterinfo);
+                bmpregion_free(newregion);
+                return;
+                }
+            }
+        }
+
 // k2printf("bmpregion_add:  rwidth_in = %.2f = %d / %d\n",region_width_inches,nc,newregion->dpi);
     /* Use untrimmed region left/right if possible */
     /* added_region->caller_id==1 means we are called from bmpregion_vertically_break function */
@@ -760,6 +1132,7 @@ k2printf("    maxpix = %d, regwidth = %d\n",maxpix,region->c2-region->c1+1);
 k2printf("    Post Trim.  C's = %4d %4d %4d %4d\n",region->c1,newregion->c1,newregion->c2,region->c2);
 #endif
         region_width_inches = (double)nc/newregion->dpi;
+        region_height_inches = (double)(region->r2-region->r1+1)/newregion->dpi;
         }
         
     /*
@@ -788,6 +1161,7 @@ k2printf("tw=%d, region_width_inches=%g, max_region_width_inches=%g\n",added_reg
         ADDED_REGION_INFO new_added_region;
 
         new_added_region.region=newregion;
+        new_added_region.maps_to_source = added_region->maps_to_source;
         new_added_region.allow_text_wrapping=1;
         new_added_region.force_scale=added_region->force_scale;
         new_added_region.region_is_centered=added_region->region_is_centered;
@@ -809,6 +1183,7 @@ k2printf("tw=%d, region_width_inches=%g, max_region_width_inches=%g\n",added_reg
         ADDED_REGION_INFO new_added_region;
 
         new_added_region.region=newregion;
+        new_added_region.maps_to_source=added_region->maps_to_source;
         new_added_region.allow_text_wrapping=0;
         new_added_region.force_scale=added_region->force_scale;
         new_added_region.region_is_centered=added_region->region_is_centered;
@@ -831,12 +1206,23 @@ k2printf("tw=%d, region_width_inches=%g, max_region_width_inches=%g\n",added_reg
     **
     */
 // k2printf("c1=%d\n",newregion->c1);
-    /* Is it a figure? */
-    tall_region = (double)(newregion->r2-newregion->r1+1)/newregion->dpi >= k2settings->dst_min_figure_height_in;
+    /* Is it a "tall" region or a figure? */
+    tall_region = region_height_inches >= k2settings->dst_min_figure_height_in;
+#if (WILLUSDEBUGX & 1)
+printf("atomic region:  nrows=%d, type=%d\n",newregion->textrows.n,newregion->textrows.n>0?newregion->textrows.textrow[0].type:-1);
+#endif
+    if (newregion->textrows.n<=0)
+        is_figure = region_is_figure(k2settings,region_width_inches,region_height_inches);
+    else if (region->textrows.n==1)
+        {
+        textrow_determine_type(newregion,k2settings,0);
+        is_figure = (region->textrows.textrow[0].type==REGION_TYPE_FIGURE);
+        }
+    else
+        is_figure = 0;
 
     /* Did user request to remove all figures? */
-    if (k2settings->text_only && region->textrows.n==1 
-                              && region->textrows.textrow[0].type==REGION_TYPE_FIGURE)
+    if (k2settings->text_only && is_figure)
         {
         bmpregion_free(newregion);
         /* Use -to+ for this? */
@@ -860,20 +1246,21 @@ k2printf("tw=%d, region_width_inches=%g, max_region_width_inches=%g\n",added_reg
             bmpregion_trim_margins(newregion,k2settings,0x3);
             nc=newregion->c2-newregion->c1+1;
             region_width_inches = (double)nc/newregion->dpi;
+            region_height_inches = (double)(newregion->r2-newregion->r1+1)/newregion->dpi;
             }
         }
-#if (WILLUSDEBUGX & 1)
+#if (WILLUSDEBUGX & 0x000001)
+if (added_region->caller_id!=2)
 {
-/*
 char buf[MAXFILENAMELEN];
 static int count=0;
 sprintf(buf,"atomic%04d.png",count++);
 bmpregion_write(newregion,buf);
-*/
-    k2printf("atomic region:  " ANSI_CYAN "%.2f x %.2f in" ANSI_NORMAL " c1=%d, (%d x %d) (rbdel=%d) just=0x%02X\n",
+    k2printf("atomic region %04d:  " ANSI_CYAN "%.2f x %.2f in" ANSI_NORMAL " c1,r1=%d,%d, (%d x %d) (rbdel=%d) just=0x%02X\n",
+                   count-1,
                    (double)(newregion->c2-newregion->c1+1)/newregion->dpi,
                    (double)(newregion->r2-newregion->r1+1)/newregion->dpi,
-                   newregion->c1,
+                   newregion->c1,newregion->r1,
                    (newregion->c2-newregion->c1+1),
                    (newregion->r2-newregion->r1+1),
                    added_region->rowbase_delta,added_region->justification_flags);
@@ -930,6 +1317,25 @@ gotone++;
         memcpy(pdst,psrc,nc*bpp);
         }
 
+    /* Locate relevant page break markers, if any */
+/*
+    bmpregion_local_pagebreakmarkers(newregion,k2settings->src_left_to_right,
+                                               k2settings->src_whitethresh);
+{
+int i;
+for (i=0;i<newregion->k2pagebreakmarks->n;i++)
+{
+K2PAGEBREAKMARK *mark;
+mark=&newregion->k2pagebreakmarks->k2pagebreakmark[i];
+if (mark->type>=0)
+printf("    MARK %d at %d\n",mark->type,mark->row);
+}
+printf("\n");
+}
+*/
+        
+        
+
     /*
     ** Now scale to appropriate destination size.
     **
@@ -942,13 +1348,48 @@ gotone++;
     ** added_region->force_scale > 0.0  : Scale region by added_region->force_scale.
     **
     */
-    /* Max viewable pixel width on device screen */
+    /* Get max viewable pixel width on device screen */
     {
     int dstmar_pixels[4];
     get_dest_margins(dstmar_pixels,k2settings,k2settings->dst_dpi,masterinfo->bmp.width,
                      k2settings->dst_height);
     wmax=masterinfo->bmp.width-dstmar_pixels[0]-dstmar_pixels[2];
     }
+
+#if (WILLUSDEBUGX & 1)
+printf("Atomic region:  is_figure=%d, k2settings->dst_figure_rotate=%d\n",is_figure,k2settings->dst_figure_rotate);
+#endif
+    /* If device output is negative (white text on black background), pre-invert */
+    /* the bitmap if it is a figure so that when it gets inverted again in the   */
+    /* output bitmap stream, it will come out correctly.                         */
+    if (is_figure && k2settings->dst_negative==1)
+        bmp_invert(bmp);
+
+    /* Rotate figure to optimum aspect ratio if requested */
+    /* -fr option */
+    bmp_rotation_deg=0;
+    if (is_figure && k2settings->dst_figure_rotate)
+        {
+        double dst_vwidth_in,dst_vheight_in;
+
+        /* width and height already take landscape mode into account. */
+        /* E.g. for most readers, in landscape, vwidth > vheight */
+        k2pdfopt_settings_dst_viewable(k2settings,masterinfo,&dst_vwidth_in,&dst_vheight_in);
+        /* If figure fits better in a rotated orientation, rotate it */
+        if ((dst_vheight_in > dst_vwidth_in 
+                 && region_width_inches > region_height_inches
+                 && region_width_inches > dst_vwidth_in)
+             ||
+             (dst_vheight_in < dst_vwidth_in 
+                 && region_width_inches < region_height_inches
+                 && region_height_inches > dst_vheight_in))
+            {
+            /* Rotate bitmap for better fit to display screen */
+            bmp_rotation_deg=masterinfo->landscape?-90:90;
+            bmp_rotate_right_angle(bmp,bmp_rotation_deg);
+            }
+        }
+
     if (added_region->force_scale > 0.)
         w = (int)(added_region->force_scale*bmp->width+0.5);
     else
@@ -1048,7 +1489,7 @@ bmp_write(tmp,filename,stdout,100);
 #ifdef HAVE_MUPDF_LIB
         /* Add source region corresponding to "tmp" bitmap to pageinfo structure */
         if (k2settings->use_crop_boxes)
-            npageboxes=add_crop_boxes(newregion,k2settings,masterinfo);
+            npageboxes=add_crop_boxes(newregion,k2settings,masterinfo,bmp_rotation_deg);
 #endif /* HAVE_MUPDF_LIB */
         if (newregion->wrectmaps!=NULL)
             wrmaps0=newregion->wrectmaps;
@@ -1109,7 +1550,8 @@ printf("Calling masterinfo_add_bitmap w/textrow->rowheight=%d (scalew=%g, scaleh
 
 
 #ifdef HAVE_MUPDF_LIB
-static int add_crop_boxes(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo)
+static int add_crop_boxes(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo,
+                          int bmp_rotation_deg)
 
     {
     WILLUSBITMAP bmp;
@@ -1119,7 +1561,7 @@ static int add_crop_boxes(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,MASTER
 
     wrectmaps=region->wrectmaps;
     if (wrectmaps==NULL)
-        return(add_crop_box(region,k2settings,masterinfo));
+        return(add_crop_box(region,k2settings,masterinfo,bmp_rotation_deg));
     rot=masterinfo->pageinfo.srcpage_rot_deg;
     finerot=masterinfo->pageinfo.srcpage_fine_rot_deg;
     pn=masterinfo->pageinfo.srcpage;
@@ -1143,7 +1585,7 @@ static int add_crop_boxes(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,MASTER
         subregion->r1=wrmap->coords[0].y;
         subregion->c2=subregion->c1+wrmap->coords[2].x-1;
         subregion->r2=subregion->r1+wrmap->coords[2].y-1;
-        status+=add_crop_box(subregion,k2settings,masterinfo);
+        status+=add_crop_box(subregion,k2settings,masterinfo,bmp_rotation_deg);
         bmpregion_free(subregion);
         }
     masterinfo->pageinfo.srcpage_rot_deg=rot;
@@ -1154,7 +1596,7 @@ static int add_crop_boxes(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,MASTER
 
     
 static int add_crop_box(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
-                        MASTERINFO *masterinfo)
+                        MASTERINFO *masterinfo,int bmp_rotation_deg)
 
     {
     WPDFBOX _wpdfbox,*wpdfbox;
@@ -1172,6 +1614,7 @@ k2printf("@add_crop_box (nboxes=%d)\n",masterinfo->pageinfo.boxes.n);
     wpdfbox->dstpage = -1; /* -1 while still on master bitmap */
     wpdfbox->dst_width_pts = pageinfo->width_pts;
     wpdfbox->dst_height_pts = pageinfo->height_pts;
+    wpdfbox->dstrot_deg = bmp_rotation_deg;
     srcbox->pageno = pageinfo->srcpage;
     srcbox->finerot_deg = pageinfo->srcpage_fine_rot_deg;
     srcbox->rot_deg = pageinfo->srcpage_rot_deg;
@@ -1248,13 +1691,11 @@ static int bmpregion_find_multicolumn_divider(BMPREGION *region,K2PDFOPT_SETTING
     TEXTROW *textrow;
     static char *funcname="bmpregion_find_multicolumn_divider";
 
+#if (!(WILLUSDEBUGX & 0x280))
     if (k2settings->debug)
-        k2printf("@bmpregion_find_multicolumn_divider(%d,%d)-(%d,%d)\n",
-                 region->c1,region->r1,region->c2,region->r2);
-#if (WILLUSDEBUGX & 128)
-        k2printf("@bmpregion_find_multicolumn_divider(%d,%d)-(%d,%d)\n",
-                 region->c1,region->r1,region->c2,region->r2);
 #endif
+        k2printf("@bmpregion_find_multicolumn_divider(%d,%d)-(%d,%d)\n",
+                 region->c1,region->r1,region->c2,region->r2);
 #if (WILLUSDEBUGX & 0x40000)
 if (notes)
 printf("Notes=%p, notesleft=%g, notesright=%g\n",notes,notes->left,notes->right);
@@ -1266,8 +1707,15 @@ printf("Notes=%p, notesleft=%g, notesright=%g\n",notes,notes->left,notes->right)
     bmpregion_find_textrows(region,k2settings,0,0);
     textrows=&region->textrows;
     textrow=textrows->textrow;
+    /* v2.33:  Join any rows with spacing less than column_row_gap_height_in */
+    textrows_remove_small_rows(textrows,k2settings,0.25,0.5,region,k2settings->column_row_gap_height_in);
+#if (WILLUSDEBUGX & 0x40000)
+printf("After remove small rows:  %d rows left\n",textrows->n);
+#endif
     n=textrows->n;
+#if (!(WILLUSDEBUGX & 0x40000))
     if (k2settings->debug)
+#endif
         {
         k2printf("region (%d,%d)-(%d,%d) has %d text rows:\n",
                 region->c1,region->r1,region->c2,region->r2,region->textrows.n);
@@ -1751,16 +2199,22 @@ k2printf("    notes row count=%d\n",notesrows->n);
         notesrows=NULL;
     /* Should there be a check for zero text rows here? */
     /* Don't think it breaks anything to let it go.  -- 6-11-12 */
+#if (WILLUSDEBUGX & 1)
+printf("Checking region centering...\n");
+#endif
 #if (WILLUSDEBUGX & 102)
 // textrows_echo(&region->textrows,"rows");
 #endif
     region_is_centered=bmpregion_is_centered(region,k2settings,0,n-1);
     if (notes)
-        notes_are_centered=bmpregion_is_centered(notes,k2settings,0,notesrows->n-1);
+        if (notesrows->n>0)
+            notes_are_centered=bmpregion_is_centered(notes,k2settings,0,notesrows->n-1);
+        else
+            notes_are_centered=0;
     else
         notes_are_centered=0;
 #if (WILLUSDEBUGX & 2)
-// textrows_echo(&region->textrows,"rows");
+textrows_echo(&region->textrows,"rows");
 #endif
 
     /* Mark notes region */
@@ -1769,6 +2223,9 @@ k2printf("    notes row count=%d\n",notesrows->n);
         mark_source_page(k2settings,masterinfo,notes,4,0xf);
     */
     /* Mark main region with red, numbered box */
+#if (WILLUSDEBUGX & 1)
+printf("Marking source page...\n");
+#endif
     mark_source_page(k2settings,masterinfo,region,1,0xf);
     if (k2settings->debug)
         {
@@ -1779,14 +2236,15 @@ k2printf("    notes row count=%d\n",notesrows->n);
             k2printf("@bmpregion_vertically_break (allow break) (%d,%d) - (%d,%d) (scale=%g)\n",
                 region->c1,region->r1,region->c2,region->r2,added_region.force_scale);
         }
+#if (WILLUSDEBUGX & 1)
+printf("Tagging blank rows and columns...\n");
+#endif
     /*
     ** Tag blank rows and columns
     */
+    notesgap = -1.;
     if (k2settings->vertical_break_threshold<0. || n < 6)
-        {
         biggap = -1.;
-        notesgap = -1.;
-        }
     else
         {
         int gap_median;
@@ -1802,7 +2260,7 @@ k2printf("    median=%d\n",gap_median);
 #endif
         biggap = gap_median*k2settings->vertical_break_threshold;
         textrows_sort_by_row_position(textrows);
-        if (notes)
+        if (notes && notesrows->n>0) /* v2.32 bug fix--check that n>0 */
             {
             int maxgap;
 
@@ -1840,7 +2298,8 @@ k2printf("    biggap=%d\n",biggap);
             {
             double margins_inches[4];
 
-            masterinfo_get_margins(margins_inches,&k2settings->srccropmargins,masterinfo,region);
+            masterinfo_get_margins(k2settings,margins_inches,&k2settings->srccropmargins,
+                                   masterinfo,region);
             gap_in = (double)region->r1/k2settings->src_dpi - margins_inches[1];
             if (last_source_page>=0)
                 gap_in += (double)(last_page_height-last_region_r2)/k2settings->src_dpi
@@ -1923,6 +2382,7 @@ printf("Notes row group %2d:  %3d - %3d out of %3d (r1=%d)\n",i+1,nfirstrow[i],n
     /* Add the regions (broken vertically) */
     added_region.caller_id=1;
     added_region.trim_flags=k2settings->src_trim ? 0xf : 0x80;
+    added_region.maps_to_source = 1;
     for (ni=i=0;i<ng;i++)
         {
 #if (WILLUSDEBUGX & 0x200)
@@ -2261,6 +2721,7 @@ k2printf("wrapflush6\n");
 printf("    Adding it atomically...\n");
 #endif
                 new_added_region.region=newregion;
+                new_added_region.maps_to_source = added_region->maps_to_source;
                 new_added_region.firstrow=0;
                 new_added_region.lastrow=newregion->textrows.n-1;
                 new_added_region.allow_text_wrapping=0;
@@ -2283,7 +2744,7 @@ printf("    Adding it atomically...\n");
             else
                 bmpregion_one_row_wrap_and_add(newregion,k2settings,masterinfo,
                                            justflags,line_spacing,(int)(mlp->mean_row_gap+.5),
-                                           textrow->rowbase,marking_flags,mlp->indented[i-mlp->i1]);
+                                           marking_flags,mlp->indented[i-mlp->i1]);
             if (centered || mlp->short_line[i-mlp->i1])
 {
 #ifdef WILLUSDEBUG
@@ -2315,6 +2776,7 @@ k2printf("wrapflush5a\n");
 
             /* No wrapping:  text wrap, trim flags, vert breaks, fscale, just */
             new_added_region.region=newregion;
+            new_added_region.maps_to_source=added_region->maps_to_source;
             new_added_region.firstrow=0;
             new_added_region.lastrow=newregion->textrows.n-1;
             new_added_region.allow_text_wrapping=0;
@@ -2875,9 +3337,8 @@ static void textrow_mark_source(TEXTROW *textrow,BMPREGION *region,MASTERINFO *m
 ** Note:  Checking for unwrappable region must have already been done (new in v1.70).
 */
 static void bmpregion_one_row_wrap_and_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
-                                           MASTERINFO *masterinfo,int justflags,
-                                           int line_spacing,int mean_row_gap,
-                                           int rowbase,int marking_flags,int pi)
+                                           MASTERINFO *masterinfo,int justflags,int line_spacing,
+                                           int mean_row_gap,int marking_flags,int pi)
 
     {
     int nc,i,i0,gappix;
@@ -3013,6 +3474,9 @@ k2printf("    Adding i1=%d to i2=%d\n",i1,i2);
 #endif
         /* Trim the word top/bottom */
         bmpregion_trim_margins(&reg,k2settings,0xc);
+#if (WILLUSDEBUGX & 0x10)
+printf("wrapregion lcheight=%2d (source lch=%2d)\n",reg.bbox.lcheight,region->bbox.lcheight);
+#endif
         reg.c1=textword[i1].c1;
         reg.c2=textword[i2].c2;
         if (reg.r1 > reg.bbox.rowbase)
@@ -3024,7 +3488,7 @@ k2printf("    Adding i1=%d to i2=%d\n",i1,i2);
         ** This gives better uniformity to wrapped text.
         */
         reg.bbox.rowheight = line_spacing;
-        reg.bbox.rowbase = rowbase;
+        reg.bbox.rowbase = region->bbox.rowbase;
         reg.bbox.gap = mean_row_gap;
         /* Add it to the existing line queue */
         wrapbmp_add(wrapbmp,&reg,k2settings,masterinfo,gappix,justflags);

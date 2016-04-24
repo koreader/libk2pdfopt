@@ -167,7 +167,7 @@ aprintf(ANSI_RED "mi->mandatory_region_gap change to %d by wrap_add." ANSI_NORMA
 k2printf("    c1=%d, c2=%d, r1=%d, r2=%d\n",region->c1,region->c2,region->r1,region->r2);
 k2printf("    colgap=%d, line_spacing=%d, rowbase=%d, row gap=%d\n",colgap,region->bbox.rowheight,region->bbox.rowbase,region->bbox.gap);
 #endif
-    bpp=k2settings->dst_color?3:1;
+    bpp=k2settings->dst_color?region->bmp->bpp/8:region->bmp8->bpp/8;
     rh=region->bbox.rowbase-region->r1+1;
     if (rh > wrapbmp->rhmax)
         wrapbmp->rhmax=rh;
@@ -508,6 +508,7 @@ printf("wrapbmp_flush calling bmpregion_add() w/bbox.rowheight=%d\n",region.bbox
     added_region.region_is_centered = -1;
     added_region.notes=0;
     added_region.count=0;
+    added_region.maps_to_source=0;
     bmpregion_add(&added_region,k2settings,masterinfo);
     /*
     ** Restore masterinfo->mandatory_region_gap

@@ -1,7 +1,7 @@
 K2pdfopt build help.
 http://willus.com
 Original: 7 September 2012
-Last updated: 27 Dec 2014 (v2.31)
+Last updated: 18 Mar 2016 (v2.34)
 
 This "read me" file describes the source code distribution for k2pdfopt.
 
@@ -13,13 +13,13 @@ K2pdfopt Source Files
 ---------------------
 1. k2pdfopt.c (main module)
 
-2. k2pdfopt C library (27 C files + 1 header file) in k2pdfoptlib subfolder.
+2. k2pdfopt C library (28 C files + 1 header file) in k2pdfoptlib subfolder.
    Compile all C files in this subfolder and build them into libk2pdfopt.a.
    Near the top of k2pdfopt.h are #defines which control third-party
    library dependencies (HAVE_XXX_LIB) and whether or not the MS Windows
    GUI is compiled in (HAVE_K2GUI).
 
-3. willus.com general-purpose C library (35 C files + 1 header file) in
+3. willus.com general-purpose C library (37 C files + 1 header file) in
    willuslib subfolder.
    Compile all C files in this subfolder and build them into libwillus.a.
    Near the top of willus.h are #defines which control third-party
@@ -37,16 +37,15 @@ NOTE 4 below).
     REQUIRED
     --------
     1.  Z-lib 1.2.8 (zlib.net)
-        (A custom mod of zlib is no longer required as of k2pdfopt v2.14.)
-    2.  libpng 1.6.10 (www.libpng.org)
-    3.  Turbo JPEG lib 1.3.1 (sourceforge.net/projects/libjpeg-turbo/)
+    2.  libpng 1.6.21 (www.libpng.org)
+    3.  Turbo JPEG lib 1.4.2 (sourceforge.net/projects/libjpeg-turbo/)
 
     TO INCLUDE MuPDF LIBRARY (search for HAVE_MUPDF in k2pdfopt.c)
     --------------------------------------------------------------
     4.  JBIG2Dec 0.11 (jbig2dec.sourceforge.net)
     5.  OpenJPEG 2.1.0 (www.openjpeg.org)
-    6.  FreeType 2.5.3 (freetype.sourceforge.net/index2.html)
-    7.  Mupdf 1.6 (mupdf.com) -- SEE NOTE 1.
+    6.  FreeType 2.6.2 (freetype.sourceforge.net/index2.html)
+    7.  Mupdf 1.8 (mupdf.com) -- SEE NOTE 1.
 
     TO INCLUDE DjVuLibre LIBRARY (search for HAVE_DJVU in k2pdfopt.c)
     -----------------------------------------------------------------
@@ -55,8 +54,8 @@ NOTE 4 below).
     FOR OCR VERSIONS OF K2PDFOPT (search for HAVE_OCR in k2pdfopt.c)
     ----------------------------------------------------------------
     9.  GOCR 0.49 (sourceforge.net/jocr/)
-    10. Leptonica 1.69 (leptonica.com)
-    11. Tesseract 3.02.02 (C++) (code.google.com/tesseract-ocr/) -- SEE NOTE 2.
+    10. Leptonica 1.72 (leptonica.com)
+    11. Tesseract 3.04.01 (C++) (code.google.com/tesseract-ocr/) -- SEE NOTE 2.
 
     If you don't include MuPDF, DjVuLibre, or OCR, then k2pdfopt will
     look for an installation of Ghostscript.
@@ -80,7 +79,7 @@ Notes
    any of the included files (if they didn't come standard w/the 3rd party
    library), look in my include_mod subfolder.
 
-4. Building for KindlePDFViewer:
+4. Building for KOReader or KindlePDFViewer:
    a. In willus.h, search for "THIRD PARTY" and comment out all #define's
       for third party libs, e.g. HAVE_Z_LIB, etc.
    b. In k2pdfopt.h, uncomment this:  #define K2PDFOPT_KINDLEPDFVIEWER
@@ -89,6 +88,8 @@ Notes
       how to call the k2pdfopt library functions.  The k2view.c program
       is stand-alone.  If it is compiled without dependencies on third-party
       libraries, it will be quite small (~300 KiB in windows).
+   e. If you are compiling with MINGW but don't have the Win32 API,
+      use the predefined macro:  NO_WIN32_API (-DNO_WIN32_API).
 
 5. I have included CMakeLists.txt files for the k2pdfopt and willus libraries
    from Dirk Thierbach to help with Linux builds.  He also contributed the
@@ -96,7 +97,7 @@ Notes
    to build the project without using these files (I do not use them).
    
 
-Build Steps for k2pdfopt on Windows (gcc 4.9.2)
+Build Steps for k2pdfopt on Windows (gcc 5.3.0)
 -----------------------------------------------
 My compile steps with gcc (MinGW) are as follows (assuming all the libraries are built
 to libxxx.a files in d:\3rdparty_lib and headers are in d:\3rdparty_include):
@@ -109,7 +110,8 @@ to libxxx.a files in d:\3rdparty_lib and headers are in d:\3rdparty_include):
 
     3. gcc -Ofast -m64 -Wall -c -Id:\3rdparty_include k2pdfopt.c
 
-    4. g++ -Ofast -m64 -Wall -o k2pdfopt.exe k2pdfopt.o resfile.o -static-libgcc -static-libstdc++ d:\mingw\x64\lib\crt_noglob.o -Ld:\3rdparty_lib -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lgdi32
+    4. g++ -Ofast -m64 -Wall -o k2pdfopt.exe k2pdfopt.o resfile.o -static-libgcc -static-libstdc++ d:\mingw\x64\lib\crt_noglob.o -Ld:\3rdparty_lib -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lgdi32 -luuid -lole32 -lcomdlg32 -lshlwapi
+
 
     32-bit
     ------
@@ -119,7 +121,7 @@ to libxxx.a files in d:\3rdparty_lib and headers are in d:\3rdparty_include):
 
     3. gcc -Ofast -m32 -Wall -c -Id:\3rdparty_include k2pdfopt.c
 
-    4. g++ -Ofast -m32 -Wall -o k2pdfopt.exe k2pdfopt.o resfile.o -static-libgcc -static-libstdc++ d:\mingw\i386\lib\crt_noglob.o -Ld:\3rdparty_lib -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lgdi32 -lwsock32
+    4. g++ -Ofast -m32 -Wall -o k2pdfopt.exe k2pdfopt.o resfile.o -static-libgcc -static-libstdc++ d:\mingw\i386\lib\crt_noglob.o -Ld:\3rdparty_lib -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lgdi32 -luuid -lole32 -lcomdlg32 -lshlwapi
 
 
 Build Steps on Linux (64-bit, gcc 4.7.2)

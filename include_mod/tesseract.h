@@ -13,7 +13,8 @@
 extern "C" {
 #endif
 
-int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out);
+int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out,
+                   char *initstr,int maxlen);
 const char* tess_capi_get_init_language();
 int tess_capi_get_ocr(PIX *pix,char *outstr,int maxlen,FILE *out);
 int tess_capi_get_word_boxes(PIX *pix, BOXA **out_boxa, int is_cjk, FILE *out);

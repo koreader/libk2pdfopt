@@ -1,7 +1,7 @@
 /*
 ** pagelist.c    Functions to parse comma-delimited page-list string.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -51,7 +51,19 @@ int pagelist_includes_page(char *pagelist,int pageno,int maxpages)
     /* Sort of arbitrary */
     if (maxpages < 0)
         maxpages = 99999;
+
+    /* v2.34--see if cover image included */
+    if (pageno<0 && in_string(pagelist,"c")>=0)
+        return(1);
+    if (!stricmp(pagelist,"c") && pageno>0)
+        return(0);
+
     n=pagelist_count(pagelist,maxpages);
+/*
+#ifdef WILLUSDEBUGX
+printf("pagelist_count('%s',%d) = %d\n",pagelist,maxpages,pagelist_count(pagelist,maxpages));
+#endif
+*/
     for (i=0;i<n;i++)
         if (pagelist_page_by_index(pagelist,i,maxpages)==pageno)
              return(1);
@@ -59,6 +71,83 @@ int pagelist_includes_page(char *pagelist,int pageno,int maxpages)
     }
 
 
+/*
+** Store page list into integer array.
+** Terminates with -2 if should go to max page.
+** Terminates with -1 if not.
+*/
+void pagelist_get_array(int **pagelist,char *asciilist)
+
+    {
+    int n1,n2,i,j,k,nn,s,flags;
+    int maxpages;
+    int *pl;
+
+    maxpages=999999;
+    pl=(*pagelist)=NULL;
+    if (asciilist[0]=='\0')
+        return;
+    for (k=0;k<2;k++)
+        {
+        int last;
+
+        i=0;
+        nn=0;
+        last=-1;
+        while (pagelist_next_pages(asciilist,maxpages,&i,&n1,&n2,&flags))
+            {
+            if (n1<=0 && n2<=0)
+                continue;
+            if (n1>=maxpages-1)
+                continue;
+            s = (n2>=n1) ? 1 : -1;
+            if (flags!=3)
+                s *= 2;
+            n2 += s;
+            if (n2>=maxpages-2)
+                {
+                if (k==1)
+                    pl[nn]=n1;
+                nn++;
+                if (k==1)
+                    pl[nn]=n1+s;
+                nn++;
+                if (k==1)
+                    pl[nn]=-2;
+                last = -2;
+                nn++;
+                break;
+                }
+            for (j=n1;j!=n2;j+=s)
+                {
+                if (j<1)
+                    continue;
+                if (k==1)
+                    pl[nn]=j;
+                nn++;
+                }
+            }
+        if (nn>0 && last!=-2)
+            {
+            if (k==1)
+                pl[nn]=-1;
+            nn++;
+            }
+        if (k==0)
+            {
+            if (nn<=0)
+                break;
+            pl=(*pagelist)=malloc(sizeof(int)*nn);
+            if (pl==NULL)
+                break;
+            }
+        }
+    }
+
+
+/*
+** Return the page number of the zero-based index'th page in the page list.
+*/
 int pagelist_page_by_index(char *pagelist,int index,int maxpages)
 
     {
@@ -91,18 +180,66 @@ int pagelist_page_by_index(char *pagelist,int index,int maxpages)
     }
 
 
+int double_pagelist_page_by_index(char *pagelist,char *pagexlist,int index,int maxpages)
+
+    {
+    int ntot,i,j,page;
+
+    if (pagexlist==NULL || pagexlist[0]=='\0')
+        return(pagelist_page_by_index(pagelist,index,maxpages));
+    ntot=double_pagelist_count(pagelist,pagexlist,maxpages);
+    if (index>=ntot)
+        return(-1);
+    page=-1;
+    for (i=j=0;i<=index;j++)
+        {
+        page=pagelist_page_by_index(pagelist,j,maxpages);
+        if (!pagelist_includes_page(pagexlist,page,maxpages))
+            i++;
+        }
+    return(page);
+    }
+
+
+int double_pagelist_count(char *pagelist,char *pagexlist,int maxpages)
+
+    {
+    int i,n,ntot;
+
+    ntot=n=pagelist_count(pagelist,maxpages);
+    if (pagexlist!=NULL && pagexlist[0]!='\0')
+        for (i=0;i<n;i++)
+            {
+            int page;
+
+            page=pagelist_page_by_index(pagelist,i,maxpages);
+            if (pagelist_includes_page(pagexlist,page,maxpages))
+                ntot--;
+            }
+    return(ntot);
+    }
+
+
 int pagelist_count(char *pagelist,int maxpages)
 
     {
     int n1,n2,i,count,flags;
-
-// printf("@pagelist_count('%s',%d)\n",pagelist,maxpages);
+/*
+#ifdef WILLUSDEBUGX
+printf("@pagelist_count('%s',%d)\n",pagelist,maxpages);
+#endif
+*/
     if (pagelist[0]=='\0')
         return(maxpages);
     count=0;
     i=0;
     while (pagelist_next_pages(pagelist,maxpages,&i,&n1,&n2,&flags))
         {
+/*
+#ifdef WILLUSDEBUGX
+printf("   count=%d, i=%d, n1=%d, n2=%d\n",count,i,n1,n2);
+#endif
+*/
         if (n1<=0 && n2<=0)
             continue;
         if (n1>n2)
@@ -112,6 +249,11 @@ int pagelist_count(char *pagelist,int maxpages)
             n1=n2;
             n2=t;
             }
+/*
+#ifdef WILLUSDEBUGX
+printf("   maxpages=%d, n1=%d, n2=%d\n",maxpages,n1,n2);
+#endif
+*/
         if ((maxpages>0 && n1>maxpages) || n2<1)
             continue;
         if (n1<1)
@@ -228,7 +370,16 @@ static int pagelist_next_pages(char *pagelist,int maxpages,int *index,
                 i++;
             }
         if (buf[0]=='\0')
+            {
             (*n2)=maxpages;
+            /*
+            ** If the user specifies a starting number that is beyond the max with an open
+            ** hyphen, set (*n2) to that number also--otherwise it will count backwards.
+            ** (v2.32 bug fix)
+            */
+            if ((*n2)<(*n1))
+                (*n2)=(*n1);
+            }
         else
             (*n2)=atoi(buf);
         }

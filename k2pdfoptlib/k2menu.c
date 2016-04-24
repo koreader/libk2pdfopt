@@ -1,7 +1,7 @@
 /*
 ** k2menu.c      Interactive user menu for k2pdfopt.c.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -331,7 +331,7 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
                                     k2settings->dst_negative?"y":"n");
             if (status<0)
                 return(status);
-            k2settings->dst_negative=!status;
+            k2settings->dst_negative=!status ? 1 : 0;
             strbuf_sprintf(usermenu,"-neg%s",k2settings->dst_negative?"":"-");
             }
         else if (!stricmp(buf,"co"))
@@ -420,10 +420,10 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
                 return(status);
             strbuf_sprintf(usermenu,"-h %g",k2settings->dst_userheight);
             k2settings->dst_userheight_units=UNITS_PIXELS;
-            status=userinput_integer("E-reader display pixels per inch",167,&k2settings->dst_dpi,20,1200);
+            status=userinput_integer("E-reader display pixels per inch",167,&k2settings->dst_userdpi,20,1200);
             if (status<0)
                 return(status);
-            strbuf_sprintf(usermenu,"-dpi %d",k2settings->dst_dpi);
+            strbuf_sprintf(usermenu,"-dpi %d",k2settings->dst_userdpi);
             status=userinput_float("Input/Source file pixels per inch (use -2 if not sure)",k2settings->user_src_dpi,&k2settings->user_src_dpi,1,-10.,1200.,NULL);
             if (status<0)
                 return(status);
@@ -521,11 +521,15 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
             }
         else if (!stricmp(buf,"l"))
             {
-            status=userinput_string("Landscape mode",ansyesno,k2settings->dst_landscape?"y":"n");
+            int s1;
+            s1=userinput_string("Landscape mode",ansyesno,k2settings->dst_landscape?"y":"n");
+            if (s1<0)
+                return(s1);
+            status=userinput_any_string("Applied over what page range (def=all)",k2settings->dst_landscape_pages,1023,"");
             if (status<0)
                 return(status);
-            k2settings->dst_landscape=!status;
-            strbuf_sprintf(usermenu,"-ls%s",k2settings->dst_landscape?"":"-");
+            k2settings->dst_landscape=!s1;
+            strbuf_sprintf(usermenu,"-ls%s%s",k2settings->dst_landscape?"":"-",k2settings->dst_landscape_pages);
             }
 #ifdef HAVE_MUPDF_LIB
         else if (!stricmp(buf,"n"))
@@ -842,7 +846,7 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
             int i,tty_rows;
 
             k2sys_header(NULL);
-            if (!k2pdfopt_usage())
+            if (!k2pdfopt_usage("*",1))
                 return(-1);
             tty_rows = get_ttyrows();
             for (i=0;i<tty_rows-16;i++)

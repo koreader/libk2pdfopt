@@ -1,7 +1,7 @@
 /*
 ** k2ocr.c       k2pdfopt OCR functions
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2015  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -41,6 +41,7 @@ static int wrectmap_srcword_inside(WRECTMAP *wrectmap,OCRWORD *word,BMPREGION *r
 static void wtextchars_group_by_words(WTEXTCHARS *wtcs,OCRWORDS *words,
                                       K2PDFOPT_SETTINGS *k2settings);
 static void wtextchars_add_one_row(WTEXTCHARS *wtcs,int i0,int i1,OCRWORDS *words);
+static int wtextchars_ligature_pattern(WTEXTCHARS *wtcs,int index);
 #endif
 
 
@@ -82,14 +83,16 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
         /* v2.15 fix--specific variable for Tesseract init status */
         if (!k2ocr_tess_inited)
             {
+            char initstr[256];
+
             k2printf(TTEXT_BOLD);
             k2ocr_tess_status=ocrtess_init(NULL,
-                              k2settings->dst_ocr_lang[0]=='\0'?NULL:k2settings->dst_ocr_lang,stdout);
+                              k2settings->dst_ocr_lang[0]=='\0'?NULL:k2settings->dst_ocr_lang,
+                              NULL,initstr,255);
+            k2printf("%s\n",initstr);
             k2printf(TTEXT_NORMAL);
             if (k2ocr_tess_status)
                 k2printf(TTEXT_WARN "Could not find Tesseract data" TTEXT_NORMAL " (env var TESSDATA_PREFIX = %s).\nUsing GOCR v0.49.\n\n",getenv("TESSDATA_PREFIX")==NULL?"(not assigned)":getenv("TESSDATA_PREFIX"));
-            else
-                k2printf("\n");
             k2ocr_tess_inited=1;
             }
 #ifdef HAVE_GOCR_LIB
@@ -495,6 +498,13 @@ printf("@k2ocr_ocrwords_get_from_ocrlayer.\n");
         ocrwords_free(words);
         wtextchars_clear(wtcs);
         wtextchars_fill_from_page(wtcs,masterinfo->srcfilename,masterinfo->pageinfo.srcpage,"");
+#if (WILLUSDEBUGX & 0x10000)
+{
+int i;
+for (i=0;i<wtcs->n && i<30;i++)
+printf("Char[%2d]:  ucs='%c'(%d), xp=%7.3f, yp=%7.3f, x1=%7.3f, x2=%7.3f\n",i,wtcs->wtextchar[i].ucs,wtcs->wtextchar[i].ucs,wtcs->wtextchar[i].xp,wtcs->wtextchar[i].yp,wtcs->wtextchar[i].x1,wtcs->wtextchar[i].x2);
+}
+#endif
         wtextchars_rotate_clockwise(wtcs,360-(int)masterinfo->pageinfo.srcpage_rot_deg);
         wtextchars_group_by_words(wtcs,words,k2settings);
         pageno=masterinfo->pageinfo.srcpage;
@@ -872,14 +882,29 @@ static void wtextchars_add_one_row(WTEXTCHARS *wtcs,int i0,int i1,OCRWORDS *word
             space = (dx > h*.05);
             }
         else
+            {
+            dx = 0.;
             space = 0;
+            }
+        /*
+        ** Look for ligatured pattern--v2.33 with MuPDF v1.7
+        ** Ligature pattern, e.g. "fi"
+        ** As of MuPDF 1.7, a ligured "fi" is like this:
+        ** f has zero width, followed by space at same position w/zero width,
+        ** followed by i at same position, followed by space of zero width.
+        */
+        if (wtextchars_ligature_pattern(wtcs,i))
+            {
+            i+=3;
+            continue;
+            }
         if (space || c==' ' || i==i1)
             {
             if (c==' ' && i==j0)
                 j0++;
             else
                 {
-                int j1,j;
+                int j1,j,ligature,nc;
                 double dx;
 
                 j1=(c==' ')?i-1:i;
@@ -900,14 +925,28 @@ static void wtextchars_add_one_row(WTEXTCHARS *wtcs,int i0,int i1,OCRWORDS *word
                 word.w0 -= 2*dx;
 
                 word.maxheight=0.;
-                for (j=j0;j<=j1;j++)
+                for (ligature=0,nc=0,j=j0;j<=j1;j++)
                     {
-                    word.cpos[j-j0]=wtcs->wtextchar[j].x2-word.x0;
-                    u16str[j-j0]=wtcs->wtextchar[j].ucs;
+                    word.cpos[nc]=wtcs->wtextchar[j].x2-word.x0;
+                    u16str[nc]=wtcs->wtextchar[j].ucs;
+                    nc++;
                     if (wtcs->wtextchar[j].yp-wtcs->wtextchar[j].y1 > word.maxheight)
                         word.maxheight=(wtcs->wtextchar[j].yp-wtcs->wtextchar[j].y1);
+                    /* Ligature check--new with MuPDF v1.7 */
+                    if (ligature)
+                        {
+                        word.cpos[nc-1] += (wtcs->wtextchar[j+1].x2-wtcs->wtextchar[j].x2)/2.;
+                        ligature=0;
+                        j++;
+                        }
+                    else if (j<j1-2 && wtextchars_ligature_pattern(wtcs,j))
+                        {
+                        ligature=1;
+                        j++;
+                        }
                     }
-                unicode_to_utf8(word.text,u16str,j1-j0+1);
+                unicode_to_utf8(word.text,u16str,nc);
+                word.n=nc;
                 ocrwords_add_word(words,&word);
                 j0= i+1;
                 }
@@ -916,5 +955,20 @@ static void wtextchars_add_one_row(WTEXTCHARS *wtcs,int i0,int i1,OCRWORDS *word
     willus_dmem_free(42,(double **)&word.cpos,funcname);
     willus_dmem_free(41,(double **)&word.text,funcname);
     willus_dmem_free(40,(double **)&u16str,funcname);
+    }
+
+/*
+** For MuPDF v1.7 and up
+*/
+static int wtextchars_ligature_pattern(WTEXTCHARS *wtcs,int index)
+
+    {
+    return(index<wtcs->n-3
+             && wtcs->wtextchar[index].ucs!=' ' 
+             && wtcs->wtextchar[index+1].ucs==' '
+             && wtcs->wtextchar[index+2].ucs!=' '
+             && wtcs->wtextchar[index+3].ucs==' '
+             && fabs(wtcs->wtextchar[index+1].x1-wtcs->wtextchar[index].x1)<.01
+             && fabs(wtcs->wtextchar[index+2].x1 - wtcs->wtextchar[index].x1)<.01);
     }
 #endif /* HAVE_MUPDF_LIB */

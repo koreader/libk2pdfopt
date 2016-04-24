@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2015  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -186,6 +186,10 @@ typedef double  real;
 #if (defined(ANDROID) || defined(DARWIN))
 #undef WILLUS_HAVE_FILE64
 #endif
+/*
+** As of 2013 and gcc 4.7.x, x87_line_math is turned off entirely.
+** My x87 in-line routines are no faster than gcc on modern Intel CPUs.
+*/
 
 #if (defined(__linux) || defined(linux) || defined(__linux__))
 #define LINUX
@@ -471,6 +475,8 @@ void bmp_grey_pixel_setf(WILLUSBITMAP *bmp,int x,int y,int grey,double f);
 void bmp_rgb_pixel_setf(WILLUSBITMAP *bmp,int x,int y,int r,int g,int b,double f);
 void bmp_resize(WILLUSBITMAP *bmp,double scalefactor);
 void bmp_integer_resample(WILLUSBITMAP *dest,WILLUSBITMAP *src,int n);
+void bmp_draw_filled_rect(WILLUSBITMAP *bmp,int col1,int row1,int col2,int row2,
+                          int r,int g,int b);
 /*
 ** As of Sept. 2013, the floating-point bmp_resample() is only faster than
 ** the fixed-point version on 64-bit compiles.  For 32-bit Intel (and ARM),
@@ -680,6 +686,9 @@ typedef void wmetafile;
 #define WFILE_HIDDEN    0x0008
 #define WFILE_READONLY  0x0010
 #define WFILE_SYMLINK   0x0020
+#define WFILE_CANCOPY   0x0100
+#define WFILE_STREAM    0x0200
+#define WFILE_STORAGE   0x0400
 typedef struct
         {
         char    fullname[MAXFILENAMELEN];
@@ -799,6 +808,7 @@ void wfile_slash_this_way(char *filename,int slash);
 char *wfile_temppath(char *path);
 void wfile_temppath_from_env(char *dir);
 char *wfile_tempname(char *dir,char *prefix);
+void wfile_abstmpnam_ex(char *filename,char *ext);
 void wfile_abstmpnam(char *filename);
 int wfile_hushit(char *filename);
 int wfile_eitherslash(int c);
@@ -934,6 +944,7 @@ int win_set_priority(int pri);
 int win_copy_file(char *destfile,char *srcfile);
 int win_fileattr_to_wfile(int winattr);
 void win_windate_to_tm(struct tm *filedate,void *wtime);
+void win_set_windate_warn(int status);
 void win_windate_to_tm_direct(struct tm *filedate,void *wtime);
 void win_tm_to_windate(void *wtime,struct tm *filedate);
 int win_file_is_ntfs(char *filename);
@@ -977,10 +988,15 @@ void *win_shared_handle_utf8(char *filename);
 #endif
 
 /* winshell.c */
-#ifdef HAVE_WIN32_API
+#if (defined(HAVE_WIN32_API) && (!defined(__GNUC__) || __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)))
 int win_resolve_shortcut(void *shortcut,void *target,int maxlen,int wide);
 int winshell_get_foldername(char *foldername,char *title);
 int winshell_get_foldernamew(short *foldername,char *title);
+#endif
+
+/* winshellwapi.c */
+#if (defined(HAVE_WIN32_API) && (!defined(__GNUC__) || __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)))
+int willusgui_open_file_ex(char *filename);
 #endif
 
 /* winmbox.c */
@@ -1008,6 +1024,7 @@ void winmbox_checkbox_button_draw(void *hdc0,void *rect0,int state,void *hfont0,
                                   WILLUSBITMAP *bgbmp,int x0,int y0);
 void winmbox_button_draw(void *hdc0,void *rect0,int state,int basecolorrgb,
                          void *hfont0,char *text,int textcolorrgb);
+void winmbox_set_font(char *fontname);
 #endif
 
 /* winbmp.c */
@@ -1300,7 +1317,7 @@ char  *willuslibversion (void);
 /* wgs.c */
 #ifdef HAVE_GHOSTSCRIPT
 int willusgs_read_pdf_or_ps_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double dpi,FILE *out);
-int willusgs_ps_to_pdf(char *dstfile,char *srcfile,int firstpage,int lastpage,FILE *out);
+int willusgs_ps_to_pdf(char *dstfile,char *srcfile,FILE *out);
 int willusgs_init(FILE *out);
 int willusgs_exec(int argc,char *argv[],FILE *out);
 void willusgs_close(void);
@@ -1360,7 +1377,7 @@ void jocr_single_word_from_bmp8(char *text,int maxlen,WILLUSBITMAP *bmp8,
 
 #ifdef HAVE_TESSERACT_LIB
 /* ocrtess.c */
-int ocrtess_init(char *datadir,char *lang,FILE *out);
+int ocrtess_init(char *datadir,char *lang,FILE *out,char *initstr,int maxlen);
 void ocrtess_end(void);
 void ocrtess_single_word_from_bmp8(char *text,int maxlen,WILLUSBITMAP *bmp8,
                                 int x1,int y1,int x2,int y2,
@@ -1415,6 +1432,8 @@ void ocrwords_box(OCRWORDS *ocrwords,WILLUSBITMAP *bmp);
 void wpdfoutline_init(WPDFOUTLINE *wpdfoutline);
 void wpdfoutline_init(WPDFOUTLINE *wpdfoutline);
 void wpdfoutline_free(WPDFOUTLINE *wpdfoutline);
+void wpdfoutline_append(WPDFOUTLINE *outline1,WPDFOUTLINE *outline2);
+void wpdfoutline_add_to_srcpages(WPDFOUTLINE *outline,int pagecount);
 void wpdfoutline_set_dstpage(WPDFOUTLINE *outline,int srcpage,int dstpage);
 int  wpdfoutline_includes_srcpage(WPDFOUTLINE *outline,int pageno,int level);
 void wpdfoutline_echo(WPDFOUTLINE *outline,int level,int count,FILE *out);
@@ -1424,7 +1443,7 @@ WPDFOUTLINE *wpdfoutline_read_from_text_file(char *filename);
 int  wpdf_docenc_from_utf8(char *dst,char *src_utf8,int maxlen);
 
 /* wpdf.c */
-/* PDF file support functions--no depedence on MuPDF */
+/* PDF file support functions--no dependence on MuPDF */
 typedef struct
     {
     int pageno;
@@ -1470,6 +1489,8 @@ typedef struct
 typedef struct
     {
     char producer[128];  /* Producer */
+    char author[256];    /* Author */
+    char title[256];     /* Title */
     double width_pts;    /* Destination page width in pts. */
     double height_pts;   /* Destination page height in pts. */
     int srcpage;                 /* Ignored by wmupdf_remake_pdf */
@@ -1531,13 +1552,19 @@ int bmpmupdf_pdffile_width_and_height(char *filename,int pageno,double *width_in
 int  wmupdf_numpages(char *filename);
 int  wmupdf_info_field(char *infile,char *label,char *buf,int maxlen);
 int  wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_forms,
-                       WPDFOUTLINE *wpdfoutline,FILE *out);
+                       WPDFOUTLINE *wpdfoutline,WILLUSBITMAP *coverimage,FILE *out);
 /* Character position map */
 int  wtextchars_fill_from_page(WTEXTCHARS *wtc,char *filename,int pageno,char *password);
 int  wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char *password,
                                  int boundingbox);
 WPDFOUTLINE *wpdfoutline_read_from_pdf_file(char *filename);
 #endif /* HAVE_MUPDF_LIB */
+
+/* wmupdfinfo.c */
+/* Mupdf support functions */
+#ifdef HAVE_MUPDF_LIB
+void wmupdfinfo_get(char *filename,int *pagelist,char **buf);
+#endif
 
 #ifdef HAVE_DJVU_LIB
 /* bmpdjvu.c */
@@ -1582,6 +1609,7 @@ void strbuf_dsprintf_no_space(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
 #define WILLUSGUICONTROL_TYPE_UPDOWN2      6
 #define WILLUSGUICONTROL_TYPE_CHECKBOX     7
 #define WILLUSGUICONTROL_TYPE_SCROLLABLEBITMAP 8
+#define WILLUSGUICONTROL_TYPE_BITMAP       9
 
 #define WILLUSGUIACTION_DRAW_CONTROL     1
 #define WILLUSGUIACTION_INIT             2
@@ -1610,6 +1638,7 @@ void strbuf_dsprintf_no_space(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
 #define WILLUSGUIACTION_DROPFILES        25
 #define WILLUSGUIACTION_CREATE           26
 #define WILLUSGUIACTION_CONTEXTMENU      27
+#define WILLUSGUIACTION_RBUTTONDOWN      28
 
 #define WILLUSGUICONTROL_ATTRIB_INACTIVE    0x0001
 #define WILLUSGUICONTROL_ATTRIB_READONLY    0x0002
@@ -1617,6 +1646,7 @@ void strbuf_dsprintf_no_space(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
 #define WILLUSGUICONTROL_ATTRIB_SCROLLBARS  0x0008
 #define WILLUSGUICONTROL_ATTRIB_MULTISELECT 0x0010
 #define WILLUSGUICONTROL_ATTRIB_CHECKED     0x0020
+#define WILLUSGUICONTROL_ATTRIB_NOKEYS      0x0040
 
 typedef struct
     {
@@ -1645,13 +1675,21 @@ typedef struct _willusguicontrol
     int flags;
     void *subhandle[4]; /* Handles to related controls */
     struct _willusguicontrol *parent;
-    char label[32];      /* Drawn with or next to control */
+    char label[48];      /* Drawn with or next to control */
     int labeljust;       /* label justification */
     int labelx,labely;   /* x,y position of label */
     /* Scrollable bitmap controls */
     int sbitmap_size;    /* Scrollable bitmap toggle */
     WILLUSBITMAP *obmp;     /* Original size bitmap */
     WILLUSBITMAP bmp;       /* Sized bitmap for display in Window */
+    /* Bitmap rectangle controls */
+    int timer_id;
+    int rdcount; /* rectangle draw count */
+    double dpi,dpi_rendered;
+    WILLUSGUIRECT rectmarked;
+    WILLUSGUIRECT rectanchor;
+    WILLUSGUIRECT crosshair;
+    WILLUSGUIRECT anchor;
     } WILLUSGUICONTROL;
 
 typedef struct
@@ -1664,19 +1702,24 @@ typedef struct
 
 typedef WILLUSGUICONTROL WILLUSGUIWINDOW;
 
+int  willusgui_dprintf(char *fmt,...);
 void willusgui_init(void);
 void willusgui_close(void);
 void willusgui_set_cursor(int type);
-void willusgui_open_file(char *filename);
+int  willusgui_open_file(char *filename);
 WILLUSGUIWINDOW *willusgui_window_find(void *oshandle);
 void willusgui_window_text_render(WILLUSGUIWINDOW *win,WILLUSGUIFONT *font,char *text,int x0,int y0,
-                                   int fgcolor,int bgcolor,int justification);
+                                   int fgcolor,int bgcolor,int justification,WILLUSGUIRECT *rect);
 void willusgui_window_text_extents(WILLUSGUIWINDOW *win,WILLUSGUIFONT *font,char *string,WILLUSGUIRECT *rect);
 void willusgui_window_draw_line(WILLUSGUIWINDOW *win,int x0,int y0,int x1,int y1,
                                                  int pixwidth,int rgbcolor);
 void willusgui_window_draw_rect_filled(WILLUSGUIWINDOW *win,WILLUSGUIRECT *rect,int rgb);
 void willusgui_window_draw_path_filled(WILLUSGUIWINDOW *win,int *x,int *y,int n,int rgb);
 int  willusgui_control_nlines(WILLUSGUICONTROL *control);
+void willusgui_window_draw_crosshair(WILLUSGUIWINDOW *win,int x,int y,int rgb);
+int  willusguirect_cursor_type(WILLUSGUIRECT *rect,WILLUSGUIRECT *winrect,int x,int y);
+void willusguirect_bound(WILLUSGUIRECT *rect,WILLUSGUIRECT *brect);
+void willusguirect_sort(WILLUSGUIRECT *rect);
 void willusgui_window_draw_rect_outline(WILLUSGUIWINDOW *win,WILLUSGUIRECT *rect,int rgb);
 void willusgui_set_instance(void *instanceptr);
 void *willusgui_instance(void);
@@ -1689,6 +1732,7 @@ void willusgui_control_get_text(WILLUSGUICONTROL *control,char *text,int maxlen)
 int  willusgui_control_get_textlen(WILLUSGUICONTROL *control);
 void willusgui_control_scroll_to_bottom(WILLUSGUICONTROL *control);
 int  willusgui_window_get_rect(WILLUSGUIWINDOW *win,WILLUSGUIRECT *guirect);
+int  willusgui_window_set_pos(WILLUSGUIWINDOW *win,WILLUSGUIRECT *guirect);
 int  willusgui_window_get_useable_rect(WILLUSGUIWINDOW *win,WILLUSGUIRECT *guirect);
 void willusgui_window_accept_draggable_files(WILLUSGUIWINDOW *win);
 void willusgui_window_timer_init(WILLUSGUIWINDOW *win,int ms);
@@ -1701,7 +1745,7 @@ void willusgui_send_quit_message(void);
 void willusgui_control_init(WILLUSGUICONTROL *control);
 int  willusgui_control_close(WILLUSGUICONTROL *control);
 int  willusgui_control_close_ex(WILLUSGUICONTROL *control,int caller);
-void willusgui_control_draw_label(WILLUSGUICONTROL *control);
+void willusgui_control_draw_label(WILLUSGUICONTROL *control,WILLUSGUIRECT *rect);
 void willusgui_control_redraw(WILLUSGUICONTROL *control,int children_too);
 void willusgui_font_release(WILLUSGUIFONT *font);
 void willusgui_font_get(WILLUSGUIFONT *font);
@@ -1713,6 +1757,7 @@ void willusgui_start_browser(char *link);
 int  willusgui_control_get_checked(WILLUSGUICONTROL *control);
 void willusgui_control_set_checked(WILLUSGUICONTROL *control,int checked);
 int  willusgui_control_dropdownlist_get_selected_item(WILLUSGUICONTROL *control,char *buf);
+int  willusgui_control_listbox_get_item_count(WILLUSGUICONTROL *control);
 int  willusgui_control_listbox_get_selected_items_count(WILLUSGUICONTROL *control,int *selected_indices,
                                                          int maxsel);
 int  willusgui_control_listbox_select_item(WILLUSGUICONTROL *control,char *string);
@@ -1722,6 +1767,8 @@ int  willusgui_control_listbox_get_item_text(WILLUSGUICONTROL *control,int index
 char **willusgui_get_dropped_files(void *dropptr);
 void willusgui_release_dropped_files(char **ptr);
 void willusgui_window_set_focus(WILLUSGUIWINDOW *win);
+int willusgui_control_text_selected(WILLUSGUICONTROL *control,int *start,int *end);
+void willusgui_control_text_select(WILLUSGUICONTROL *control,int start,int end);
 void willusgui_control_text_select_all(WILLUSGUICONTROL *control);
 void *willusgui_control_handle_with_focus(void);
 void willusgui_window_set_redraw(WILLUSGUIWINDOW *window,int status);
@@ -1731,9 +1778,11 @@ int willusgui_file_select_dialogw(short *buf,int maxlen,char *allowedfiles,
                                char *prompt,char *defext,int for_writing);
 void willusgui_background_bitmap_blit(WILLUSGUIWINDOW *win,WILLUSBITMAP *bmp);
 void *willusgui_semaphore_create(char *name);
+void *willusgui_semaphore_create_ex(char *name,int initialcout,int maxcount);
 void willusgui_semaphore_release(void *semaphore);
 void willusgui_semaphore_close(void *semaphore);
 int  willusgui_semaphore_status(void *semaphore);
+int willusgui_semaphore_status_wait(void *semaphore);
 void *willusgui_thread_create(void *funcptr,void *data);
 void willusgui_thread_terminate(void *pid,int exitcode);
 void willusgui_thread_exit(int exitcode);
@@ -1741,6 +1790,7 @@ void willusgui_sbitmap_resample_original(WILLUSGUICONTROL *control);
 void willusgui_sbitmap_change_size(WILLUSGUICONTROL *control,int delsize);
 void willusgui_sbitmap_proc(void *handle,int message,int wparam,void *lparam);
 void willusgui_set_ime_notify(int status);
+int  willusgui_folder_select(char *foldername,int maxlen);
 
 
 #ifdef PI

@@ -1,7 +1,7 @@
 /*
 ** k2settings.c     Handles k2pdfopt settings (K2PDFOPT_SETTINGS structure)
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -21,6 +21,8 @@
 #include "k2pdfopt.h"
 
 static int k2settings_color_type(char *s);
+static void k2settings_apply_odpi_magnification(K2PDFOPT_SETTINGS *k2settings,double dispres,
+                                                double mag);
 
 
 void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
@@ -43,7 +45,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->gtc_in=.005; // detecting gap between columns
     k2settings->gtr_in=.006; // detecting gap between rows
     k2settings->gtw_in=.0015; // detecting gap between words
-    k2settings->show_usage=0;
+    k2settings->show_usage[0]='\0';
     k2settings->src_left_to_right=1;
     k2settings->src_whitethresh=-1;
     k2settings->src_paintwhite=0;
@@ -79,6 +81,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->query_user=-1;
     k2settings->query_user_explicit=0;
     k2settings->jpeg_quality=-1;
+    k2settings->dst_magnification=1.0;
     k2settings->dst_display_resolution=1.0;
     k2settings->dst_justify=-1; // 0 = left, 1 = center
     k2settings->dst_figure_justify=-1; // -1 = same as dst_justify.  0=left 1=center 2=right
@@ -87,9 +90,11 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->dst_sharpen=1;
     k2settings->dst_bpc=4;
     k2settings->dst_landscape=0;
+    k2settings->dst_landscape_pages[0]='\0'; /* v2.32 */
     strcpy(k2settings->dst_opname_format,"%s_k2opt");
     k2settings->src_autostraighten=0;
     k2settings->dstmargins.pagelist[0]='\0';
+    k2settings->dstmargins.cboxflags=0;
     for (i=0;i<4;i++)
         {
         k2settings->dstmargins.box[i]=.02;
@@ -100,6 +105,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->min_column_height_inches=1.5;
     k2settings->row_split_fom=20.; /* Higher make it hard to split rows */
     k2settings->srccropmargins.pagelist[0]='\0';
+    k2settings->srccropmargins.cboxflags=0;
     for (i=0;i<4;i++)
         {
         k2settings->srccropmargins.box[i]=0.;
@@ -108,7 +114,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->max_region_width_inches = 3.6; /* Max viewable width (device width minus margins) */
     k2settings->max_columns=2;
     k2settings->column_gap_range=0.33;
-    k2settings->column_offset_max=0.2;
+    k2settings->column_offset_max=0.3;
     k2settings->column_row_gap_height_in=1./72.;
     k2settings->text_wrap=1;
     k2settings->word_spacing=-0.20;
@@ -163,7 +169,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->toclist[0]='\0';
     k2settings->tocsavefile[0]='\0';
     k2settings->bpl[0]='\0';
-    k2settings->cropboxes.n=0;
+    k2cropboxes_init(&k2settings->cropboxes);
 
     /* v2.13 */
     k2settings->devsize_set=0;
@@ -185,6 +191,25 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
 #ifdef HAVE_GHOSTSCRIPT
     k2settings->ppgs=0;
 #endif
+
+    /* v2.32 */
+    /* dst_landscape_pages (above) */
+    k2settings->autocrop=0;
+
+    /* v2.33 */
+    k2settings->dst_figure_rotate=0;
+    k2settings->info=0;
+    k2settings->pagebreakmark_breakpage_color=-1;
+    k2settings->pagebreakmark_nobreak_color=-1;
+    k2settings->erase_horizontal_lines=0;
+    k2settings->pagexlist[0]='\0';
+    k2settings->dst_author[0]='\0';
+    k2settings->dst_title[0]='\0';
+
+    /* v2.34 */
+    k2settings->dst_fontsize_pts=0.; /* 0 = not used */
+    k2settings->assume_yes=0;
+    k2settings->dst_coverimage[0]='\0'; /* empty string = not used */
     }
 
 
@@ -206,6 +231,31 @@ K2NOTES *page_has_notes_margin(K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masteri
     return(NULL);
     }
 
+
+/*
+** Should the current source page be turned to landscape mode?
+*/
+int k2pdfopt_settings_landscape(K2PDFOPT_SETTINGS *k2settings,int pageno,int maxpages)
+
+    {
+    int retval;
+
+#if (WILLUSDEBUGX & 1)
+printf("@k2pdfopt_settings_landscape(%d,%d)\n",pageno,maxpages);
+printf("    dst_landscape=%d, pages='%s'\n",k2settings->dst_landscape,k2settings->dst_landscape_pages);
+#endif
+    if (k2settings->dst_landscape_pages[0]=='\0')
+        retval=1;
+    else
+        retval=pagelist_includes_page(k2settings->dst_landscape_pages,pageno,maxpages);
+    if (!k2settings->dst_landscape)
+        retval = !retval;
+#if (WILLUSDEBUGX & 1)
+printf("    retval=%d\n",retval);
+#endif
+    return(retval);
+    }
+    
 
 void k2pdfopt_conversion_init(K2PDFOPT_CONVERSION *k2conv)
 
@@ -238,7 +288,7 @@ int k2pdfopt_settings_set_to_device(K2PDFOPT_SETTINGS *k2settings,DEVPROFILE *dp
     k2settings->dst_userwidth_units=UNITS_PIXELS;
     k2settings->dst_userheight=dp->height;
     k2settings->dst_userheight_units=UNITS_PIXELS;
-    k2settings->dst_dpi=dp->dpi;
+    k2settings->dst_userdpi=k2settings->dst_dpi=dp->dpi;
     k2settings->mark_corners=dp->mark_corners;
     k2settings->pad_left=dp->padding[0];
     k2settings->pad_top=dp->padding[1];
@@ -252,7 +302,7 @@ int k2pdfopt_settings_set_to_device(K2PDFOPT_SETTINGS *k2settings,DEVPROFILE *dp
 void k2pdfopt_settings_quick_sanity_check(K2PDFOPT_SETTINGS *k2settings)
 
     {
-/* printf("@k2pdfopt_settings_sanity_check, k2settings=%p.\n",k2settings); */
+/* printf("@k2pdfopt_settings_quick_sanity_check, k2settings=%p.\n",k2settings); */
     /*
     ** Check compatibility between various settings
     */
@@ -306,22 +356,21 @@ double k2pdfopt_settings_gamma(K2PDFOPT_SETTINGS *k2settings)
 /*
 ** Check / adjust k2pdfopt user input settings.
 **
-** This function is called before beginning the conversion of each new document...?
+** This function is called ONLY ONCE per document before beginning the conversion
+** of each new document.
 **
 */
-void k2pdfopt_settings_sanity_check(K2PDFOPT_SETTINGS *k2settings)
+void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings)
 
     {
     k2pdfopt_settings_quick_sanity_check(k2settings);
 
-    /*
-    ** Apply display resolution
-    */
-    k2settings->dst_dpi *= k2settings->dst_display_resolution;
-    if (k2settings->dst_userwidth_units==UNITS_PIXELS && k2settings->dst_userwidth>0)
-        k2settings->dst_userwidth *= k2settings->dst_display_resolution;
-    if (k2settings->dst_userheight_units==UNITS_PIXELS && k2settings->dst_userheight>0)
-        k2settings->dst_userheight *= k2settings->dst_display_resolution;
+    {
+    double mag,dr;
+    mag = fabs(k2settings->dst_fontsize_pts)>1.0e-8 ? 1. : k2settings->dst_magnification;
+    dr = k2settings->dst_display_resolution;
+    k2settings_apply_odpi_magnification(k2settings,dr,mag);
+    }
 
     /*
     ** With all parameters set, adjust output DPI so viewable region
@@ -329,7 +378,7 @@ void k2pdfopt_settings_sanity_check(K2PDFOPT_SETTINGS *k2settings)
     ** NULL = first call, before any source page dimensions are known.
     ** Otherwise, bitmap region with source page dimensions set.
     */
-    k2pdfopt_settings_set_margins_and_devsize(k2settings,NULL,NULL,0);
+    k2pdfopt_settings_set_margins_and_devsize(k2settings,NULL,NULL,-1.0,0);
     /*
     ** Set source DPI
     */
@@ -339,15 +388,9 @@ void k2pdfopt_settings_sanity_check(K2PDFOPT_SETTINGS *k2settings)
     if (k2settings->src_dpi < 50.)
         k2settings->src_dpi = 50.;
     /* k2cropbox_set_default_values(&k2settings->srccropmargins,0.,UNITS_INCHES); */
-    }
 
 
-/*
-** Call this before each new document is processed.
-*/
-void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings)
-
-    {
+    /* This part used to be called k2pdfopt_settings_new_source_document_init() before v2.34 */
     /* Reset usegs for each document */
     k2settings->usegs=k2settings->user_usegs;
     /* Init document word spacing history */
@@ -364,6 +407,21 @@ void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings)
     }
 
 
+/*
+** Apply DPI magnification
+*/
+static void k2settings_apply_odpi_magnification(K2PDFOPT_SETTINGS *k2settings,double dispres,
+                                                double mag)
+
+    {
+    k2settings->dst_dpi = k2settings->dst_userdpi*mag*dispres;
+    if (k2settings->dst_userwidth_units==UNITS_PIXELS && k2settings->dst_userwidth>0)
+        k2settings->dst_userwidth *= dispres;
+    if (k2settings->dst_userheight_units==UNITS_PIXELS && k2settings->dst_userheight>0)
+        k2settings->dst_userheight *= dispres;
+    }
+
+
 void k2pdfopt_settings_set_region_widths(K2PDFOPT_SETTINGS *k2settings)
 
     {
@@ -373,6 +431,20 @@ void k2pdfopt_settings_set_region_widths(K2PDFOPT_SETTINGS *k2settings)
     get_dest_margins(dstmar_pixels,k2settings,(double)k2settings->dst_dpi,
                      k2settings->dst_width,k2settings->dst_height);
     k2settings->max_region_width_inches -= (double)(dstmar_pixels[0]+dstmar_pixels[2])/k2settings->dst_dpi;
+    }
+
+
+void k2pdfopt_settings_dst_viewable(K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo,
+                                    double *width_in,double *height_in)
+
+    {
+    int dstmar_pixels[4];
+    get_dest_margins(dstmar_pixels,k2settings,k2settings->dst_dpi,masterinfo->bmp.width,
+                     k2settings->dst_height);
+    (*width_in) = (double)k2settings->dst_width/k2settings->dst_dpi
+                    - (double)(dstmar_pixels[0]+dstmar_pixels[2])/k2settings->dst_dpi;
+    (*height_in) = (double)k2settings->dst_height/k2settings->dst_dpi
+                    - (double)(dstmar_pixels[1]+dstmar_pixels[3])/k2settings->dst_dpi;
     }
 
 
@@ -417,10 +489,11 @@ void k2pdfopt_settings_fit_column_to_screen(K2PDFOPT_SETTINGS *k2settings,
 ** Set device width and height in pixels.
 */
 void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
-                                       BMPREGION *region,MASTERINFO *masterinfo,int trimmed)
+                                       BMPREGION *region,MASTERINFO *masterinfo,
+                                       double src_fontsize_pts,int trimmed)
 
     {
-    int new_width,new_height,zeroarea;
+    int new_width,new_height,zeroarea,pageno,maxpages;
     WPDFPAGEINFO *pageinfo;
     LINE2D trimrect_inches;
     POINT2D pagedims_inches;
@@ -430,6 +503,13 @@ void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
 #ifdef WILLUSDEBUG
 printf("@k2pdfopt_settings_set_margins_and_devsize(region=%p,trimmed=%d)\n",region,trimmed);
 #endif
+    if (src_fontsize_pts>0. && fabs(k2settings->dst_fontsize_pts)>1.0e-8)
+        {
+        double mag,dres;
+        dres = k2settings->dst_display_resolution;
+        mag = fabs(k2settings->dst_fontsize_pts) / src_fontsize_pts;
+        k2settings_apply_odpi_magnification(k2settings,dres,mag);
+        }
     zeroarea=0;
     pageinfo=masterinfo!=NULL ? &masterinfo->pageinfo : NULL;
     if (region==NULL)
@@ -492,6 +572,7 @@ printf("wu=%g, hu=%g\n",wu,hu);
 #if (WILLUSDEBUGX & 0x20000)
 printf("@setmargins\n");
 printf("    dpi = %g\n",(double)k2settings->dst_dpi);
+printf("    dst_fontsize = %g pts\n",k2settings->dst_fontsize_pts);
 printf("    userrect = %g,%g - %g,%g\n",userrect.p[0].x,userrect.p[0].y,userrect.p[1].x,userrect.p[1].y);
 printf("    units = %d,%d,%d,%d\n",units[0],units[1],units[2],units[3]);
 printf("    page = %g x %g in\n",pagedims_inches.x,pagedims_inches.y);
@@ -511,7 +592,9 @@ printf("    userrect (out) = %g,%g - %g,%g\n",userrect.p[0].x,userrect.p[0].y,us
     new_height=devsize_pixels(k2settings->dst_userheight,k2settings->dst_userheight_units,
                               sheight_in,theight_in,k2settings->dst_dpi,0);
     */
-    if (k2settings->dst_landscape)
+    pageno = masterinfo==NULL ? 1 : masterinfo->pageinfo.srcpage;
+    maxpages = masterinfo==NULL ? 10 : masterinfo->srcpages;
+    if (k2pdfopt_settings_landscape(k2settings,pageno,maxpages))
         int_swap(new_width,new_height)
     if (k2settings->devsize_set==1 || (k2settings->devsize_set>1 && (new_width!=k2settings->dst_width || new_height!=k2settings->dst_height)))
         {
@@ -539,7 +622,7 @@ printf("    userrect (out) = %g,%g - %g,%g\n",userrect.p[0].x,userrect.p[0].y,us
             {
             pageinfo->width_pts = 72. * k2settings->dst_width / k2settings->dst_dpi;
             pageinfo->height_pts = 72. * k2settings->dst_height / k2settings->dst_dpi;
-            if (k2settings->dst_landscape)
+            if (k2pdfopt_settings_landscape(k2settings,pageno,maxpages))
                 double_swap(pageinfo->width_pts,pageinfo->height_pts)
             }
         }
@@ -623,3 +706,96 @@ void k2cropbox_set_default_values(K2CROPBOX *cbox,double value,int units)
         }
     }
 */
+
+/*
+** Clear cropboxes that have flags set to flagtype
+*/
+void k2pdfopt_settings_clear_cropboxes(K2PDFOPT_SETTINGS *k2settings,int flagmask,int flagtype)
+
+    {
+    int i;
+    K2CROPBOXES *boxes;
+
+    boxes=&k2settings->cropboxes;
+    for (i=0;i<boxes->n;i++)
+        if ((boxes->cropbox[i].cboxflags&flagmask)==flagtype)
+            boxes->cropbox[i].cboxflags |= K2CROPBOX_FLAGS_NOTUSED;
+    }
+
+
+void k2cropboxes_init(K2CROPBOXES *cropboxes)
+
+    {
+    int i,j;
+
+    cropboxes->n=MAXK2CROPBOXES;
+    for (i=0;i<cropboxes->n;i++)
+        {
+        K2CROPBOX *box;
+
+        box=&cropboxes->cropbox[i];
+        box->pagelist[0]='\0';
+        for (j=0;j<4;j++)
+            {
+            box->box[j]=j<2?0.:-1.;
+            box->units[j]=UNITS_INCHES;
+            }
+        box->cboxflags = K2CROPBOX_FLAGS_NOTUSED;
+        }
+    }
+
+
+int k2cropboxes_count(K2CROPBOXES *cropboxes,int flagmask,int flagtype)
+
+    {
+    int i,n;
+
+    for (n=i=0;i<cropboxes->n;i++)
+        if ((cropboxes->cropbox[i].cboxflags&flagmask)==flagtype)
+            n++;
+    return(n);
+    }
+
+
+int k2settings_has_cropboxes(K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    return(k2cropboxes_count(&k2settings->cropboxes,
+                      K2CROPBOX_FLAGS_NOTUSED|K2CROPBOX_FLAGS_IGNOREBOXEDAREA,0)>0);
+    }
+
+
+int k2settings_need_color_initially(K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    return(k2settings->dst_color 
+             || (k2settings->pagebreakmark_breakpage_color >= 0)
+             || (k2settings->pagebreakmark_nobreak_color >= 0));
+    }
+
+
+int k2settings_need_color_permanently(K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    return(k2settings->dst_color || k2settings->show_marked_source);
+    }
+
+
+char *k2pdfopt_settings_unit_string(int units)
+
+    {
+    static char *strvals[] = {"","in","cm","s","t","x"};
+
+    if (units==UNITS_INCHES)
+        return(strvals[1]);
+    else if (units==UNITS_CM)
+        return(strvals[2]);
+    else if (units==UNITS_SOURCE)
+        return(strvals[3]);
+    else if (units==UNITS_TRIMMED)
+        return(strvals[4]);
+    else if (units==UNITS_OCRLAYER)
+        return(strvals[5]);
+    else
+        return(strvals[0]);
+    }

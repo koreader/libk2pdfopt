@@ -4,14 +4,11 @@
 	Which fonts are embedded is based on a few preprocessor definitions.
 
 	The base 14 fonts are always embedded.
-	For font substitution we embed DroidSans which has good glyph coverage.
 	For CJK font substitution we embed DroidSansFallback.
 
 	Set NOCJK to skip all CJK support (this also omits embedding the CJK CMaps)
 	Set NOCJKFONT to skip the embedded CJK font.
 	Set NOCJKFULL to embed a smaller CJK font without CJK Extension A support.
-
-	Set NODROIDFONT to use the base 14 fonts as substitute fonts.
 */
 
 #ifdef NOCJK
@@ -19,10 +16,6 @@
 #endif
 
 #include "gen_font_base14.h"
-
-#ifndef NODROIDFONT
-#include "gen_font_droid.h"
-#endif
 
 #ifndef NOCJKFONT
 #ifndef NOCJKFULL
@@ -33,55 +26,55 @@
 #endif
 
 unsigned char *
-pdf_lookup_builtin_font(const char *name, unsigned int *len)
+pdf_lookup_builtin_font(fz_context *ctx, const char *name, unsigned int *len)
 {
 	if (!strcmp("Courier", name)) {
-		*len = sizeof pdf_font_NimbusMon_Reg;
-		return (unsigned char*) pdf_font_NimbusMon_Reg;
+		*len = sizeof pdf_font_NimbusMono_Regular;
+		return (unsigned char*) pdf_font_NimbusMono_Regular;
 	}
 	if (!strcmp("Courier-Bold", name)) {
-		*len = sizeof pdf_font_NimbusMon_Bol;
-		return (unsigned char*) pdf_font_NimbusMon_Bol;
+		*len = sizeof pdf_font_NimbusMono_Bold;
+		return (unsigned char*) pdf_font_NimbusMono_Bold;
 	}
 	if (!strcmp("Courier-Oblique", name)) {
-		*len = sizeof pdf_font_NimbusMon_Obl;
-		return (unsigned char*) pdf_font_NimbusMon_Obl;
+		*len = sizeof pdf_font_NimbusMono_Oblique;
+		return (unsigned char*) pdf_font_NimbusMono_Oblique;
 	}
 	if (!strcmp("Courier-BoldOblique", name)) {
-		*len = sizeof pdf_font_NimbusMon_BolObl;
-		return (unsigned char*) pdf_font_NimbusMon_BolObl;
+		*len = sizeof pdf_font_NimbusMono_BoldOblique;
+		return (unsigned char*) pdf_font_NimbusMono_BoldOblique;
 	}
 	if (!strcmp("Helvetica", name)) {
-		*len = sizeof pdf_font_NimbusSan_Reg;
-		return (unsigned char*) pdf_font_NimbusSan_Reg;
+		*len = sizeof pdf_font_NimbusSanL_Reg;
+		return (unsigned char*) pdf_font_NimbusSanL_Reg;
 	}
 	if (!strcmp("Helvetica-Bold", name)) {
-		*len = sizeof pdf_font_NimbusSan_Bol;
-		return (unsigned char*) pdf_font_NimbusSan_Bol;
+		*len = sizeof pdf_font_NimbusSanL_Bol;
+		return (unsigned char*) pdf_font_NimbusSanL_Bol;
 	}
 	if (!strcmp("Helvetica-Oblique", name)) {
-		*len = sizeof pdf_font_NimbusSan_Ita;
-		return (unsigned char*) pdf_font_NimbusSan_Ita;
+		*len = sizeof pdf_font_NimbusSanL_RegIta;
+		return (unsigned char*) pdf_font_NimbusSanL_RegIta;
 	}
 	if (!strcmp("Helvetica-BoldOblique", name)) {
-		*len = sizeof pdf_font_NimbusSan_BolIta;
-		return (unsigned char*) pdf_font_NimbusSan_BolIta;
+		*len = sizeof pdf_font_NimbusSanL_BolIta;
+		return (unsigned char*) pdf_font_NimbusSanL_BolIta;
 	}
 	if (!strcmp("Times-Roman", name)) {
-		*len = sizeof pdf_font_NimbusRom_Reg;
-		return (unsigned char*) pdf_font_NimbusRom_Reg;
+		*len = sizeof pdf_font_NimbusRomNo9L_Reg;
+		return (unsigned char*) pdf_font_NimbusRomNo9L_Reg;
 	}
 	if (!strcmp("Times-Bold", name)) {
-		*len = sizeof pdf_font_NimbusRom_Med;
-		return (unsigned char*) pdf_font_NimbusRom_Med;
+		*len = sizeof pdf_font_NimbusRomNo9L_Med;
+		return (unsigned char*) pdf_font_NimbusRomNo9L_Med;
 	}
 	if (!strcmp("Times-Italic", name)) {
-		*len = sizeof pdf_font_NimbusRom_Ita;
-		return (unsigned char*) pdf_font_NimbusRom_Ita;
+		*len = sizeof pdf_font_NimbusRomNo9L_RegIta;
+		return (unsigned char*) pdf_font_NimbusRomNo9L_RegIta;
 	}
 	if (!strcmp("Times-BoldItalic", name)) {
-		*len = sizeof pdf_font_NimbusRom_MedIta;
-		return (unsigned char*) pdf_font_NimbusRom_MedIta;
+		*len = sizeof pdf_font_NimbusRomNo9L_MedIta;
+		return (unsigned char*) pdf_font_NimbusRomNo9L_MedIta;
 	}
 	if (!strcmp("Symbol", name)) {
 		*len = sizeof pdf_font_StandardSymL;
@@ -96,55 +89,45 @@ pdf_lookup_builtin_font(const char *name, unsigned int *len)
 }
 
 unsigned char *
-pdf_lookup_substitute_font(int mono, int serif, int bold, int italic, unsigned int *len)
+pdf_lookup_substitute_font(fz_context *ctx, int mono, int serif, int bold, int italic, unsigned int *len)
 {
-#ifdef NODROIDFONT
 	if (mono) {
 		if (bold) {
-			if (italic) return pdf_lookup_builtin_font("Courier-BoldOblique", len);
-			else return pdf_lookup_builtin_font("Courier-Bold", len);
+			if (italic) return pdf_lookup_builtin_font(ctx, "Courier-BoldOblique", len);
+			else return pdf_lookup_builtin_font(ctx, "Courier-Bold", len);
 		} else {
-			if (italic) return pdf_lookup_builtin_font("Courier-Oblique", len);
-			else return pdf_lookup_builtin_font("Courier", len);
+			if (italic) return pdf_lookup_builtin_font(ctx, "Courier-Oblique", len);
+			else return pdf_lookup_builtin_font(ctx, "Courier", len);
 		}
 	} else if (serif) {
 		if (bold) {
-			if (italic) return pdf_lookup_builtin_font("Times-BoldItalic", len);
-			else return pdf_lookup_builtin_font("Times-Bold", len);
+			if (italic) return pdf_lookup_builtin_font(ctx, "Times-BoldItalic", len);
+			else return pdf_lookup_builtin_font(ctx, "Times-Bold", len);
 		} else {
-			if (italic) return pdf_lookup_builtin_font("Times-Italic", len);
-			else return pdf_lookup_builtin_font("Times-Roman", len);
+			if (italic) return pdf_lookup_builtin_font(ctx, "Times-Italic", len);
+			else return pdf_lookup_builtin_font(ctx, "Times-Roman", len);
 		}
 	} else {
 		if (bold) {
-			if (italic) return pdf_lookup_builtin_font("Helvetica-BoldOblique", len);
-			else return pdf_lookup_builtin_font("Helvetica-Bold", len);
+			if (italic) return pdf_lookup_builtin_font(ctx, "Helvetica-BoldOblique", len);
+			else return pdf_lookup_builtin_font(ctx, "Helvetica-Bold", len);
 		} else {
-			if (italic) return pdf_lookup_builtin_font("Helvetica-Oblique", len);
-			else return pdf_lookup_builtin_font("Helvetica", len);
+			if (italic) return pdf_lookup_builtin_font(ctx, "Helvetica-Oblique", len);
+			else return pdf_lookup_builtin_font(ctx, "Helvetica", len);
 		}
 	}
-#else
-	if (mono) {
-		*len = sizeof pdf_font_DroidSansMono;
-		return (unsigned char*) pdf_font_DroidSansMono;
-	} else {
-		*len = sizeof pdf_font_DroidSans;
-		return (unsigned char*) pdf_font_DroidSans;
-	}
-#endif
 }
 
 unsigned char *
-pdf_lookup_substitute_cjk_font(int ros, int serif, int wmode, unsigned int *len, int *index)
+pdf_lookup_substitute_cjk_font(fz_context *ctx, int ros, int serif, int wmode, unsigned int *len, int *index)
 {
 #ifndef NOCJKFONT
 #ifndef NOCJKFULL
-    *index = wmode;
+	*index = wmode;
 	*len = sizeof pdf_font_DroidSansFallbackFull;
 	return (unsigned char*) pdf_font_DroidSansFallbackFull;
 #else
-    *index = wmode;
+	*index = wmode;
 	*len = sizeof pdf_font_DroidSansFallback;
 	return (unsigned char*) pdf_font_DroidSansFallback;
 #endif
@@ -419,17 +402,17 @@ append_mapping(fz_context *ctx, pdf_fontlistMS *fl, const char *facename, const 
 }
 
 static void
-safe_read(fz_stream *file, int offset, char *buf, int size)
+safe_read(fz_context *ctx, fz_stream *file, int offset, char *buf, int size)
 {
 	int n;
-	fz_seek(file, offset, 0);
-	n = fz_read(file, (unsigned char *)buf, size);
+	fz_seek(ctx, file, offset, 0);
+	n = fz_read(ctx, file, (unsigned char *)buf, size);
 	if (n != size)
-		fz_throw(file->ctx, FZ_ERROR_GENERIC, "safe_read: read %d, expected %d", n, size);
+		fz_throw(ctx, FZ_ERROR_GENERIC, "safe_read: read %d, expected %d", n, size);
 }
 
 static void
-read_ttf_string(fz_stream *file, int offset, TT_NAME_RECORD *ttRecordBE, char *buf, int size)
+read_ttf_string(fz_context *ctx, fz_stream *file, int offset, TT_NAME_RECORD *ttRecordBE, char *buf, int size)
 {
 	char szTemp[MAX_FACENAME * 2];
 	// ignore empty and overlong strings
@@ -437,8 +420,8 @@ read_ttf_string(fz_stream *file, int offset, TT_NAME_RECORD *ttRecordBE, char *b
 	if (stringLength == 0 || stringLength >= sizeof(szTemp))
 		return;
 
-	safe_read(file, offset + BEtoHs(ttRecordBE->uStringOffset), szTemp, stringLength);
-	decode_platform_string(file->ctx, BEtoHs(ttRecordBE->uPlatformID),
+	safe_read(ctx, file, offset + BEtoHs(ttRecordBE->uStringOffset), szTemp, stringLength);
+	decode_platform_string(ctx, BEtoHs(ttRecordBE->uPlatformID),
 		BEtoHs(ttRecordBE->uEncodingID), szTemp, stringLength, buf, size);
 }
 
@@ -455,7 +438,7 @@ makeFakePSName(char szName[MAX_FACENAME], const char *szStyle)
 }
 
 static void
-parseTTF(fz_stream *file, int offset, int index, const char *path)
+parseTTF(fz_context *ctx, fz_stream *file, int offset, int index, const char *path)
 {
 	TT_OFFSET_TABLE ttOffsetTableBE;
 	TT_TABLE_DIRECTORY tblDirBE;
@@ -468,13 +451,13 @@ parseTTF(fz_stream *file, int offset, int index, const char *path)
 	char szCJKName[MAX_FACENAME] = { 0 };
 	int i, count, tblOffset;
 
-	safe_read(file, offset, (char *)&ttOffsetTableBE, sizeof(TT_OFFSET_TABLE));
+	safe_read(ctx, file, offset, (char *)&ttOffsetTableBE, sizeof(TT_OFFSET_TABLE));
 
 	// check if this is a TrueType font of version 1.0 or an OpenType font
 	if (BEtoHl(ttOffsetTableBE.uVersion) != TTC_VERSION1 &&
 		BEtoHl(ttOffsetTableBE.uVersion) != TTAG_OTTO)
 	{
-		fz_throw(file->ctx, FZ_ERROR_GENERIC, "fonterror : invalid font version %x", (unsigned int)BEtoHl(ttOffsetTableBE.uVersion));
+		fz_throw(ctx, FZ_ERROR_GENERIC, "fonterror : invalid font version %x", (unsigned int)BEtoHl(ttOffsetTableBE.uVersion));
 	}
 
 	// determine the name table's offset by iterating through the offset table
@@ -482,16 +465,16 @@ parseTTF(fz_stream *file, int offset, int index, const char *path)
 	for (i = 0; i < count; i++)
 	{
 		int entryOffset = offset + sizeof(TT_OFFSET_TABLE) + i * sizeof(TT_TABLE_DIRECTORY);
-		safe_read(file, entryOffset, (char *)&tblDirBE, sizeof(TT_TABLE_DIRECTORY));
+		safe_read(ctx, file, entryOffset, (char *)&tblDirBE, sizeof(TT_TABLE_DIRECTORY));
 		if (!BEtoHl(tblDirBE.uTag) || BEtoHl(tblDirBE.uTag) == TTAG_name)
 			break;
 	}
 	if (count == i || !BEtoHl(tblDirBE.uTag))
-		fz_throw(file->ctx, FZ_ERROR_GENERIC, "fonterror : nameless font");
+		fz_throw(ctx, FZ_ERROR_GENERIC, "fonterror : nameless font");
 	tblOffset = BEtoHl(tblDirBE.uOffset);
 
 	// read the 'name' table for record count and offsets
-	safe_read(file, tblOffset, (char *)&ttNTHeaderBE, sizeof(TT_NAME_TABLE_HEADER));
+	safe_read(ctx, file, tblOffset, (char *)&ttNTHeaderBE, sizeof(TT_NAME_TABLE_HEADER));
 	offset = tblOffset + sizeof(TT_NAME_TABLE_HEADER);
 	tblOffset += BEtoHs(ttNTHeaderBE.uStorageOffset);
 
@@ -502,7 +485,7 @@ parseTTF(fz_stream *file, int offset, int index, const char *path)
 		short langId, nameId;
 		BOOL isCJKName;
 
-		safe_read(file, offset + i * sizeof(TT_NAME_RECORD), (char *)&ttRecordBE, sizeof(TT_NAME_RECORD));
+		safe_read(ctx, file, offset + i * sizeof(TT_NAME_RECORD), (char *)&ttRecordBE, sizeof(TT_NAME_RECORD));
 
 		langId = BEtoHs(ttRecordBE.uLanguageID);
 		nameId = BEtoHs(ttRecordBE.uNameID);
@@ -512,20 +495,20 @@ parseTTF(fz_stream *file, int offset, int index, const char *path)
 		if (langId && langId != TT_MS_LANGID_ENGLISH_UNITED_STATES && !isCJKName)
 			continue;
 		// ignore names other than font (sub)family and PostScript name
-		fz_try(file->ctx)
+		fz_try(ctx)
 		{
 			if (isCJKName)
-				read_ttf_string(file, tblOffset, &ttRecordBE, szCJKName, sizeof(szCJKName));
+				read_ttf_string(ctx, file, tblOffset, &ttRecordBE, szCJKName, sizeof(szCJKName));
 			else if (TT_NAME_ID_FONT_FAMILY == nameId)
-				read_ttf_string(file, tblOffset, &ttRecordBE, szTTName, sizeof(szTTName));
+				read_ttf_string(ctx, file, tblOffset, &ttRecordBE, szTTName, sizeof(szTTName));
 			else if (TT_NAME_ID_FONT_SUBFAMILY == nameId)
-				read_ttf_string(file, tblOffset, &ttRecordBE, szStyle, sizeof(szStyle));
+				read_ttf_string(ctx, file, tblOffset, &ttRecordBE, szStyle, sizeof(szStyle));
 			else if (TT_NAME_ID_PS_NAME == nameId)
-				read_ttf_string(file, tblOffset, &ttRecordBE, szPSName, sizeof(szPSName));
+				read_ttf_string(ctx, file, tblOffset, &ttRecordBE, szPSName, sizeof(szPSName));
 		}
-		fz_catch(file->ctx)
+		fz_catch(ctx)
 		{
-			fz_warn(file->ctx, "ignoring face name decoding fonterror");
+			fz_warn(ctx, "ignoring face name decoding fonterror");
 		}
 	}
 
@@ -538,11 +521,11 @@ parseTTF(fz_stream *file, int offset, int index, const char *path)
 		// TODO: is there a better way to distinguish Arial Caps from Arial proper?
 		// cf. http://code.google.com/p/sumatrapdf/issues/detail?id=1290
 		else if (strstr(path, "caps") || strstr(path, "Caps"))
-			fz_throw(file->ctx, FZ_ERROR_GENERIC, "ignore %s, as it can't be distinguished from Arial,Regular", path);
+			fz_throw(ctx, FZ_ERROR_GENERIC, "ignore %s, as it can't be distinguished from Arial,Regular", path);
 	}
 
 	if (szPSName[0])
-		append_mapping(file->ctx, &fontlistMS, szPSName, path, index);
+		append_mapping(ctx, &fontlistMS, szPSName, path, index);
 	if (szTTName[0])
 	{
 		// derive a PostScript-like name and add it, if it's different from the font's
@@ -550,13 +533,13 @@ parseTTF(fz_stream *file, int offset, int index, const char *path)
 		makeFakePSName(szTTName, szStyle);
 		// compare the two names before adding this one
 		if (lookup_compare(szTTName, szPSName))
-			append_mapping(file->ctx, &fontlistMS, szTTName, path, index);
+			append_mapping(ctx, &fontlistMS, szTTName, path, index);
 	}
 	if (szCJKName[0])
 	{
 		makeFakePSName(szCJKName, szStyle);
 		if (lookup_compare(szCJKName, szPSName) && lookup_compare(szCJKName, szTTName))
-			append_mapping(file->ctx, &fontlistMS, szCJKName, path, index);
+			append_mapping(ctx, &fontlistMS, szCJKName, path, index);
 	}
 }
 
@@ -567,11 +550,11 @@ parseTTFs(fz_context *ctx, const char *path)
 	/* "fonterror : %s not found", path */
 	fz_try(ctx)
 	{
-		parseTTF(file, 0, 0, path);
+		parseTTF(ctx, file, 0, 0, path);
 	}
 	fz_always(ctx)
 	{
-		fz_close(file);
+		fz_drop_stream(ctx,file);
 	}
 	fz_catch(ctx)
 	{
@@ -592,7 +575,7 @@ parseTTCs(fz_context *ctx, const char *path)
 
 	fz_try(ctx)
 	{
-		safe_read(file, 0, (char *)&fontcollectionBE, sizeof(FONT_COLLECTION));
+		safe_read(ctx, file, 0, (char *)&fontcollectionBE, sizeof(FONT_COLLECTION));
 		if (BEtoHl(fontcollectionBE.Tag) != TTAG_ttcf)
 			fz_throw(ctx, FZ_ERROR_GENERIC, "fonterror : wrong format %x", (unsigned int)BEtoHl(fontcollectionBE.Tag));
 		if (BEtoHl(fontcollectionBE.Version) != TTC_VERSION1 &&
@@ -604,14 +587,14 @@ parseTTCs(fz_context *ctx, const char *path)
 		numFonts = BEtoHl(fontcollectionBE.NumFonts);
 		offsettableBE = fz_malloc_array(ctx, numFonts, sizeof(ULONG));
 
-		safe_read(file, sizeof(FONT_COLLECTION), (char *)offsettableBE, numFonts * sizeof(ULONG));
+		safe_read(ctx, file, sizeof(FONT_COLLECTION), (char *)offsettableBE, numFonts * sizeof(ULONG));
 		for (i = 0; i < numFonts; i++)
-			parseTTF(file, BEtoHl(offsettableBE[i]), i, path);
+			parseTTF(ctx, file, BEtoHl(offsettableBE[i]), i, path);
 	}
 	fz_always(ctx)
 	{
 		fz_free(ctx, offsettableBE);
-		fz_close(file);
+		fz_drop_stream(ctx,file);
 	}
 	fz_catch(ctx)
 	{
@@ -836,7 +819,7 @@ pdf_load_windows_font(fz_context *ctx, const char *fontname, int bold, int itali
 		   those of Windows' Times New Roman and Courier New; for
 		   some reason, Poppler doesn't seem to have this problem */
 		unsigned int len;
-		if (pdf_lookup_builtin_font(fontname, &len))
+		if (pdf_lookup_builtin_font(ctx,fontname, &len))
 			return NULL;
 
 		/* cf. http://code.google.com/p/sumatrapdf/issues/detail?id=2173 */
