@@ -51,7 +51,7 @@ void k2pdfopt_part_bmp(KOPTContext *kctx) {
 		k2settings->dstmargins.box[i]=.0;
 	k2settings->text_wrap=0;
 	k2settings->src_trim=0;
-	k2pdfopt_settings_sanity_check(k2settings);
+	k2pdfopt_settings_quick_sanity_check(k2settings);
 	/* Init master output structure */
 	masterinfo_init(masterinfo, k2settings);
 	bmp_init(&masterinfo->bmp);
@@ -61,7 +61,7 @@ void k2pdfopt_part_bmp(KOPTContext *kctx) {
 	region = &_region;
 	bmpregion_init(region);
 	masterinfo_new_source_page_init(masterinfo, k2settings, src, srcgrey, NULL,
-			region, k2settings->src_rot, NULL, NULL, 1, NULL);
+			region, k2settings->src_rot, NULL, NULL, 1, -1, NULL);
 	int maxlevels;
 	if (k2settings->max_columns<=1)
 		maxlevels=1;

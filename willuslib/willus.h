@@ -186,11 +186,11 @@ typedef double  real;
 #if (defined(ANDROID) || defined(DARWIN))
 #undef WILLUS_HAVE_FILE64
 #endif
+
 /*
 ** As of 2013 and gcc 4.7.x, x87_line_math is turned off entirely.
 ** My x87 in-line routines are no faster than gcc on modern Intel CPUs.
 */
-
 #if (defined(__linux) || defined(linux) || defined(__linux__))
 #define LINUX
 #if (defined(WILLUS_HAVE_FILE64) && !defined(_off64_t))

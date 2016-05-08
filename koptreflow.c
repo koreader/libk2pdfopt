@@ -47,17 +47,18 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     masterinfo = &_masterinfo;
     /* Initialize settings */
     k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
-    k2pdfopt_settings_sanity_check(k2settings);
+    k2pdfopt_settings_quick_sanity_check(k2settings);
+    /* Init for new source doc */
+    k2pdfopt_settings_new_source_document_init(k2settings);
     /* Init master output structure */
     masterinfo_init(masterinfo, k2settings);
-    bmp_init(&masterinfo->bmp);
-    masterinfo->bmp.width = 0;
-    masterinfo->bmp.height = 0;
     wrapbmp_init(&masterinfo->wrapbmp, k2settings->dst_color);
     /* Init new source bitmap */
     bmpregion_init(&region);
     masterinfo_new_source_page_init(masterinfo, k2settings, src, srcgrey, NULL,
-            &region, k2settings->src_rot, NULL, NULL, 1, NULL );
+            &region, k2settings->src_rot, NULL, NULL, 1, -1, NULL );
+    /* Set output size */
+    k2pdfopt_settings_set_margins_and_devsize(k2settings,&region,masterinfo,-1.,0);
     /* Process single source page */
     bmpregion_source_page_add(&region, k2settings, masterinfo, 1, 0);
     wrapbmp_flush(masterinfo, k2settings, 0);

@@ -48,7 +48,7 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	masterinfo = &_masterinfo;
 	/* Initialize settings */
 	k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
-	k2pdfopt_settings_sanity_check(k2settings);
+	k2pdfopt_settings_quick_sanity_check(k2settings);
 	/* Init master output structure */
 	masterinfo_init(masterinfo, k2settings);
 	bmp_init(&masterinfo->bmp);
@@ -60,7 +60,7 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	region = &_region;
 	bmpregion_init(region);
 	masterinfo_new_source_page_init(masterinfo, k2settings, src, srcgrey, NULL,
-			region, k2settings->src_rot, NULL, NULL, 1, NULL);
+			region, k2settings->src_rot, NULL, NULL, 1, -1, NULL);
 	printf("source page (%d,%d) - (%d,%d)\n",region->c1,region->r1,region->c2,region->r2);
 	printf("source page bgcolor %d\n", region->bgcolor);
 	bmpregion_trim_margins(region,k2settings,0xf);

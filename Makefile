@@ -60,7 +60,7 @@ TARGET_ALIBS= $(TARGET_XLIBS) $(LIBS) $(TARGET_LIBS)
 K2PDFOPT_A= libk2pdfopt.a
 K2PDFOPT_SO= $(TARGET_SONAME)
 
-LEPTONICA_LIB= liblept$(if $(WIN32),-3.dll,$(if $(DARWIN),.dylib,.so))
+LEPTONICA_LIB= liblept$(if $(WIN32),-4.dll,$(if $(DARWIN),.dylib,.so))
 TESSERACT_LIB= libtesseract$(if $(WIN32),-3.dll,$(if $(DARWIN),.dylib,.so))
 K2PDFOPT_LIB= libk2pdfopt$(if $(WIN32),-$(MAJVER).dll,$(if $(DARWIN),.$(MAJVER).dylib,.so.$(MAJVER)))
 
@@ -80,7 +80,7 @@ K2PDFOPT_LIB= libk2pdfopt$(if $(WIN32),-$(MAJVER).dll,$(if $(DARWIN),.$(MAJVER).
 # Target file rules.
 ##############################################################################
 $(LEPTONICA_LIB):
-	cd $(LEPTONICA_DIR) && ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
+	cd $(LEPTONICA_DIR) && sh ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
 		--prefix=$(LEPTONICA_DIR) \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(LEPT_CFLAGS)' \
 		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,"libs" $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
@@ -91,7 +91,7 @@ $(LEPTONICA_LIB):
 	cd $(LEPTONICA_DIR) && $(MAKE) CFLAGS='$(LEPT_CFLAGS)' \
 		install --silent >/dev/null 2>&1
 ifdef WIN32
-	cp -a $(LEPTONICA_DIR)/src/.libs/liblept-3.dll ./
+	cp -a $(LEPTONICA_DIR)/src/.libs/liblept*.dll ./
 else
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept$(if $(DARWIN),*.dylib,.so*) ./
 endif
@@ -110,7 +110,7 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		--with-extra-libraries=$(LEPTONICA_DIR)/src/.libs \
 		--disable-static --enable-shared --disable-graphics
 	cd $(TESSERACT_DIR) && sed -ie 's|-lstdc++||g' libtool
-	$(MAKE) -C $(TESSERACT_DIR)
+	$(MAKE) -C $(TESSERACT_DIR) --silent >/dev/null 2>&1
 ifdef WIN32
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract-3.dll ./
 else

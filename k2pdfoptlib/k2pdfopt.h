@@ -75,7 +75,6 @@
 #if (!defined(K2PDFOPT_KINDLEPDFVIEWER))
 #define K2PDFOPT_KINDLEPDFVIEWER
 #endif
-/* #define K2PDFOPT_KINDLEPDFVIEWER */
 
 /*
 ** The HAVE_..._LIB defines should now be carried over from willus.h,

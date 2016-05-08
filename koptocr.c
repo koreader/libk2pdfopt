@@ -43,7 +43,7 @@ void k2pdfopt_tocr_init(char *datadir, char *lang) {
 		k2pdfopt_tocr_end();
 	}
 	if (!k2pdfopt_tocr_inited) {
-		if (ocrtess_init(datadir, lang, NULL) == 0 ) {
+		if (ocrtess_init(datadir, lang, NULL, NULL, 0) == 0 ) {
 				k2pdfopt_tocr_inited = 1;
 		} else {
 			printf("fail to start tesseract OCR engine\n");
@@ -87,7 +87,7 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 	/* Initialize settings */
 	k2settings = &_k2settings;
 	k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
-	k2pdfopt_settings_sanity_check(k2settings);
+	k2pdfopt_settings_quick_sanity_check(k2settings);
 
 	if (box_type == 0) {
         pboxa = &kctx->rboxa;
@@ -181,10 +181,13 @@ l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs,
 		l_int32 minwidth, l_int32 minheight,
 		l_int32 maxwidth, l_int32 maxheight,
 		BOXA **pboxad, NUMA **pnai) {
-	BOXA *boxa1, *boxa2, *boxa3, *boxad;
+	BOXA *boxa1, *boxad;
 	BOXAA *baa;
 	NUMA *nai;
-	PIX *pixt1, *pixt2;
+	NUMAA *naa;
+	PIX *pix1;
+	PIXA *pixa1, *pixad;
+	PIXAA *paa;
 
 	PROCNAME("k2pdfopt_pixGetWordBoxesInTextlines");
 
@@ -198,39 +201,33 @@ l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs,
 		return ERROR_INT("reduction not in {1,2}", procName, 1);
 
 	if (reduction == 1) {
-		pixt1 = pixClone(pixs);
+		pix1 = pixClone(pixs);
 	} else { /* reduction == 2 */
-		pixt1 = pixReduceRankBinaryCascade(pixs, 1, 0, 0, 0);
+		pix1 = pixReduceRankBinaryCascade(pixs, 1, 0, 0, 0);
 		maxsize = maxsize / 2;
 	}
 
-	/* First estimate of the word masks */
-	pixt2 = pixWordMaskByDilation(pixt1, maxsize, NULL);
-
-	/* Get the bounding boxes of the words, and remove the
-	 * small ones, which can be due to punctuation that was
-	 * not joined to a word, and the large ones, which are
-	 * also not likely to be words. */
-	boxa1 = pixConnComp(pixt2, NULL, 8);
-	boxa2 = boxaSelectBySize(boxa1, minwidth, minheight, L_SELECT_IF_BOTH,
-			L_SELECT_IF_GTE, NULL);
-	boxa3 = boxaSelectBySize(boxa2, maxwidth, maxheight, L_SELECT_IF_BOTH,
-			L_SELECT_IF_LTE, NULL);
-
-	/* 2D sort the bounding boxes of these words. */
-	baa = boxaSort2d(boxa3, NULL, 3, -5, 5);
-
-	/* Flatten the boxaa, saving the boxa index for each box */
-	boxad = boxaaFlattenToBoxa(baa, &nai, L_CLONE);
+    /* Get the bounding boxes of the words from the word mask. */
+    pixWordBoxesByDilation(pix1, maxsize, minwidth, minheight,
+			maxwidth, maxheight, &boxa1, NULL);
+	/* Generate a pixa of the word images */
+	pixa1 = pixaCreateFromBoxa(pix1, boxa1, NULL);  /* mask over each word */
+	/* Sort the bounding boxes of these words by line.  We use the
+	* index mapping to allow identical sorting of the pixa. */
+	baa = boxaSort2d(boxa1, &naa, -1, -1, 4);
+	paa = pixaSort2dByIndex(pixa1, naa, L_CLONE);
+	/* Flatten the word paa */
+	pixad = pixaaFlattenToPixa(paa, &nai, L_CLONE);
+	boxad = pixaGetBoxa(pixad, L_COPY);
 
 	*pnai = nai;
 	*pboxad = boxad;
 
-	pixDestroy(&pixt1);
-	pixDestroy(&pixt2);
+	pixaDestroy(&pixa1);
+	pixaDestroy(&pixad);
 	boxaDestroy(&boxa1);
-	boxaDestroy(&boxa2);
-	boxaDestroy(&boxa3);
+	pixaaDestroy(&paa);
 	boxaaDestroy(&baa);
+	numaaDestroy(&naa);
 	return 0;
 }
