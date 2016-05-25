@@ -105,6 +105,7 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		CXX='$(strip $(CCACHE) $(CXX))' \
 		CXXFLAGS='$(CXXFLAGS) -I$(MOD_INC)' \
 		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED',) \
+		$(if $(ANDROID),CPPFLAGS='-DANDROID=1',) \
 		LIBLEPT_HEADERSDIR=$(LEPTONICA_DIR)/src \
 		LDFLAGS='$(STDCPPLIB) $(LEPT_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
 		--with-extra-libraries=$(LEPTONICA_DIR)/src/.libs \
