@@ -49,6 +49,7 @@ void k2pdfopt_settings_init_from_koptcontext(K2PDFOPT_SETTINGS *k2settings, KOPT
 
     /* Apply context */
     k2settings->dst_dpi = kctx->dev_dpi;
+    k2settings->dst_userdpi = kctx->dev_dpi;
     k2settings->render_dpi = kctx->dev_dpi;
     k2settings->dst_userwidth = kctx->dev_width;
     k2settings->dst_userheight = kctx->dev_height;
