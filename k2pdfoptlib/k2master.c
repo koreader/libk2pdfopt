@@ -230,9 +230,11 @@ printf("11\n");
 #if (WILLUSDEBUGX & 0x800000)
 printf("22\n");
 #endif
+#ifndef K2PDFOPT_KINDLEPDFVIEWER
     /* Convert source back to gray scale if not using color output */
     if (!k2settings_need_color_permanently(k2settings))
         bmp_convert_to_greyscale(src);
+#endif
     region->dpi = k2settings->src_dpi;
     region->r1 = 0;
     region->r2 = srcgrey->height-1;
