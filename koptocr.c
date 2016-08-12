@@ -85,11 +85,11 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 	NUMA **pnai;
 
 	k2settings = &_k2settings;
-	/* Init for new source doc */
-	k2pdfopt_settings_new_source_document_init(k2settings);
 	/* Initialize settings */
 	k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
 	k2pdfopt_settings_quick_sanity_check(k2settings);
+	/* Init for new source doc */
+	k2pdfopt_settings_new_source_document_init(k2settings);
 
 	if (box_type == 0) {
         pboxa = &kctx->rboxa;

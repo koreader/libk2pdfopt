@@ -8,7 +8,7 @@ WILLUSLIB_DIR = willuslib
 K2PDFOPTLIB_DIR = k2pdfoptlib
 WILLUSLIB_SRC = $(wildcard $(WILLUSLIB_DIR)/*.c)
 K2PDFOPTLIB_SRC = $(wildcard $(K2PDFOPTLIB_DIR)/*.c)
-KOPT_SRC = setting.c koptreflow.c koptcrop.c koptocr.c koptpart.c koptimize.c
+KOPT_SRC = setting.c koptreflow.c koptcrop.c koptocr.c koptimize.c
 
 TESSCAPI_CFLAGS = -I$(MOD_INC) -I$(LEPTONICA_DIR)/src \
 	-I$(TESSERACT_DIR) -I$(TESSERACT_DIR)/api \

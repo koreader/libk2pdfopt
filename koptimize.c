@@ -45,10 +45,10 @@ void k2pdfopt_optimize_bmp(KOPTContext *kctx) {
 
     k2settings = &_k2settings;
     masterinfo = &_masterinfo;
-    /* Init for new source doc */
-    k2pdfopt_settings_new_source_document_init(k2settings);
     /* Initialize settings */
     k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
+    /* Init for new source doc */
+    k2pdfopt_settings_new_source_document_init(k2settings);
     /* Additional settings for optimization */
     k2settings->text_wrap=0;
     k2settings->max_columns=1;

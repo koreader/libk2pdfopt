@@ -45,11 +45,11 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
 
     k2settings = &_k2settings;
     masterinfo = &_masterinfo;
-    /* Init for new source doc */
-    k2pdfopt_settings_new_source_document_init(k2settings);
     /* Initialize settings */
     k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
     k2pdfopt_settings_quick_sanity_check(k2settings);
+    /* Init for new source doc */
+    k2pdfopt_settings_new_source_document_init(k2settings);
     /* Init master output structure */
     masterinfo_init(masterinfo, k2settings);
     wrapbmp_init(&masterinfo->wrapbmp, k2settings->dst_color);
