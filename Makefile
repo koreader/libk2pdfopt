@@ -88,6 +88,7 @@ $(LEPTONICA_LIB):
 		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff
 	# fix cannot find library -lc on mingw-w64
 	cd $(LEPTONICA_DIR) && sed -ie "s|archive_cmds_need_lc='yes'|archive_cmds_need_lc='no'|" config.status
+	cd $(LEPTONICA_DIR) && chmod +x config/install-sh # fix Permission denied on OSX
 	cd $(LEPTONICA_DIR) && $(MAKE) CFLAGS='$(LEPT_CFLAGS)' \
 		install --silent >/dev/null 2>&1
 ifdef WIN32
