@@ -85,7 +85,7 @@ $(LEPTONICA_LIB):
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(LEPT_CFLAGS)' \
 		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,"libs" $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
 		--disable-static --enable-shared \
-		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff
+		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff --without-libopenjpeg
 	# fix cannot find library -lc on mingw-w64
 	cd $(LEPTONICA_DIR) && sed -ie "s|archive_cmds_need_lc='yes'|archive_cmds_need_lc='no'|" config.status
 	cd $(LEPTONICA_DIR) && chmod +x config/install-sh # fix Permission denied on OSX
