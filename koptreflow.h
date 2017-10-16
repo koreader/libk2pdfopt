@@ -25,6 +25,7 @@
 #include "context.h"
 
 void k2pdfopt_reflow_bmp(KOPTContext *kctx);
+void pixmap_to_bmp(WILLUSBITMAP *bmp, unsigned char *pix_data, int ncomp);
 
 #endif
 

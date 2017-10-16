@@ -31,6 +31,38 @@
 #include "koptreflow.h"
 #include "leptonica.h"
 
+void pixmap_to_bmp(WILLUSBITMAP *bmp, unsigned char *pix_data, int ncomp) {
+    int i,j;
+    unsigned char *b, *p;
+
+    if (ncomp == 2) {
+        bmp->bpp = 8;
+        bmp_alloc(bmp);
+        // set palette
+        for (i = 0; i < 256; i++)
+            bmp->red[i] = bmp->blue[i] = bmp->green[i] = i;
+        for (i = 0; i < bmp->height; i++) {
+            b = bmp_rowptr_from_top(bmp, i);
+            p = pix_data + 2*i*bmp->width;
+            for (j = 0; j < bmp->width; j++) {
+                b[j] = p[2*j];
+            }
+        }
+    } else if (ncomp == 4) {
+        bmp->bpp = 24;
+        bmp_alloc(bmp);
+        for (i = 0; i < bmp->height; i++) {
+            b = bmp_rowptr_from_top(bmp, i);
+            p = pix_data + 4*i*bmp->width;
+            for (j = 0; j < bmp->width; j++) {
+                b[j] = p[4*j];
+                b[j+1] = p[4*j+1];
+                b[j+2] = p[4*j+2];
+            }
+        }
+    }
+}
+
 void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     K2PDFOPT_SETTINGS _k2settings, *k2settings;
     MASTERINFO _masterinfo, *masterinfo;
