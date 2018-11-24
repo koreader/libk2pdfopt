@@ -34,13 +34,15 @@ void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int
 #endif
     WILLUSBITMAP _bmp,*bmp;
     double bmpdpi;
-    int output_page_count,size_reduction;
+    int local_output_page_count,size_reduction;
 #ifdef HAVE_OCR_LIB
     OCRWORDS *ocrwords,_ocrwords;
 #else
     void *ocrwords;
 #endif
+    int bitmap;
 
+    bitmap=k2settings_output_is_bitmap(k2settings);
 /*
 aprintf(ANSI_GREEN "\n   @masterinfo_publish(flushall=%d)....\n\n" ANSI_NORMAL,flushall);
 */
@@ -62,14 +64,15 @@ aprintf(ANSI_GREEN "\n   @masterinfo_publish(flushall=%d)....\n\n" ANSI_NORMAL,f
         ocrwords=NULL;
     bmp=&_bmp;
     bmp_init(bmp);
-    output_page_count=0;
+    local_output_page_count=0;
     while (masterinfo_get_next_output_page(masterinfo,k2settings,flushall,bmp,
                                            &bmpdpi,&size_reduction,ocrwords)>0)
         {
 #if (WILLUSDEBUGX & 1)
 aprintf(ANSI_GREEN "\n   SRC PAGE %d\n\n" ANSI_NORMAL,masterinfo->pageinfo.srcpage);
 #endif
-        output_page_count++;
+        local_output_page_count++;
+        masterinfo->output_page_count++;
         if (masterinfo->preview_bitmap!=NULL)
             {
             if (ocrwords!=NULL)
@@ -100,12 +103,23 @@ printf("Done k2publish_outline_check, usecrop=%d, dst_ocr=%c\n",k2settings->use_
 printf("use_toc=%d, outline=%p, spc=%d, srcpage=%d\n",k2settings->use_toc,masterinfo->outline,masterinfo->outline_srcpage_completed,masterinfo->pageinfo.srcpage);
 */
 
+        if (bitmap)
+            {
+            char filename[MAXFILENAMELEN];
+
+            filename_substitute(filename,k2settings->dst_opname_format,masterinfo->srcfilename,
+                                masterinfo->filecount,masterinfo->output_page_count,"");
+            bmp_set_dpi(bmpdpi);
+            if (!stricmp(wfile_ext(filename),"jpg") 
+                 || !stricmp(wfile_ext(filename),"jpeg"))
+                bmp_promote_to_24(bmp);
+            bmp_write(bmp,filename,NULL,k2settings->jpeg_quality<1?93:k2settings->jpeg_quality);
+            bitmap_file_echo_status(filename);
+            }
         /*
         ** Nothing to do inside loop if using crop boxes -- they all
         ** get written after all pages have been processed.
         */
-        if (k2settings->use_crop_boxes)
-            continue;
 #ifdef HAVE_OCR_LIB
         if (k2settings->dst_ocr)
             {
@@ -164,6 +178,8 @@ ocrwords->word[i].text);
                 ocrwords_to_textfile(ocrwords,masterinfo->ocrfilename,
                                      masterinfo->published_pages>1);
 
+            if (!bitmap && !k2settings->use_crop_boxes)
+                {
 #if (WILLUSDEBUGX & 0x400)
 printf("Calling pdffile_add_bitmap_with_ocrwords.\n");
 #endif
@@ -184,10 +200,11 @@ printf("    ptr=%p\n",masterinfo->outfile.f);
 printf("    nobjs=%d\n",masterinfo->outfile.n);
 printf("    na=%d\n",masterinfo->outfile.na);
 #endif
-            pdffile_add_bitmap_with_ocrwords(&masterinfo->outfile,bmp,bmpdpi,
+                pdffile_add_bitmap_with_ocrwords(&masterinfo->outfile,bmp,bmpdpi,
                                              k2settings->jpeg_quality,size_reduction,
                                              ocrwords,k2settings->dst_ocr_visibility_flags
                                                         | flags_extra);
+                }
 #if (WILLUSDEBUGX & 0x400)
 printf("Back from pdffile_add_bitmap_with_ocrwords.\n");
 #endif
@@ -202,7 +219,7 @@ bmp_write(bmp,filename,stdout,100);
             masterinfo->wordcount += ocrwords->n;
             ocrwords_free(ocrwords);
             }
-        else
+        else if (!bitmap && !k2settings->use_crop_boxes)
 #endif
             {
 #if (WILLUSDEBUGX & 1)
@@ -213,12 +230,12 @@ printf("Calling pdffile_add_bitmap... (%d x %d, %d dpi)\n",bmp->width,bmp->heigh
             }
         }
 #if (WILLUSDEBUGX & 1)
-printf("output_page_count=%d\n",output_page_count);
+printf("local_output_page_count=%d\n",local_output_page_count);
 #endif
     /*
     ** v2.16 bug fix:  If no destination output generated, we still have to call outline_check().
     */
-    if (output_page_count==0)
+    if (local_output_page_count==0)
         k2publish_outline_check(masterinfo,k2settings,1);
     bmp_free(bmp);
     }

@@ -397,6 +397,29 @@ void bmpregion_free(BMPREGION *region)
 
 
 /*
+** New function in v2.36 to assess whether a region is blank
+** Somewhat heuristic.
+*/
+int bmpregion_is_blank(BMPREGION *srcregion,K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    BMPREGION region;
+    double a1,a2;
+
+    bmpregion_init(&region);
+    bmpregion_copy(&region,srcregion,0);
+    bmpregion_trim_margins(&region,k2settings,0xf);
+    bmpregion_free(&region);
+    a1=(double)srcregion->bmp->width*srcregion->bmp->height;
+    a2=(double)(region.c2-region.c1+1)*(region.r2-region.r1+1);
+#if (WILLUSDEBUGX & 0x200)
+printf("a1=%g, a2=%g, a2/a1=%g\n",a1,a2,a2/a1);
+#endif
+    return(region.c2-region.c1<=5 || region.r2-region.r1<=5 || a2/a1<1e-4);
+    }
+
+
+/*
 ** Doesn't copy the colcount / rowcount pointers--those get NULLed.
 */
 void bmpregion_copy(BMPREGION *dst,BMPREGION *src,int copy_text_rows)
@@ -445,12 +468,15 @@ void bmpregion_calc_bbox(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,int cal
     int *colcount,*rowcount;
     static char *funcname="bmpregion_calc_bbox";
     TEXTROW *bbox;
-/*
+
+#if (WILLUSDEBUGX & 2)
+{
 printf("@bmpregion_calc_bbox(%d,%d)-(%d,%d)\n",region->c1,region->r1,region->c2,region->r2);
 printf("    bmp8 = %d x %d\n",region->bmp8->width,region->bmp8->height);
 printf("    region->colcount=%p\n",region->colcount);
 printf("    region->rowcount=%p\n",region->rowcount);
-*/
+}
+#endif
     if (region->c2 > region->bmp8->width-1 || region->c2 > region->bmp->width-1
          || region->r2 > region->bmp8->height-1 || region->r2 > region->bmp->height-1)
         {
@@ -480,14 +506,16 @@ printf("    region->rowcount=%p\n",region->rowcount);
                                funcname,10);
     rowcount=region->rowcount;
     n=bbox->c2-bbox->c1+1;
-/*
+#if (WILLUSDEBUGX & 2)
 k2printf("Trim:  reg=(%d,%d) - (%d,%d)\n",bbox->c1,bbox->r1,bbox->c2,bbox->r2);
+/*
 if (bbox->c2+1 > cca || bbox->r2+1 > rca)
 {
 k2printf("A ha 0!\n");
 exit(10);
 }
 */
+#endif
     memset(colcount,0,(bbox->c2+1)*sizeof(int));
     memset(rowcount,0,(bbox->r2+1)*sizeof(int));
     for (j=bbox->r1;j<=bbox->r2;j++)
@@ -501,6 +529,16 @@ exit(10);
                 colcount[i+bbox->c1]++;
                 }
         }
+#if (WILLUSDEBUGX & 2)
+{
+if (region->rowcount!=NULL)
+{
+int i;
+for (i=region->r1;i<=region->r2;i++)
+printf("        rowcount[%d]=%d\n",i,region->rowcount[i]);
+}
+}
+#endif
     /*
     ** Trim excess margins
     */
@@ -589,6 +627,12 @@ fclose(f);
 #if (WILLUSDEBUGX & 2)
 k2printf("trim:\n    reg->c1=%d, reg->c2=%d\n",bbox->c1,bbox->c2);
 k2printf("    reg->r1=%d, reg->r2=%d, reg->rowbase=%d\n\n",bbox->r1,bbox->r2,bbox->rowbase);
+if (bbox->r1==2135)
+{
+bmp_write(region->bmp8,"out.png",NULL,100);
+wfile_written_info("out.png",stdout);
+exit(10);
+}
 #endif
     /*
     if (rowcount0==NULL)
@@ -1157,7 +1201,8 @@ k2printf("    Not centered (not enough obviously centered lines).\n");
 **
 */
 void bmpregion_find_textrows(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
-                             int dynamic_aperture,int remove_small_rows)
+                             int dynamic_aperture,int remove_small_rows,
+                             int join_figure_captions)
 
     {
     static char *funcname="bmpregion_find_textrows";
@@ -1168,6 +1213,10 @@ void bmpregion_find_textrows(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
     int *rowthresh;
     double min_fig_height,max_fig_gap,max_label_height;
 
+#if (WILLUSDEBUGX & 0x2)
+k2printf("At bmpregion_find_textrows(dyn_aprt=%d, remove_small=%d, joinfigcaps=%d)\n",
+dynamic_aperture,remove_small_rows,join_figure_captions);
+#endif
     min_fig_height=k2settings->dst_min_figure_height_in;
     max_fig_gap=0.16;
     max_label_height=0.5;
@@ -1199,8 +1248,14 @@ FILE *f;
 static int count=0;
 f=fopen("rthresh.ep",count==0?"w":"a");
 count++;
-for (i=region->r1;i<=region->r2;i++)
-nprintf(f,"%d\n",rowthresh[i-region->r1]);
+k2printf("rowcount=%p\n",newregion->rowcount);
+for (i=newregion->r1;i<=newregion->r2;i++)
+{
+nprintf(f,"%d\n",rowthresh[i-newregion->r1]);
+k2printf("rowthresh[%4d]=%4d\n",i,rowthresh[i-newregion->r1]);
+if (newregion->rowcount!=NULL)
+k2printf("rowcount [%4d]=%4d\n",i,newregion->rowcount[i]);
+}
 nprintf(f,"//nc\n");
 fclose(f);
 }
@@ -1296,7 +1351,8 @@ printf("    Region_height = %g in.\n",region_height_inches);
 #endif
 
                 /* Could this region be a figure? */
-                if (i<=region->r2 && figrow < 0 && region_height_inches >= min_fig_height)
+                if (join_figure_captions && i<=region->r2 
+                        && figrow < 0 && region_height_inches >= min_fig_height)
                     {
 #if (WILLUSDEBUGX & 0x2)
 printf("    Region could be figure.\n");
@@ -1406,6 +1462,19 @@ printf("    (Non-blank row.)\n");
     textrows_compute_row_gaps(textrows,region->r2);
 
 #if (WILLUSDEBUGX & 0x2)
+    {
+    k2printf("FIRST PASS IN FIND TEXT ROWS:\n");
+    int i;
+    for (i=0;i<textrows->n;i++)
+        {
+        TEXTROW *textrow;
+        textrow=&textrows->textrow[i];
+        k2printf("   rowheight[%03d] = (%04d,%04d)-(%04d,%04d)\n",i,textrow->c1,textrow->r1,textrow->c2,textrow->r2);
+        }
+    }
+#endif
+
+#if (WILLUSDEBUGX & 0x2)
 printf("CC\n");
 #endif
     /* Look for double-height and triple-height rows and break them up */
@@ -1438,6 +1507,30 @@ printf("DD\n");
     /* Classify as text rows or figures (could be smarter at some point) */
     for (i=0;i<textrows->n;i++)
         textrow_determine_type(region,k2settings,i);
+
+#if (WILLUSDEBUGX & 0x2)
+    {
+    k2printf("FINAL PASS IN FIND TEXT ROWS:\n");
+    int i;
+    for (i=0;i<textrows->n;i++)
+        {
+        TEXTROW *textrow;
+        textrow=&textrows->textrow[i];
+        k2printf("   rowheight[%03d] = (%04d,%04d)-(%04d,%04d)\n",i,textrow->c1,textrow->r1,textrow->c2,textrow->r2);
+        }
+    }
+#endif
+#if (WILLUSDEBUGX & 0x2)
+{
+int i;
+k2printf("rowcount=%p\n",region->rowcount);
+for (i=region->r1;i<=region->r2;i++)
+{
+if (region->rowcount!=NULL)
+k2printf("rowcount [%4d]=%4d\n",i,region->rowcount[i]);
+}
+}
+#endif
 
     willus_dmem_free(15,(double **)&rowthresh,funcname);
     bmpregion_free(newregion);

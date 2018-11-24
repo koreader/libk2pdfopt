@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -54,7 +54,7 @@ int bmpdjvu_djvufile_to_bmp(WILLUSBITMAP *bmp,char *infile,int pageno,
         nprintf(out,"Cannot create djvu context.\n");
         return(-1);
         }
-    doc=ddjvu_document_create_by_filename(ctx,infile,1);
+    doc=ddjvu_document_create_by_filename_utf8(ctx,infile,1);
     if (doc==NULL)
         {
         ddjvu_context_release(ctx);
@@ -122,15 +122,20 @@ int bmpdjvu_djvufile_to_bmp(WILLUSBITMAP *bmp,char *infile,int pageno,
         }
     ddjvu_format_set_row_order(fmt,1);
     status=ddjvu_page_render(page,mode,&prect,&rrect,fmt,bmp_bytewidth(bmp),(char *)bmp->data);
+    /* Seems to return 0 for blank/empty page */
+    if (!status) 
+        bmp_fill(bmp,255,255,255);
     ddjvu_format_release(fmt);
     ddjvu_page_release(page);
     ddjvu_document_release(doc);
     ddjvu_context_release(ctx);
+    /*
     if (!status)
         {
         nprintf(out,"Error rendering page %d of djvu file %s.\n",pageno,infile);
         return(-7);
         }
+    */
     return(0);
     }
 
@@ -148,7 +153,7 @@ int bmpdjvu_numpages(char *infile)
     ctx=ddjvu_context_create("bmpdjvu_numpages");
     if (ctx==NULL)
         return(-1);
-    doc=ddjvu_document_create_by_filename(ctx,infile,1);
+    doc=ddjvu_document_create_by_filename_utf8(ctx,infile,1);
     if (doc==NULL)
         {
         ddjvu_context_release(ctx);

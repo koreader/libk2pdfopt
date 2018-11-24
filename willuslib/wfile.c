@@ -197,7 +197,7 @@ int wfile_be_read(void *ptr,int elsize,int nobj,FILE *f)
     nread=0;
     for (i=0,a=(char *)ptr;i<nobj;i++,a+=elsize)
         {
-        if ((status=fread(a,elsize,1,f))<1)
+        if ((status=fread(a,elsize,1,f))<1) 
             return(nread);
         nread++;
         for (j=0;j<n2;j++)
@@ -205,7 +205,7 @@ int wfile_be_read(void *ptr,int elsize,int nobj,FILE *f)
             char c;
             c=a[j];
             a[j]=a[elsize-j-1];
-            a[elsize-j-1]=c;
+            a[elsize-j-1]=c; 
             }
         }
     return(nread);
@@ -240,9 +240,9 @@ int wfile_be_write(void *ptr,int elsize,int nobj,FILE *f)
             char c;
             c=b[j];
             b[j]=b[elsize-j-1];
-            b[elsize-j-1]=c;
+            b[elsize-j-1]=c; 
             }
-        if ((status=fwrite(b,elsize,1,f))<1)
+        if ((status=fwrite(b,elsize,1,f))<1) 
             {
             dp=(double *)b;
             willus_mem_free(&dp,funcname);
@@ -705,7 +705,7 @@ void wfile_date_decrement_hour(struct tm *date)
         }
     }
 */
-
+   
 
 /*
 ** Uses "touch" command in Unix/Linux.
@@ -873,7 +873,7 @@ void wfile_decrement_day(struct tm *ts)
     else
         ts->tm_mon--;
     ts->tm_mday=wfile_days_in_month(ts);
-    }
+    }    
 
 
 int wfile_days_in_month(struct tm *ts)
@@ -1230,8 +1230,8 @@ int wfile_remove_dir(char *path,int recursive)
         }
     return(status);
     }
-
-
+        
+    
 /*
 ** Remove directory.  Returns -1 if error, 0 of OK.
 ** If recursive, removes directory and ALL contents.
@@ -1273,7 +1273,7 @@ int wfile_check_file_64bit(char *filename)
     char tmpfile[MAXFILENAMELEN];
     char cmd[MAXFILENAMELEN];
     FILE *f;
-
+    
     wfile_abstmpnam(tmpfile);
     sprintf(cmd,"which \"%s\" > \"%s\"",filename,tmpfile);
     system(cmd);
@@ -1466,7 +1466,7 @@ void wfile_written_info(char *filename,FILE *out)
         }
     }
 
-
+    
 /*
 ** If filename1 doesn't exist but filename2 does, returns 0.
 ** If filename1 exists but filename2 doesn't, returns 1.
@@ -1670,7 +1670,7 @@ void wfile_up_one(char *filename)
     for (j=i-1;j>=0 && filename[j]!=':' && !wfile_eitherslash(filename[j]);j--);
     memmove(&filename[j+1],&filename[i+1],len-i);
     }
-
+    
 
 /*
 ** Remove ".." and "." from a path where possible.
@@ -1846,7 +1846,7 @@ void wfile_goodpath(char *dst,char *src)
     }
 
 
-/*
+/* 
 ** Expand file name using CWD.  Check to see that the filename
 ** isn't already absolute.
 */
@@ -1861,7 +1861,7 @@ void wfile_expandname(char *expanded,char *filename)
     if (expanded==NULL)
         expanded=filename;
     if (basename[0]=='/' || basename[0]=='\\'
-            || (strlen(basename)>3 && basename[1]==':' &&
+            || (strlen(basename)>3 && basename[1]==':' && 
                     (basename[2]=='\\' || basename[2]=='/')))
         {
         if (expanded!=filename)
@@ -3146,7 +3146,7 @@ int wfile_extract_in_place(char *filename)
     strcpy(fullname,filename);
     wfile_basepath(relpath,filename);
     wfile_make_absolute(fullname);
-    wfile_basepath(mypath,fullname);
+    wfile_basepath(mypath,fullname); 
     wfile_abstmpnam(tempdir);
     wfile_makedir(tempdir);
     wfile_set_wd(tempdir);

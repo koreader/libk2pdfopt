@@ -1,5 +1,25 @@
 #include "mupdf/fitz.h"
 
+static inline int
+fz_tolower(int c)
+{
+	if (c >= 'A' && c <= 'Z')
+		return c + 32;
+	return c;
+}
+
+int
+fz_strcasecmp(const char *a, const char *b)
+{
+	while (fz_tolower(*a) == fz_tolower(*b))
+	{
+		if (*a++ == 0)
+			return 0;
+		b++;
+	}
+	return fz_tolower(*a) - fz_tolower(*b);
+}
+
 char *
 fz_strsep(char **stringp, const char *delim)
 {
@@ -10,12 +30,12 @@ fz_strsep(char **stringp, const char *delim)
 	return ret;
 }
 
-int
-fz_strlcpy(char *dst, const char *src, int siz)
+size_t
+fz_strlcpy(char *dst, const char *src, size_t siz)
 {
 	register char *d = dst;
 	register const char *s = src;
-	register int n = siz;
+	register size_t n = siz;
 
 	/* Copy as many bytes as will fit */
 	if (n != 0 && --n != 0) {
@@ -36,13 +56,13 @@ fz_strlcpy(char *dst, const char *src, int siz)
 	return(s - src - 1);	/* count does not include NUL */
 }
 
-int
-fz_strlcat(char *dst, const char *src, int siz)
+size_t
+fz_strlcat(char *dst, const char *src, size_t siz)
 {
 	register char *d = dst;
 	register const char *s = src;
-	register int n = siz;
-	int dlen;
+	register size_t n = siz;
+	size_t dlen;
 
 	/* Find the end of dst and adjust bytes left but don't go past end */
 	while (*d != '\0' && n-- != 0)
@@ -65,9 +85,9 @@ fz_strlcat(char *dst, const char *src, int siz)
 }
 
 void
-fz_dirname(char *dir, const char *path, int n)
+fz_dirname(char *dir, const char *path, size_t n)
 {
-	int i;
+	size_t i;
 
 	if (!path || !path[0])
 	{
@@ -84,14 +104,14 @@ fz_dirname(char *dir, const char *path, int n)
 	dir[i+1] = 0;
 }
 
-static int ishex(int a)
+static inline int ishex(int a)
 {
 	return (a >= 'A' && a <= 'F') ||
 		(a >= 'a' && a <= 'f') ||
 		(a >= '0' && a <= '9');
 }
 
-static int tohex(int c)
+static inline int tohex(int c)
 {
 	if (c >= '0' && c <= '9') return c - '0';
 	if (c >= 'a' && c <= 'f') return c - 'a' + 0xA;
@@ -120,6 +140,50 @@ fz_urldecode(char *url)
 	}
 	*p = 0;
 	return url;
+}
+
+void
+fz_format_output_path(fz_context *ctx, char *path, size_t size, const char *fmt, int page)
+{
+	const char *s, *p;
+	char num[40];
+	int i, n;
+	int z = 0;
+
+	for (i = 0; page; page /= 10)
+		num[i++] = '0' + page % 10;
+	num[i] = 0;
+
+	s = p = strchr(fmt, '%');
+	if (p)
+	{
+		++p;
+		while (*p >= '0' && *p <= '9')
+			z = z * 10 + (*p++ - '0');
+	}
+	if (p && *p == 'd')
+	{
+		++p;
+	}
+	else
+	{
+		s = p = strrchr(fmt, '.');
+		if (!p)
+			s = p = fmt + strlen(fmt);
+	}
+
+	if (z < 1)
+		z = 1;
+	while (i < z && i < sizeof num)
+		num[i++] = '0';
+	n = s - fmt;
+	if (n + i + strlen(p) >= size)
+		fz_throw(ctx, FZ_ERROR_GENERIC, "path name buffer overflow");
+	memcpy(path, fmt, n);
+	while (i > 0)
+		path[n++] = num[--i];
+	fz_strlcpy(path + n, p, size - n);
+
 }
 
 #define SEP(x) ((x)=='/' || (x) == 0)
@@ -352,26 +416,40 @@ fz_runelen(int c)
 	return fz_runetochar(str, c);
 }
 
+int
+fz_utflen(const char *s)
+{
+	int c, n, rune;
+	n = 0;
+	for(;;) {
+		c = *(const unsigned char*)s;
+		if(c < Runeself) {
+			if(c == 0)
+				return n;
+			s++;
+		} else
+			s += fz_chartorune(&rune, s);
+		n++;
+	}
+	return 0;
+}
+
 float fz_atof(const char *s)
 {
 /* willus mod:  #if-#else-#endif */
 #if (!defined(__SSE__))
     return(atof(s));
 #else
-	double d;
 
-	/* The errno voodoo here checks for us reading numbers that are too
-	 * big to fit into a double. The checks for FLT_MAX ensure that we
-	 * don't read a number that's OK as a double and then become invalid
-	 * as we convert to a float. */
+	float result;
+
 	errno = 0;
-	d = fz_strtod(s, NULL);
-	if (errno == ERANGE || isnan(d)) {
-		/* Return 1.0, as it's a small known value that won't cause a divide by 0. */
-		return 1.0;
-	}
-	d = fz_clampd(d, -FLT_MAX, FLT_MAX);
-	return (float)d;
+	result = fz_strtof(s, NULL);
+	if ((errno == ERANGE && result == 0) || isnan(result))
+		/* Return 1.0 on  underflow, as it's a small known value that won't cause a divide by 0.  */
+		return 1;
+	result = fz_clamp(result, -FLT_MAX, FLT_MAX);
+	return result;
 #endif
 }
 
@@ -387,4 +465,51 @@ fz_off_t fz_atoo(const char *s)
 	if (s == NULL)
 		return 0;
 	return fz_atoo_imp(s);
+}
+
+int fz_is_page_range(fz_context *ctx, const char *s)
+{
+	/* TODO: check the actual syntax... */
+	while (*s)
+	{
+		if ((*s < '0' || *s > '9') && *s != 'N' && *s != '-' && *s != ',')
+			return 0;
+		s++;
+	}
+	return 1;
+}
+
+const char *fz_parse_page_range(fz_context *ctx, const char *s, int *a, int *b, int n)
+{
+	if (!s || !s[0])
+		return NULL;
+
+	if (s[0] == ',')
+		s += 1;
+
+	if (s[0] == 'N')
+	{
+		*a = n;
+		s += 1;
+	}
+	else
+		*a = strtol(s, (char**)&s, 10);
+
+	if (s[0] == '-')
+	{
+		if (s[1] == 'N')
+		{
+			*b = n;
+			s += 2;
+		}
+		else
+			*b = strtol(s+1, (char**)&s, 10);
+	}
+	else
+		*b = *a;
+
+	*a = fz_clampi(*a, 1, n);
+	*b = fz_clampi(*b, 1, n);
+
+	return s;
 }

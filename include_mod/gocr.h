@@ -418,8 +418,9 @@ void job_init_image(job_t *job);  /* for each of a multiimage */
 /* free job structure */
 void job_free_image(job_t *job); /* for each of a multiimage */
 
-/*FIXME jb: remove JOB; */
-extern job_t *JOB;
+/* FIXME jb: remove JOB; 2010-09-25 renamed to OCR_JOB */
+/*  as a first step OCR_JOB will be remain in DO_DEBUG mode only */
+extern job_t *OCR_JOB;
 
 /* calculate the overlapp of the line (0-1) with black points 
  * by rekursiv bisection 
@@ -430,6 +431,7 @@ extern job_t *JOB;
 
 /* gerade y=dy/dx*x+b, implizit d=F(x,y)=dy*x-dx*y+b*dx=0 
  * incrementell y(i+1)=m*(x(i)+1)+b, F(x+1,y+1)=f(F(x,y))  */
+/* willus mod get_line() -> get_lineg() */
 int get_lineg(int x0, int y0, int x1, int y1, pix *p, int cs, int ret);
 int get_line2(int x0, int y0, int x1, int y1, pix *p, int cs, int ret);
 
@@ -508,4 +510,8 @@ int marked(pix *p, int  x, int  y);
 void put(pix * p, int x, int y, int ia, int io);
 
 /* } */ /* extern C */
+
+/* willus mod--declare external funcs called by WLM lib */
+int pgm2asc(job_t *job);
+const char *getTextLine (List *linelist, int line);
 #endif /* __GOCR_H__ */

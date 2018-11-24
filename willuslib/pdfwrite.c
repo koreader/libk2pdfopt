@@ -625,7 +625,11 @@ ocrwords->word[i].h);
 */
     lastfont=-1;
     lastfontsize=-1;
-    showbitmap = (ocr_render_flags&1);
+    /* Fix: 24 Nov 2016 */
+    showbitmap = (ocr_render_flags&5);
+    /* If only showing boxes, clear the bitmap */
+    if (showbitmap && !(ocr_render_flags&1))
+        bmp_fill(bmp,255,255,255);
 
     pw=bmp->width*72./dpi;
     ph=bmp->height*72./dpi;

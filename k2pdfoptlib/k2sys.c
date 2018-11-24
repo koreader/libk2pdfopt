@@ -1,7 +1,7 @@
 /*
 ** k2sys.c     K2pdfopt system functions
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2017  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -26,7 +26,37 @@ void k2sys_init(void)
 
     {
     wsys_set_decimal_period(1);
+#ifdef HAVE_OCR_LIB
+    k2ocr_cpu_time_reset();
+#endif
     /* wrapbmp_init(); */
+    }
+
+
+void k2sys_cpu_update(K2PDFOPT_SETTINGS *k2settings,double start_seconds,double stop_seconds)
+
+    {
+#ifdef HAVE_OCR_LIB
+    if (k2settings->dst_ocr=='t' || k2settings->dst_ocr=='g')
+        {
+        int mt;
+        double cpusecs;
+
+        mt=k2ocr_max_threads();
+        cpusecs=k2ocr_cpu_time_secs();
+        k2printf("Total OCR CPU time used:  ");
+        if (mt<=1)        
+            k2printf("%.2f s\n",cpusecs);
+        else
+            {
+#if (!(WIN32 || WIN64))
+            cpusecs /= mt;
+#endif
+            k2printf("%.2f s per thread (%d threads)\n",cpusecs,mt);
+            }
+        }
+#endif
+    k2printf(TTEXT_NORMAL "Total CPU time used: %.2f s\n",stop_seconds-start_seconds);
     }
 
 
@@ -136,6 +166,7 @@ int k2printf(char *fmt,...)
         {
 #if (WILLUSDEBUGX & 0x4000)
         status=avprintf(stdout,fmt,args);
+        fflush(stdout);
 #endif          
         if (k2gui_cbox_converting())
             status=k2gui_cbox_vprintf(stdout,fmt,args);
@@ -145,6 +176,7 @@ int k2printf(char *fmt,...)
     else
 #endif
     status=avprintf(stdout,fmt,args);
+    fflush(stdout);
     va_end(args);
     willusgui_semaphore_release(k2printf_semaphore);
     return(status);

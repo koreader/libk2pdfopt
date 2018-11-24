@@ -574,8 +574,8 @@ int k2pdfopt_menu(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,STRBUF
             }
         else if (!stricmp(buf,"mo"))
             {
-            static char *modename[]={"default","copy","trim","c*rop","fitwidth","fit*page","2-column","grid",""};
-            static char *shortname[]={"def","copy","tm","crop","fw","fp","2col","grid"};
+            static char *modename[]={"default","copy","trim","c*rop","fitwidth","fit*page","2-column","con*cat","grid",""};
+            static char *shortname[]={"def","copy","tm","crop","fw","fp","2col","cc","grid"};
             double v[3];
             int nm;
 

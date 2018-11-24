@@ -1,8 +1,8 @@
-char *k2pdfopt_version = "v2.34b";
+char *k2pdfopt_version = "v2.42";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2017  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -18,6 +18,128 @@ char *k2pdfopt_version = "v2.34b";
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **
 ** VERSION HISTORY
+**
+** V2.42 20 MAY 2017
+**           NEW FEATURES
+**           - Bitmap output.  The -o <namefmt> option now takes names ending
+**             in .jpg and .png to tell k2pdfopt to write out bitmaps instead of
+**             a PDF file.  E.g. -o .png writes pages to srcfile0001.png,
+**             srcfile0002.png, etc.
+**           - Added de-warp (-dw) option to de-warp scanned pages a la
+**             ScanTailor.  This is most useful for books that have been pressed
+**             against the glass of a copier and the scans still have some
+**             curvature (warping) in them.  Or for photographs of pages taken
+**             at a slight angle.  Uses Leptonica's built-in functions.
+**           ENHANCEMENTS
+**           - Improved autocrop (-ac) algorithm and added an "aggressiveness" factor
+**             to it.  It is now called more efficiently as well (it used to be
+**             called multiple times per source page).
+**           - Added Kobo Aura One to built-in device list
+**             https://www.mobileread.com/forums/showthread.php?p=3513245#post3513245
+**           - Improved straightening/deskew algorithm.  Faster and uses weighted
+**             average / fine grain search (25 Mar 2017).  ~20% faster for 64-bit.
+**           - Keyboard shortcut change:  'i' key now brings up file info.
+**           - PDF information shows dates and page size more clearly now.
+**           BUG FIXES
+**           - The -ocrout function works even if native output mode is specified.
+**           - Pressing ESC key when file overwrite is requested now results in a
+**             "no" response (it used to result in a "yes" response).
+**
+** V2.41 25 FEB 2017
+**           ENHANCEMENTS
+**           - Updated libraries: MuPDF v1.10a, Tesseract 3.05.00,
+**             Leptonica 1.74.1, FreeType 2.7.1, libpng v1.6.28, zlib 1.2.11.
+**           - Compiled with MinGW/GNU C 6.3 (MS Windows version)
+**           NEW FEATURE
+**           - Added bitmap erosion filter (-er option) as an alternative to
+**             gamma correction (-g) to make text thicker/darker (idea from
+**             the original "Yet Another PDF to LRF Converter" program).
+**           
+** V2.40 7 JAN 2017
+**           NEW FEATURE
+**           - OCR processing is now multithreaded.  This may provide a significant
+**             boost in OCR processing speed depending on how many CPU threads you
+**             have available.  See the -nt option.  As part of this upgrade, the
+**             OCR and total CPU time are now echoed for each run (using the
+**             clock() function).  Include MS Windows GUI control for number of
+**             CPUS.  Inspired by Harry Shamanski's Elucidate app.
+**           BUG FIXES
+**           - Fixed a couple of minor places in the usage where options were not
+**             in alphabetical order.
+**           - k2printf() flushes stdout.
+**           - MS Windows GUI crop selection does not ask for page range if
+**             document only has one page.
+**           - MS Windows GUI no longer exceeds size of desktop when maximized.
+**
+** V2.36 26 NOV 2016
+**           ENHANCEMENTS
+**           - The -colorfg and -colorbg options can take an array of colors, in
+**             which case each array element is used for the next row of text.
+**             See usage.  Suggested in a 5 Nov 2016 e-mail.
+**           BUG FIXES
+**           - If using -mode trim with -bp, blank pages are passed through to
+**             the output file as if -mode copy.  From 11-16-2016 e-mail.
+**           - Minimum dpi allowed from k2settings_settings_set_margins_and_devsize
+**             is 1.
+**           - Fixed bug where -bp was not recognized if at the end of a command line.
+**           - -ocrvis b did not work before without 's'.  Now it does.
+**           - Fixed Tesseract to correctly parse .traineddata files when certain
+**             locales are set.  It was not correctly parsing Chinese .traineddata
+**             files on my Windows 10 system because of the locale.
+**           - Updated GOCR library to GOCR v0.50.  Not convinced it is improved.
+**           - Re-ordered some command line options in usage to keep them alphabetical.
+**
+** V2.35 22 OCT 2016 
+**           ENHANCEMENTS
+**           - Mac OSX version compiled on new machine running Sierra with GCC 6.2.0.
+**             Also, the binaries are compressed with a newer version of UPX which
+**             is compatible with Mac OSX 10.12 Sierra.
+**           - Linux binaries compiled on CentOS 7.2 with GCC 4.8.5.
+**           - Windows binaries compiled with GCC 6.2.0 (MinGW).
+**           - Compiled with the latest versions of libpng (1.6.25), freetype (2.7),
+**             turbo JPEG (1.5.1).
+**           - I tried newer versions of MuPDF (v1.9a and v1.10 pre-release), but
+**             they broke more things than I was comfortable with, so I've stayed
+**             with MuPDF v1.8 for this release.
+**           NEW FEATURES
+**           - Added -jfc- option to prevent trying to join figure captions to the
+**             figures.
+**             http://www.mobileread.com/forums/showthread.php?p=3342105#post3342105
+**           - Added new conversion mode, -mode concat, which keeps the output at
+**             the same dimensions as the source file and concatenates crop-boxes
+**             (red boxes) together--as many as can fit on each page without breaking
+**             them apart.
+**           - Added option -f2p -3 to support -mode concat.
+**           BUG FIXES
+**           - No longer crashes in native PDF output mode if there is no output.
+**           - Writes more informative message to screen if output file not written.
+**           - Makes sure output file can be opened for writing before proceeding
+**             with the conversion.  Warns user if file cannot be opened.
+**             http://www.mobileread.com/forums/showthread.php?p=3343367#post3343367
+**           - Correctly processes blank/empty pages in .djvu files.
+**             http://www.mobileread.com/forums/showthread.php?p=3350691#post3350691
+**           - The -title option now substitutes the file name for %s or %b, like
+**             the -o option.
+**             http://www.mobileread.com/forums/showthread.php?p=3389292#post3389292
+**           - The -grid overlap percentage is more precise now.
+**           - Warning message to use -fc- with -odpi, -fs, or -mag.  Not sure this
+**             is the best way--should I just turn off -fc if those are specified?
+**             Reported in 22 April 2016 e-mail.
+**             Also: http://www.mobileread.com/forums/showthread.php?p=3354548#post3354548
+**           - Wide-char (UTF-8) DJVU file names now work.
+**             http://www.mobileread.com/forums/showthread.php?p=3351085#post3351085
+**           - Blank pages no longer cause an improper conversion with -mode trim.
+**             E-mail from 17 Mar 2016.
+**           - Clarified usage of -mode copy, explaining about gamma and contrast
+**             settings (how they are not reset to 1 with -mode copy).
+**           - In the function where the 2-column divider is detected, a special
+**             call is made to find_textrows() so that figure caption joining is
+**             disabled unless -jfc+ is specified.  This helps 2-column detection
+**             work more reliably.
+**             http://www.mobileread.com/forums/showthread.php?p=3351808#post3351808
+**             http://www.mobileread.com/forums/showthread.php?p=3342105#post3342105
+**           MS WINDOWS GUI BUG FIXES
+**           - The GUI now correctly selects the "crop" conversion mode.
 **
 ** V2.34b 21 MAR 2016
 **           MS WINDOWS BUG FIXES

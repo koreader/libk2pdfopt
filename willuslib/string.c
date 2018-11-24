@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -1269,6 +1269,28 @@ char *wide_to_char(char *d,short *s)
         x[i]=(unsigned char)p[i];
     x[i]='\0';
     return((char *)x);
+    }
+
+
+short *char_to_wide_list(short *d,char *s)
+
+    {
+    static char *funcname="char_to_wide_double_term";
+    unsigned short *x;
+    unsigned char *p;
+    int i,n;
+
+    for (i=0;s[i]!='\0' || s[i+1]!='\0';i++);
+    n=i+2;
+    if (d==NULL)
+        willus_mem_alloc_warn((void **)&x,sizeof(short)*n,funcname,10);
+    else
+        x=(unsigned short *)d;
+    p=(unsigned char *)s;
+    for (i=0;i<n;i++)
+        x[i]=p[i];
+    x[i]=0;
+    return((short *)x);
     }
 
 

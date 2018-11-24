@@ -1,7 +1,7 @@
 /*
 ** k2ocr.c       k2pdfopt OCR functions
 **
-** Copyright (C) 2015  http://willus.com
+** Copyright (C) 2017  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -18,16 +18,52 @@
 **
 */
 
+#ifdef WIN32
+#include <windows.h>
+#endif
 #include "k2pdfopt.h"
+#include <pthread.h>
 
 #ifdef HAVE_OCR_LIB
 static int k2ocr_gocr_inited=0;
+typedef struct
+    {
+    WILLUSBITMAP *bmp;
+    int type,c1,r1,c2,r2,rowbase;
+    double lcheight;
+    pthread_mutex_t mutex;
+    int done;
+    char *word;
+    } OCRRESULT;
+typedef struct
+    {
+    OCRRESULT *ocrresult;
+    int thindex;
+    int n;
+    int na;
+    } OCRRESULTS;
+static int maxthreads=0;
+static double ocr_cpu_time_secs=0.;
 #if (defined(HAVE_TESSERACT_LIB))
+static void **ocrtess_api;
+static void *otinit(void *data);
 static int k2ocr_tess_inited=0;
 static int k2ocr_tess_status=0;
+typedef struct
+    {
+    K2PDFOPT_SETTINGS *k2settings;
+    int index;
+    int ni;
+    char initstr[256];
+    } OCRTESSINITINFO;
 #endif
 static void k2ocr_ocrwords_fill_in(MASTERINFO *masterinfo,OCRWORDS *words,BMPREGION *region,
                                    K2PDFOPT_SETTINGS *k2settings);
+/*
+static void *ocr_process_word_bitmaps_no_mutex(void *data);
+*/
+static void *ocr_process_word_bitmaps_mutex(void *data);
+static void ocr_proc_bitmap(void *api,OCRRESULT *ocrresult);
 static void ocrword_fillin_mupdf_info(OCRWORD *word,BMPREGION *region);
 #endif
 
@@ -49,6 +85,17 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
 
     {
 #ifdef HAVE_OCR_LIB
+    static char *funcname="k2ocr_init";
+
+    if (maxthreads==0)
+        {
+        if (k2settings->nthreads<0)
+            maxthreads=wsys_num_cpus()*abs(k2settings->nthreads)/100;
+        else
+            maxthreads=k2settings->nthreads;
+        if (maxthreads<1)
+            maxthreads=1;
+        }
     if (!k2settings->dst_ocr)
         return;
     /* v2.15--don't need to do this--it's in k2pdfopt_settings_init. */
@@ -83,16 +130,69 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
         /* v2.15 fix--specific variable for Tesseract init status */
         if (!k2ocr_tess_inited)
             {
-            char initstr[256];
+            int i,j,ni;
+            pthread_t *thread;
+            OCRTESSINITINFO *otii;
+            char *istr;
 
-            k2printf(TTEXT_BOLD);
-            k2ocr_tess_status=ocrtess_init(NULL,
-                              k2settings->dst_ocr_lang[0]=='\0'?NULL:k2settings->dst_ocr_lang,
-                              NULL,initstr,255);
-            k2printf("%s\n",initstr);
-            k2printf(TTEXT_NORMAL);
-            if (k2ocr_tess_status)
-                k2printf(TTEXT_WARN "Could not find Tesseract data" TTEXT_NORMAL " (env var TESSDATA_PREFIX = %s).\nUsing GOCR v0.49.\n\n",getenv("TESSDATA_PREFIX")==NULL?"(not assigned)":getenv("TESSDATA_PREFIX"));
+            /* v2.40 -- multithreaded init */
+            willus_mem_alloc_warn((void **)(&ocrtess_api),sizeof(void*)*maxthreads,funcname,10); 
+            if (maxthreads>=8)
+                ni=4;
+            else if (maxthreads>=2)
+                ni=2;
+            else
+                ni=1;
+            willus_mem_alloc_warn((void**)&thread,sizeof(pthread_t)*ni,funcname,10);
+            willus_mem_alloc_warn((void**)&otii,sizeof(OCRTESSINITINFO)*ni,funcname,10);
+            if (maxthreads>1)
+                k2printf("Initializing OCR for %d threads ",maxthreads);
+            for (i=0;i<ni;i++)
+                {
+                otii[i].k2settings=k2settings;
+                otii[i].ni=ni;
+                otii[i].index=i;
+                otii[i].initstr[0]='\0';
+                pthread_create(&thread[i],NULL,otinit,&otii[i]);
+                }
+            for (istr=NULL,i=0;i<ni;i++)
+                {
+                pthread_join(thread[i],NULL);
+                if (istr==NULL && otii[i].initstr[0]!='\0')
+                    istr=otii[i].initstr;
+                }
+            for (i=j=0;i<maxthreads;i++)
+                {
+                if (ocrtess_api[i]==NULL)
+                    {
+                    if (maxthreads>1)
+                        k2printf(TTEXT_WARN "x" TTEXT_NORMAL);
+                    continue;
+                    }
+                if (i!=j)
+                    ocrtess_api[j]=ocrtess_api[i];
+                j++;
+                }
+            if (maxthreads>1)
+                k2printf("\n");
+            if (j>0 && istr!=NULL)
+                k2printf("%s%s%s\n",TTEXT_BOLD,istr,TTEXT_NORMAL);
+            if (j>0 && j<maxthreads)
+                {
+                k2printf(TTEXT_WARN "** Only able to initialize %d instances of Tesseract. **"
+                         TTEXT_NORMAL "\n",j);
+                maxthreads=j;
+                }
+            if (j==0)
+                {
+                k2printf(TTEXT_WARN "Could not find Tesseract data" TTEXT_NORMAL " (env var TESSDATA_PREFIX = %s).\nUsing GOCR v0.50.\n\n",getenv("TESSDATA_PREFIX")==NULL?"(not assigned)":getenv("TESSDATA_PREFIX"));
+                k2ocr_tess_status=-1;
+                maxthreads=1;
+                }
+            else
+                k2ocr_tess_status=0;
+            willus_mem_free((double **)&otii,funcname);
+            willus_mem_free((double **)&thread,funcname);
             k2ocr_tess_inited=1;
             }
 #ifdef HAVE_GOCR_LIB
@@ -106,9 +206,10 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
             {
             if (!k2ocr_gocr_inited)
                 {
-                k2printf(TTEXT_BOLD "GOCR v0.49 OCR Engine" TTEXT_NORMAL "\n\n");
+                k2printf(TTEXT_BOLD "GOCR v0.50 OCR Engine" TTEXT_NORMAL "\n\n");
                 k2ocr_gocr_inited=1;
                 }
+            maxthreads=1;
             }
         }
 #endif
@@ -122,6 +223,47 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
 #endif /* HAVE_OCR_LIB */
     }
 
+
+#ifdef HAVE_TESSERACT_LIB
+static void *otinit(void *data)
+
+    {
+    OCRTESSINITINFO *otii;
+    char *lang;
+    char initstr[256];
+    int ntries,i,status;
+
+    otii=(OCRTESSINITINFO*)data;
+    lang=otii->k2settings->dst_ocr_lang;
+    for (i=otii->index;i<maxthreads;i+=otii->ni)
+        ocrtess_api[i]=NULL;
+    for (ntries=0;ntries<5;ntries++)
+        {
+        int done=1;
+
+        for (i=otii->index;i<maxthreads;i+=otii->ni)
+            {
+            if (ocrtess_api[i]!=NULL)
+                continue;
+            ocrtess_api[i]=ocrtess_init(NULL,lang[0]=='\0'?NULL:lang,NULL,initstr,255,&status);
+            if (ocrtess_api[i]==NULL)
+                done=0;
+            else
+                {
+                if (otii->initstr[0]=='\0')
+                    strcpy(otii->initstr,initstr);
+                if (maxthreads>1)
+                    k2printf(".");
+                }
+            }
+        if (done)
+            break;
+        }
+    pthread_exit(NULL);
+    return(NULL);
+    }
+#endif
+
 /*
 ** v2.15--call close/free functions even if k2settings->dst_ocr not set--may have
 **        been called from previous GUI conversion.
@@ -131,8 +273,18 @@ void k2ocr_end(K2PDFOPT_SETTINGS *k2settings)
     {
 #ifdef HAVE_OCR_LIB
 #ifdef HAVE_TESSERACT_LIB
+    static char *funcname="k2ocr_end";
     if (k2ocr_tess_inited)
-        ocrtess_end();
+        {
+        int i;
+
+        for (i=maxthreads-1;i>=0;i--)
+            {
+            ocrtess_end(ocrtess_api[i]);
+            ocrtess_api[i]=NULL;
+            }
+        willus_mem_free((double **)&ocrtess_api,funcname);
+        }
 #endif
     ocrwords_free(&k2settings->dst_ocrwords);
 #endif /* HAVE_OCR_LIB */
@@ -186,7 +338,7 @@ printf("Call #1. k2ocr_ocrwords_fill_in\n");
 printf("\nwrectmaps->n=%d, dst_ocr='%c'\n",region->wrectmaps->n,k2settings->dst_ocr);
 #endif
         if (k2settings->dst_ocr!='m' || region->wrectmaps->n!=1)
-            bmpregion_find_textrows(&pageregions->pageregion[i].bmpregion,k2settings,0,1);
+            bmpregion_find_textrows(&pageregions->pageregion[i].bmpregion,k2settings,0,1,0);
         pageregions->pageregion[i].bmpregion.wrectmaps = region->wrectmaps;
 #if (WILLUSDEBUGX & 32)
 printf("Call #2. k2ocr_ocrwords_fill_in, pr = %d of %d\n",i+1,pageregions->n);
@@ -196,16 +348,41 @@ printf("Call #2. k2ocr_ocrwords_fill_in, pr = %d of %d\n",i+1,pageregions->n);
     pageregions_free(pageregions);
     }
 
-    
+
 /*
 ** Find words in src bitmap and put into words structure.
+** v2.40:  Multithreaded using pthreads.
 */
 static void k2ocr_ocrwords_fill_in(MASTERINFO *masterinfo,OCRWORDS *words,BMPREGION *region,
                                    K2PDFOPT_SETTINGS *k2settings)
 
     {
-    int i;
-    /* static char *funcname="ocrwords_fill_in"; */
+    int i,type;
+    OCRRESULTS _ocrresults,*ocrresults;
+    OCRRESULTS *ocrr;
+    pthread_t *thread;
+    static char *funcname="k2ocr_ocrwords_fill_in";
+
+#ifdef HAVE_TESSERACT_LIB
+#ifdef HAVE_GOCR_LIB
+    if (k2settings->dst_ocr=='t' && !k2ocr_tess_status)
+#else
+    if (!k2ocr_tess_status)
+#endif
+        type='t';
+#ifdef HAVE_GOCR_LIB
+    else if (k2settings->dst_ocr=='g' || k2settings->dst_ocr=='t')
+#endif
+#endif
+#ifdef HAVE_GOCR_LIB
+        type='g';
+#endif
+#ifdef HAVE_MUPDF_LIB
+#if (defined(HAVE_TESSERACT_LIB) || defined(HAVE_GOCR_LIB))
+    if (k2settings->dst_ocr=='m')
+#endif
+        type='m';
+#endif
 
 /*
 k2printf("@ocrwords_fill_in (%d x %d)...tr=%d\n",region->bmp->width,region->bmp->height,region->textrows.n);
@@ -240,7 +417,18 @@ k2printf("    %d row%s of text, dst_ocr='%c'\n",region->textrows.n,region->textr
         return;
         }
 #endif
-    /* Go text row by text row */
+    willus_mem_alloc_warn((void**)&ocrr,sizeof(OCRRESULTS)*maxthreads,funcname,10);
+    willus_mem_alloc_warn((void**)&thread,sizeof(pthread_t)*maxthreads,funcname,10);
+    ocrresults=&_ocrresults;
+    ocrresults->n=0;
+    ocrresults->na=16;
+    willus_mem_alloc_warn((void **)&ocrresults->ocrresult,sizeof(OCRRESULT)*ocrresults->na,funcname,10);
+
+    /*
+    ** Go text row by text row--store bitmap for each word into ocrresults
+    ** structure which will then be processed with multiple parallel threads.
+    ** (v2.40)
+    */
     for (i=0;i<region->textrows.n;i++)
         {
         BMPREGION _newregion,*newregion;
@@ -275,10 +463,14 @@ region->textrows.textrow[i].r2-region->textrows.textrow[i].r1+1);
 #if (WILLUSDEBUGX & 32)
 printf("textwords->n=%d\n",textwords->n);
 #endif
+/* printf("textwords->n=%d\n",textwords->n); */
         for (j=0;j<textwords->n;j++)
             {
-            char wordbuf[256];
-
+#if (WILLUSDEBUGX & 32)
+static int counter=1;
+int i;
+char filename[MAXFILENAMELEN];
+#endif
 #if (WILLUSDEBUGX & 32)
 k2printf("j=%d of %d\n",j,textwords->n);
 printf("dst_ocr='%c', ocrtessstatus=%d\n",k2settings->dst_ocr,k2ocr_tess_status);
@@ -288,10 +480,6 @@ printf("dst_ocr='%c', ocrtessstatus=%d\n",k2settings->dst_ocr,k2ocr_tess_status)
                      > k2settings->ocr_max_height_inches)
                 continue;
 #if (WILLUSDEBUGX & 32)
-{
-static int counter=1;
-int i;
-char filename[MAXFILENAMELEN];
 WILLUSBITMAP *bmp,_bmp;
 bmp=&_bmp;
 bmp_init(bmp);
@@ -314,37 +502,32 @@ bmp_free(bmp);
 k2printf("%5d. ",counter);
 fflush(stdout);
 #endif
-            wordbuf[0]='\0';
-#ifdef HAVE_TESSERACT_LIB
-#ifdef HAVE_GOCR_LIB
-            if (k2settings->dst_ocr=='t' && !k2ocr_tess_status)
-#else
-            if (!k2ocr_tess_status)
-#endif
-                ocrtess_single_word_from_bmp8(wordbuf,255,newregion->bmp8,
-                                          textwords->textrow[j].c1,
-                                          textwords->textrow[j].r1,
-                                          textwords->textrow[j].c2,
-                                          textwords->textrow[j].r2,3,0,1,NULL);
-#ifdef HAVE_GOCR_LIB
-            else if (k2settings->dst_ocr=='g' || k2settings->dst_ocr=='t')
-#endif
-#endif
-#ifdef HAVE_GOCR_LIB
-                jocr_single_word_from_bmp8(wordbuf,255,newregion->bmp8,
-                                            textwords->textrow[j].c1,
-                                            textwords->textrow[j].r1,
-                                            textwords->textrow[j].c2,
-                                            textwords->textrow[j].r2,0,1);
-#endif
-#ifdef HAVE_MUPDF_LIB
-            if (k2settings->dst_ocr=='m')
+            if (ocrresults->n>=ocrresults->na)
                 {
-                wordbuf[0]='m'; /* Dummy value for now */
-                wordbuf[1]='\0';
+                willus_mem_realloc_robust_warn((void **)&ocrresults->ocrresult,
+                                               ocrresults->na*2*sizeof(OCRRESULT),
+                                               ocrresults->na*sizeof(OCRRESULT),funcname,10);
+                ocrresults->na*=2;
                 }
-#endif
+            {
+            OCRRESULT *ocrresult;
+            ocrresult=&ocrresults->ocrresult[ocrresults->n];
+            ocrresult->bmp=region->bmp8;
+            ocrresult->c1=textwords->textrow[j].c1;
+            ocrresult->r1=textwords->textrow[j].r1;
+            ocrresult->c2=textwords->textrow[j].c2;
+            ocrresult->r2=textwords->textrow[j].r2;
+            pthread_mutex_init(&ocrresult->mutex,NULL);
+            ocrresult->done=0;
+            ocrresult->word=NULL;
+            ocrresult->rowbase=rowbase;
+            ocrresult->lcheight=lcheight;
+            ocrresult->type=type;
+            ocrresults->n++;
+            }
+         
 #if (WILLUSDEBUGX & 32)
+/*
 printf("..");
 fflush(stdout);
 if (wordbuf[0]!='\0')
@@ -360,44 +543,184 @@ k2printf("%s\n",wordbuf);
 else
 k2printf("(OCR failed)\n");
 counter++;
-}
+*/
 #endif
-            if (wordbuf[0]!='\0')
-                {
-                OCRWORD word;
-
-                ocrword_init(&word);
-                word.c=textwords->textrow[j].c1;
-                /* Use same rowbase for whole row */
-                word.r=rowbase;
-                word.maxheight=rowbase-textwords->textrow[j].r1;
-                word.w=textwords->textrow[j].c2-textwords->textrow[j].c1+1;
-                word.h=textwords->textrow[j].r2-textwords->textrow[j].r1+1;
-                word.lcheight=lcheight;
-                word.rot=0;
-                word.text=wordbuf;
-                ocrword_fillin_mupdf_info(&word,region);
-#if (WILLUSDEBUGX & 32)
-k2printf("'%s', r1=%d, rowbase=%d, h=%d\n",wordbuf,
-                             textwords->textrow[j].r1,
-                             textwords->textrow[j].rowbase,
-                             textwords->textrow[j].r2-textwords->textrow[j].r1+1);
-printf("words=%p\n",words);
-printf("words->n=%d\n",words->n);
-#endif
-                ocrwords_add_word(words,&word);
-#if (WILLUSDEBUGX & 32)
-printf("word added.\n");
-#endif
-                }
             }
         bmpregion_free(newregion);
         }
+    /*
+    ** Process the word bitmaps with multiple threads.
+    ** If more than 4 threads, don't do mutex blocking--just have each thread
+    ** process 1/maxthreads of the words.
+    ** (v2.40)
+    */
+    {
+    clock_t start,stop;
+    start=clock();
+    for (i=0;i<maxthreads;i++)
+        {
+        ocrr[i]=(*ocrresults);
+        ocrr[i].thindex=i;
+        pthread_create(&thread[i],NULL,ocr_process_word_bitmaps_mutex,&ocrr[i]);
+        }
+    for (i=0;i<maxthreads;i++)
+        pthread_join(thread[i],NULL);
+    stop=clock();
+    ocr_cpu_time_secs += (double)stop/CLOCKS_PER_SEC-(double)start/CLOCKS_PER_SEC;
+    /* printf("TOT TIME = %.2f seconds.\n",ocr_cpu_time_secs); */
+    }
+    /*
+    ** Done with multi-threading section.  Store UTF-8 text from OCR results.
+    */
+    for (i=0;i<ocrresults->n;i++)
+        {
+        OCRRESULT *ocrresult;
+
+        ocrresult=&ocrresults->ocrresult[i];
+        if (ocrresult->word[0]!='\0' && ocrresult->done==1)
+            {
+            OCRWORD word;
+
+            ocrword_init(&word);
+            word.c=ocrresult->c1;
+            /* Use same rowbase for whole row */
+            word.r=ocrresult->rowbase;
+            word.maxheight=ocrresult->rowbase-ocrresult->r1;
+            word.w=ocrresult->c2-ocrresult->c1+1;
+            word.h=ocrresult->r2-ocrresult->r1+1;
+            word.lcheight=ocrresult->lcheight;
+            word.rot=0;
+            word.text=ocrresult->word;
+            ocrword_fillin_mupdf_info(&word,region);
+#if (WILLUSDEBUGX & 32)
+k2printf("'%s', r1=%d, rowbase=%d, h=%d\n",ocrresult->word,
+                         ocrresult->r1,
+                         ocrresult->rowbase,
+                         ocrresult->r2-ocrresult->r1+1);
+printf("words=%p\n",words);
+printf("words->n=%d\n",words->n);
+#endif
+            ocrwords_add_word(words,&word);
+#if (WILLUSDEBUGX & 32)
+printf("word added.\n");
+#endif
+            }
+        }
+    for (i=ocrresults->n-1;i>=0;i--)
+        willus_mem_free((double **)&ocrresults->ocrresult[i].word,funcname);
+    willus_mem_free((double**)&ocrresults->ocrresult,funcname);
+    willus_mem_free((double**)&thread,funcname);
+    willus_mem_free((double**)&ocrr,funcname);
 #if (WILLUSDEBUGX & 32)
 printf("Done k2ocr_ocrwords_fill_in()\n");
 #endif
     }
 
+
+double k2ocr_cpu_time_secs(void)
+
+    {
+    return(ocr_cpu_time_secs);
+    }
+
+
+void k2ocr_cpu_time_reset(void)
+
+    {
+    ocr_cpu_time_secs=0.;
+    }
+
+
+int k2ocr_max_threads(void)
+
+    {
+    return(maxthreads);
+    }
+
+
+/*
+** In tests I did, the ...no_mutex function is never faster
+** than the ..._mutex() function.
+*/
+#if 0
+static void *ocr_process_word_bitmaps_no_mutex(void *data)
+
+    {
+    OCRRESULTS *ocrresults;
+    int i;
+
+    ocrresults=(OCRRESULTS *)data;
+    for (i=ocrresults->thindex;i<ocrresults->n;i+=maxthreads)
+        {
+        OCRRESULT *ocrresult;
+
+        ocrresult=&ocrresults->ocrresult[i];
+        ocrresult->done=1;
+        ocr_proc_bitmap(ocrtess_api[ocrresults->thindex],ocrresult);
+        }
+    pthread_exit(NULL);
+    return(NULL);
+    }
+#endif
+
+
+static void *ocr_process_word_bitmaps_mutex(void *data)
+
+    {
+    OCRRESULTS *ocrresults;
+    int i;
+
+    ocrresults=(OCRRESULTS *)data;
+    for (i=0;i<ocrresults->n;i++)
+        {
+        OCRRESULT *ocrresult;
+
+        ocrresult=&ocrresults->ocrresult[i];
+        pthread_mutex_lock(&ocrresult->mutex);
+        if (ocrresult->done==1)
+            {
+            pthread_mutex_unlock(&ocrresult->mutex);
+            continue;
+            }
+        ocrresult->done=1;
+        pthread_mutex_unlock(&ocrresult->mutex);
+        ocr_proc_bitmap(ocrtess_api[ocrresults->thindex],ocrresult);
+        }
+    pthread_exit(NULL);
+    return(NULL);
+    }
+
+
+static void ocr_proc_bitmap(void *api,OCRRESULT *ocrresult)
+
+    {
+    char wordbuf[256];
+
+    switch (ocrresult->type)
+        {
+#ifdef HAVE_TESSERACT_LIB
+        case 't':
+            ocrtess_single_word_from_bmp8(api,wordbuf,255,ocrresult->bmp,
+                                  ocrresult->c1,ocrresult->r1,
+                                  ocrresult->c2,ocrresult->r2,3,0,1,NULL);
+            break;
+#endif
+#ifdef HAVE_GOCR_LIB
+        case 'g':
+            gocr_single_word_from_bmp8(wordbuf,255,ocrresult->bmp,
+                                   ocrresult->c1,ocrresult->r1,
+                                   ocrresult->c2,ocrresult->r2,0,1);
+            break;
+#endif
+        default:
+            wordbuf[0]='m';
+            wordbuf[1]='\0';
+            break;
+        }
+    willus_mem_alloc_warn((void **)&ocrresult->word,strlen(wordbuf)+1,"ocr_proc_bitmap",10);
+    strcpy(ocrresult->word,wordbuf);
+    }
+    
 
 static void ocrword_fillin_mupdf_info(OCRWORD *word,BMPREGION *region)
 
@@ -501,12 +824,19 @@ printf("@k2ocr_ocrwords_get_from_ocrlayer.\n");
 #if (WILLUSDEBUGX & 0x10000)
 {
 int i;
-for (i=0;i<wtcs->n && i<30;i++)
+for (i=0;i<wtcs->n;i++)
 printf("Char[%2d]:  ucs='%c'(%d), xp=%7.3f, yp=%7.3f, x1=%7.3f, x2=%7.3f\n",i,wtcs->wtextchar[i].ucs,wtcs->wtextchar[i].ucs,wtcs->wtextchar[i].xp,wtcs->wtextchar[i].yp,wtcs->wtextchar[i].x1,wtcs->wtextchar[i].x2);
 }
 #endif
         wtextchars_rotate_clockwise(wtcs,360-(int)masterinfo->pageinfo.srcpage_rot_deg);
         wtextchars_group_by_words(wtcs,words,k2settings);
+#if (WILLUSDEBUGX & 0x10000)
+{
+int i;
+for (i=0;i<words->n;i++)
+printf("Word[%4d]: (%6.2f,%6.2f) %6.2f x %6.2f '%s'\n",i,words->word[i].x0,words->word[i].y0,words->word[i].w0,words->word[i].h0,words->word[i].text);
+}
+#endif
         pageno=masterinfo->pageinfo.srcpage;
         strncpy(pdffile,masterinfo->srcfilename,511);
         pdffile[511]='\0';
@@ -562,6 +892,9 @@ printf("words->n=%d\n",words->n);
         {
         int index,i2;
 
+#if (WILLUSDEBUGX & 0x10000)
+printf("**Word[%4d] = '%s'!\n",i,words->word[i].text);
+#endif
         for (i2=-1,index=0;1;index++)
             {
             OCRWORD _word,*word;
@@ -572,6 +905,9 @@ printf("words->n=%d\n",words->n);
             */
             word=&_word;
             ocrword_copy(word,&words->word[i]); /* Allocates new memory */
+#if (WILLUSDEBUGX & 0x10000)
+printf("   (word = '%s')\n",word->text);
+#endif
             if (i2>=0)
                 {
                 ocrword_truncate(word,i2+1,word->n-1);

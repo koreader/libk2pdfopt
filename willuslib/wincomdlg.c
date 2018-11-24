@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -104,7 +104,7 @@ int wincomdlg_get_filenamew(short *filename,int maxlen,char *filter,char *title,
     int status;
     static char *funcname="windcomdlg_get_filenamew";
 
-    wfilter=char_to_wide(NULL,filter);
+    wfilter=char_to_wide_list(NULL,filter);
     wtitle=char_to_wide(NULL,title);
     wdef=char_to_wide(NULL,defext);
     fn=&_fn;

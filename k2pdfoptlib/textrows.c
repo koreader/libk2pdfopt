@@ -243,13 +243,8 @@ void textrows_remove_small_rows(TEXTROWS *textrows,K2PDFOPT_SETTINGS *k2settings
     int *rh,*gap;
     static char *funcname="textrows_remove_small_rows";
 
-#if (WILLUSDEBUGX & 2)
-k2printf("@textrows_remove_small_rows(fracrh=%g,fracgap=%g)\n",fracrh,fracgap);
-#endif
-#if (WILLUSDEBUGX & 0x40000)
-if (mingap_in>0.)
-k2printf("@textrows_remove_small_rows from multicolumn divider. mingap=%g in\n",mingap_in);
-k2printf("    nrows=%d\n",textrows->n);
+#if ((WILLUSDEBUGX & 2) || (WILLUSDEBUGX & 0x40000))
+k2printf("@textrows_remove_small_rows(fracrh=%g,fracgap=%g,mingap=%g in)\n",fracrh,fracgap,mingap_in);
 #endif
     if (textrows->n<2)
         return;
@@ -320,6 +315,8 @@ k2printf("mg = %d x %g = %d\n",gap[textrows->n/2],fracgap,mg);
         gap_too_small = i<textrows->n-1 && mingap_in>0. && (double)g2/region->dpi < mingap_in;
 #if (WILLUSDEBUGX & 2)
 k2printf("   rowheight[%d] = %d, mh=%d, gs1=%d, gs2=%d\n",i,trh,mh,gs1,gs2);
+k2printf("                   (c1,r1)=%d,%d; (c2,r2)=%d,%d\n",textrow->c1,textrow->r1,textrow->c2,textrow->r2);
+k2printf("                   gap between this row and next = %g in\n",(double)g2/region->dpi);
 #endif
         gap_is_big = (trh >= mh || (gs1 >= mg && gs2 >= mg));
         /*
@@ -338,8 +335,7 @@ k2printf("       m1=%g, m2=%g, rwi=%g, g1=%d, g2=%d, mg0=%d\n",m1,m2,row_width_i
 #endif
         if (!gap_too_small && gap_is_big && !row_too_small)
             continue;
-#if (WILLUSDEBUGX & 0x40000)
-if (mingap_in>0.)
+#if (WILLUSDEBUGX & 2)
 k2printf("   row[%d] to be combined w/next row (gaptoosmall=%d, gapbig=%d, rowtoosmall=%d).\n",i,gap_too_small,gap_is_big,row_too_small);
 #endif
         if (!gap_too_small)
@@ -355,10 +351,12 @@ k2printf("   row[%d] to be combined w/next row (gaptoosmall=%d, gapbig=%d, rowto
                     i--;
                 }
             }
-/*
+#if (WILLUSDEBUGX & 2)
 k2printf("Removing row.  nrows=%d, rh=%d, gs1=%d, gs2=%d\n",textrows->n,trh,gs1,gs2);
+/*
 k2printf("    mh = %d, mg = %d\n",rh[textrows->n/2],gap[(textrows->n-1)/2]);
 */
+#endif
         textrows->textrow[i].r2 = textrows->textrow[i+1].r2;
         if (textrows->textrow[i+1].c2 > textrows->textrow[i].c2)
             textrows->textrow[i].c2 = textrows->textrow[i+1].c2;
@@ -374,6 +372,9 @@ k2printf("    mh = %d, mg = %d\n",rh[textrows->n/2],gap[(textrows->n-1)/2]);
         newregion.c2=textrows->textrow[i].c2;
         newregion.r1=textrows->textrow[i].r1;
         newregion.r2=textrows->textrow[i].r2;
+#if (WILLUSDEBUGX & 2)
+printf("newregion: (%d,%d) - (%d,%d)\n",newregion.c1,newregion.r1,newregion.c2,newregion.r2);
+#endif
         newregion.bbox.type=0;
         bmpregion_calc_bbox(&newregion,k2settings,1);
         textrow_assign_bmpregion(&textrows->textrow[i],&newregion,REGION_TYPE_TEXTLINE);

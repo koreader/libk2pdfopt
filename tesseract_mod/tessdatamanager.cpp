@@ -40,12 +40,11 @@ bool TessdataManager::Init(const char *data_file_name, int debug_level) {
   data_file_name_ = data_file_name;
   data_file_ = fopen(data_file_name, "rb");
   if (data_file_ == NULL) {
-    if (debug_level_)
-        {
-        tprintf("Error opening data file %s\n", data_file_name);
-        tprintf("Please make sure the TESSDATA_PREFIX environment variable is set "
-                "to the parent directory of your \"tessdata\" directory.\n");
-        }
+    if (debug_level_) {
+    tprintf("Error opening data file %s\n", data_file_name);
+    tprintf("Please make sure the TESSDATA_PREFIX environment variable is set "
+            "to the parent directory of your \"tessdata\" directory.\n");
+    }
     return false;
   }
   fread(&actual_tessdata_num_entries_, sizeof(inT32), 1, data_file_);
@@ -143,6 +142,7 @@ bool TessdataManager::CombineDataFiles(
   if (fseek(output_file,
             sizeof(inT32) + sizeof(inT64) * TESSDATA_NUM_ENTRIES, SEEK_SET)) {
     tprintf("Error seeking %s\n", output_filename);
+    fclose(output_file);
     return false;
   }
 

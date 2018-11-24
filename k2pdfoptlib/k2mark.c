@@ -25,7 +25,9 @@ int k2mark_page_count=0;
 /*
 ** src guaranteed to be 24-bit color
 */
-void publish_marked_page(PDFFILE *mpdf,WILLUSBITMAP *src,int src_dpi)
+void publish_marked_page(PDFFILE *mpdf,WILLUSBITMAP *src,int src_dpi,
+                         char *srcname,char *fmtname,int filecount,int pagecount,
+                         int jpeg_quality)
 
     {
     int newdpi;
@@ -47,7 +49,20 @@ bmp_write(src,filename,stdout,100);
     bmp_resample_optimum_performance(bmp,src,(double)0.,(double)0.,
                  (double)src->width,(double)src->height,
                  bmp->width,bmp->height);
-    pdffile_add_bitmap(mpdf,bmp,newdpi,-1,1);
+    if (filename_is_bitmap(fmtname))
+        {
+        char filename[MAXFILENAMELEN];
+
+        filename_get_marked_pdf_name(filename,fmtname,srcname,filecount,pagecount);
+        bmp_set_dpi(src_dpi);
+        if (!stricmp(wfile_ext(filename),"jpg") 
+             || !stricmp(wfile_ext(filename),"jpeg"))
+            bmp_promote_to_24(bmp);
+        bmp_write(bmp,filename,NULL,jpeg_quality<1?93:jpeg_quality);
+        bitmap_file_echo_status(filename);
+        }
+    else
+        pdffile_add_bitmap(mpdf,bmp,newdpi,-1,1);
     bmp_free(bmp);
     }
 

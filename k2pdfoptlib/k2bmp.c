@@ -3,7 +3,7 @@
 **              are mostly generic bitmap functions, but there are some
 **              k2pdfopt-specific settings for some.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2017  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -22,7 +22,6 @@
 
 #include "k2pdfopt.h"
 
-
 static int inflection_count(double *x,int n,int delta,int *wthresh);
 static int vert_line_erase(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,WILLUSBITMAP *tmp,
                     int row0,int col0,double tanth,double minheight_in,
@@ -31,10 +30,15 @@ static int vert_line_erase(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,WILLUSBITMAP *tm
 static int gscale(unsigned char *p);
 static int not_close(int c1,int c2);
 static int bmp_autocrop2_ex(WILLUSBITMAP *bmp,int pixwidth,int pixstep,int whitethresh,
-                            double blackweight,double minarea,int *cx);
+                            double blackweight,double minarea,double threshold,int *cx);
+static void bmp_autocrop_refine(WILLUSBITMAP *bmp,int whitethresh,double threshold,int *cx,
+                                int pixwidth);
+static double find_threshold(double *x,double *y,int n,double threshold);
+static void xsmooth(double *y,int n,int cwin);
 static double frame_area(double area,int *cx);
 static void bmp_convert_to_monochrome(WILLUSBITMAP *bmp,int whitethresh);
-static double frame_black_percentage(WILLUSBITMAP *bmp,int *cx);
+static double frame_stdev_norm(WILLUSBITMAP *bmp,int *cx,int flags);
+static double frame_black_percentage(WILLUSBITMAP *bmp,int *cx,int flags);
 static void k2pagebreakmarks_add_mark(K2PAGEBREAKMARKS *k2pagebreakmarks,int markcol,int markrow,
                                       int marktype,int dpi);
 static int k2pagebreakmarks_too_close_to_others(K2PAGEBREAKMARKS *k2pagebreakmarks,int markcol,
@@ -106,6 +110,20 @@ return(status);
     if (!status && bpp==8)
         bmp_convert_to_greyscale(src);
     return(status);
+    }
+
+
+void k2bmp_erode(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,
+                 K2PDFOPT_SETTINGS *k2settings)
+    {
+    int i,n;
+
+    n=abs(k2settings->src_erosion);
+    for (i=0;i<n;i++)
+        bmp_erode(srcgrey,srcgrey);
+    if (src!=srcgrey && src!=NULL && src->bpp>8)
+        for (i=0;i<n;i++)
+            bmp_erode(src,src);
     }
 
 
@@ -473,9 +491,11 @@ static int inflection_count(double *x,int n,int delta,int *wthresh)
         wt=i-10;
         if (wt<192)
             wt=192;
+/*
 #ifdef DEBUG
 k2printf("wt=%d\n",wt);
 #endif
+*/
         (*wthresh)=wt;
         }
     else
@@ -993,7 +1013,9 @@ void bmp_paint_white(WILLUSBITMAP *bmpgray,WILLUSBITMAP *bmp,int white_thresh)
 
 
 /* Added in v2.22 -- -colorfg and -colorbg options */
-void bmp_change_colors(WILLUSBITMAP *bmp,char *colorfg,int fgtype,char *colorbg,int bgtype)
+void bmp_change_colors(WILLUSBITMAP *bmp,WILLUSBITMAP *mask,
+                       char *colorfg,int fgtype,char *colorbg,int bgtype,
+                       int c1,int r1,int c2,int r2)
 
     {
     int change_only_gray;
@@ -1065,30 +1087,33 @@ void bmp_change_colors(WILLUSBITMAP *bmp,char *colorfg,int fgtype,char *colorbg,
         if (bgbmp!=NULL && bgbmp->bpp!=24)
             bmp_promote_to_24(bgbmp);
         }
-    for (r=0;r<bmp->height;r++)
+    for (r=r1;r<bmp->height && r<=r2;r++)
         {
         unsigned char *p;
+        unsigned char *pm;
         unsigned char *pfg;
         unsigned char *pbg;
         int j;
-        p=bmp_rowptr_from_top(bmp,r);
-        pfg = fgbmp==NULL ? NULL : bmp_rowptr_from_top(fgbmp,r%fgbmp->height);
-        pbg = bgbmp==NULL ? NULL : bmp_rowptr_from_top(bgbmp,r%bgbmp->height);
-        for (j=0;j<bmp->width;j++)
+        p=bmp_rowptr_from_top(bmp,r)+c1*kmax;
+        pm=bmp_rowptr_from_top(mask,r)+c1*kmax;
+        pfg = fgbmp==NULL ? NULL : bmp_rowptr_from_top(fgbmp,r%fgbmp->height)+(c1%fgbmp->width)*kmax;
+        pbg = bgbmp==NULL ? NULL : bmp_rowptr_from_top(bgbmp,r%bgbmp->height)+(c1%bgbmp->width)*kmax;
+        for (j=c1;j<=c2 && j<bmp->width;j++)
             {
             int k;
-            if (change_only_gray && kmax==3 && !gscale(p))
+            if (change_only_gray && kmax==3 && !gscale(pm))
                 {
                 p+=kmax;
+                pm+=kmax;
                 continue;
                 }
-            for (k=0;k<kmax;k++,p++)
+            for (k=0;k<kmax;k++,pm++,p++)
                 {
                 int x,fgc,bgc;
 
-                x = p[0];
-                fgc = pfg==NULL ? fg[k] : pfg[(j%fgbmp->width)*kmax+k];
-                bgc = pbg==NULL ? bg[k] : pbg[(j%bgbmp->width)*kmax+k];
+                x = pm[0];
+                fgc = pfg==NULL ? (colorfg[0]=='\0' ? p[0]:fg[k]) : pfg[(j%fgbmp->width)*kmax+k];
+                bgc = pbg==NULL ? (colorbg[0]=='\0' ? p[0]:bg[k]) : pbg[(j%bgbmp->width)*kmax+k];
                 x = fgc + x*(bgc-fgc)/255;
                 p[0] = x;
                 }
@@ -1171,13 +1196,14 @@ void bmp8_merge(WILLUSBITMAP *dst,WILLUSBITMAP *src,int count)
 /*
 ** Crop margins, in pixels, put into cx[0..3] = left, top, right, bottom
 */
-int bmp_autocrop2(WILLUSBITMAP *bmp0,int *cx)
+int bmp_autocrop2(WILLUSBITMAP *bmp0,int *cx,double aggressiveness)
 
     {
     WILLUSBITMAP *bmp,_bmp;
     int i,whitemax,wt,sum,status,pw;
     double s30;
     double hist[256];
+    double blackweight;
 
 #if (WILLUSDEBUGX & 0x8000)
 printf("@bmp_autocrop2...\n");
@@ -1197,6 +1223,29 @@ printf("@bmp_autocrop2...\n");
         for (j=0;j<bmp->width;j++,p++)
             hist[(*p)]+=1.0;
         }
+    blackweight = aggressiveness*50.;
+#if (WILLUSDEBUGX & 0x8000)
+{
+FILE *f;
+static int count=0;
+int i,s;
+count++;
+if (count%2==1)
+{
+char filename[256];
+sprintf(filename,"src%03d.png",(count+1)/2);
+bmp_write(bmp,filename,NULL,100);
+f=fopen("hist.ep",count==1?"w":"a");
+fprintf(f,"/sa l \"%d\" 1\n",(count+1)/2);
+for (i=s=0;i<256;i++)
+{
+s+=hist[i];
+fprintf(f,"%d\n",s);
+}
+fprintf(f,"//nc\n");
+}
+}
+#endif
     s30=0.3*bmp->width*bmp->height;
     for (i=255,sum=0.;sum<s30;sum+=hist[i],i--);
     whitemax=i;
@@ -1207,18 +1256,14 @@ printf("whitemax=%d\n",whitemax);
     if (pw<1)
         pw=1;
     wt=192+(whitemax-192)*(pw-1)/pw;
+#if (WILLUSDEBUGX & 0x8000)
+printf("wt=%d\n",wt);
+#endif
 /*
 printf("pw=%d, wt=%d\n",pw,wt);
 */
-    status=bmp_autocrop2_ex(bmp,pw,pw,wt,10.,.6,cx);
-    cx[2] = bmp->width-1-cx[2];
-    cx[3] = bmp->height-1-cx[3];
-#if (WILLUSDEBUGX & 0x8000)
-printf("cx[0]=%d\n",cx[0]);
-printf("cx[1]=%d\n",cx[1]);
-printf("cx[2]=%d\n",cx[2]);
-printf("cx[3]=%d\n",cx[3]);
-#endif
+//    status=bmp_autocrop2_ex(bmp,pw,pw,wt,10.,.6,cx);
+    status=bmp_autocrop2_ex(bmp,pw,pw,wt,blackweight,.6,0.05,cx);
 /*
     printf("bmp_autocrop returns %d\n",status);
     printf("    (%d,%d) - (%d,%d)\n",cx[0],cx[1],cx[2],cx[3]);
@@ -1252,8 +1297,77 @@ printf("cx[3]=%d\n",cx[3]);
         }
 */
     bmp_free(bmp);
+    cx[2] = bmp->width-1-cx[2];
+    cx[3] = bmp->height-1-cx[3];
+#if (WILLUSDEBUGX & 0x8000)
+printf("cx[0]=%d\n",cx[0]);
+printf("cx[1]=%d\n",cx[1]);
+printf("cx[2]=%d\n",cx[2]);
+printf("cx[3]=%d\n",cx[3]);
+#endif
     return(status);
     }
+
+
+/*
+** bmp must be grayscale
+*/
+void k2bmp_apply_autocrop(WILLUSBITMAP *bmp,int *cx0)
+
+    {
+    int i,j;
+    int cx[4];
+
+    for (i=0;i<4;i++)
+        cx[i]=cx0[i];
+    cx[2] = bmp->width-1-cx[2];
+    cx[3] = bmp->height-1-cx[3];
+    for (i=0;i<bmp->width;i++)
+        if (i<cx[0] || i>cx[2])
+            for (j=0;j<bmp->height;j++)
+                {
+                unsigned char *p;
+                p=bmp_rowptr_from_top(bmp,j)+i;
+                p[0]=255;
+                }
+    for (i=0;i<bmp->height;i++)
+        if (i<cx[1] || i>cx[3])
+            {
+            unsigned char *p;
+            p=bmp_rowptr_from_top(bmp,i);
+            memset(p,255,bmp->width);
+            }
+    }
+
+/*
+** src must be grayscale
+*/
+void k2bmp_prep_for_dewarp(WILLUSBITMAP *dst,WILLUSBITMAP *src,int dx,int whitethresh)
+
+    {
+    int row;
+
+    bmp_copy(dst,src);
+    bmp_fill(dst,255,255,255);
+    for (row=0;row<src->height;row++)
+        {
+        unsigned char *dp,*sp;
+        int col;
+
+        dp=bmp_rowptr_from_top(dst,row);
+        sp=bmp_rowptr_from_top(src,row);
+        for (col=0;col<src->width;col++,dp++,sp++)
+            if (sp[0]<whitethresh)
+                {
+                int i,i1,i2;
+                i1=col<dx?-col:-dx;
+                i2=col+dx>=src->width?src->width-1-col:dx;
+                for (i=i1;i<=i2;i++)
+                    dp[i]=0;
+                }
+        }
+    }
+
 
 /*
 ** Passed bitmap must be grayscale
@@ -1269,7 +1383,7 @@ printf("cx[3]=%d\n",cx[3]);
 ** cx[3] = bottom frame position (from top of bitmap)
 */
 static int bmp_autocrop2_ex(WILLUSBITMAP *bmp,int pixwidth,int pixstep,int whitethresh,
-                            double blackweight,double minarea,int *cx)
+                            double blackweight,double minarea,double threshold,int *cx)
 
     {
     int k,cxbest[4];
@@ -1287,7 +1401,26 @@ static int bmp_autocrop2_ex(WILLUSBITMAP *bmp,int pixwidth,int pixstep,int white
 /*
 printf("pixwidth=%d, bw->height=%d\n",pixwidth,bw->height);
 */
-    bmp_convert_to_monochrome(bw,whitethresh);
+//    bmp_convert_to_monochrome(bw,whitethresh);
+#if (WILLUSDEBUGX & 0x8000)
+{
+static int pageno=0;
+char filename[256];
+int i,n;
+pageno++;
+if (pageno%2==1)
+{
+n=bw->width*bw->height;
+sprintf(filename,"page%03d.png",(pageno+1)/2);
+//for (i=0;i<n;i++)
+//    bw->data[i]=bw->data[i]?0:255;
+bmp_write(bw,filename,NULL,100);
+//for (i=0;i<n;i++)
+//    bw->data[i]=bw->data[i]?0:1;
+printf("%s\n",filename);
+}
+}
+#endif
     maxarea=-999.;
     /* minblack=1.1; */
     bmparea=(double)bw->width*bw->height;
@@ -1314,13 +1447,14 @@ printf("pixwidth=%d, bw->height=%d\n",pixwidth,bw->height);
                     break;
                 for (cx[3]=bw->height-1;1;cx[3]=cx[3]-pixstep)
                     {
-                    double area,areaw,black;
+                    double area,areaw,black,stdev;
 
                     area=frame_area(bmparea,cx);
                     if (area<minarea)
                         break;
-                    black=frame_black_percentage(bw,cx);
-                    areaw=area-blackweight*black;
+                    black=frame_black_percentage(bw,cx,3);
+                    stdev=frame_stdev_norm(bw,cx,3);
+                    areaw=area-blackweight*(black+3.*stdev);
                     if (areaw > maxarea)
                         {
                         maxarea=areaw;
@@ -1363,7 +1497,208 @@ printf("maxarea(%d,%d,%d,%d)=%g\n",cx[0],cx[1],cx[2],cx[3],area);
         cx[2]=bmp->width-1;
     if (cx[3]>bmp->height-1)
         cx[3]=bmp->height-1;
+    bmp_autocrop_refine(bmp,whitethresh,threshold,cx,pixwidth);
     return(maxarea>=0.);
+    }
+
+
+/*
+** thresold = 0 to 1.  Typically 0.1, I'd think.
+*/
+static void bmp_autocrop_refine(WILLUSBITMAP *bmp,int whitethresh,double threshold,int *cx,
+                                int pixwidth)
+
+    {
+    double *x0,*hist;
+    double sum;
+    int max,i,c,n;
+    static char *funcname="bmp_autocrop_refine";
+    int cx0[4],cnew[4];
+#if (WILLUSDEBUGX & 0x8000)
+static int count0=0;
+
+if (count0&1)
+{
+count0++;
+return;
+}
+{
+char filename[256];
+sprintf(filename,"bmp%04d.png",count0);
+bmp_write(bmp,filename,NULL,100);
+}
+for (i=0;i<4;i++)
+printf("cx[%d]=%d\n",i,cx[i]);
+#endif
+    max=bmp->width > bmp->height ? bmp->width : bmp->height;
+    willus_dmem_alloc_warn(46,(void **)&hist,sizeof(double)*2*max,funcname,10);
+    x0=&hist[max];
+    for (i=0;i<4;i++)
+        cx0[i]=cx[i];
+    n=bmp->width;
+    for (sum=0.,c=cx0[0]=0;cx0[0]<n;cx0[0]++)
+        {
+        double black,stdev;
+
+        i=cx0[0];
+        black=frame_black_percentage(bmp,cx0,1);
+        stdev=frame_stdev_norm(bmp,cx0,1);
+        x0[i]=(double)(i-cx[0])/(cx[2]-cx[0]+1);
+        hist[i]=black+3.*stdev;
+        if (x0[i]>=.25 && x0[i]<=.75)
+            {
+            c++;
+            sum+=hist[i];
+            }
+        }
+    if (c>0)
+        sum/=c;
+    else
+        sum=1.0;
+    for (i=0;i<n;i++)
+        hist[i] /= sum;
+    xsmooth(hist,n,pixwidth/3);
+    cnew[0]=cx[0]+find_threshold(x0,hist,n,threshold)*(cx[2]-cx[0]+1);
+#if (WILLUSDEBUGX & 0x8000)
+    {
+    FILE *f;
+    static int count=0;
+    f=fopen("acrosswidth.ep",count==0?"w":"a");
+    fprintf(f,"/sa l \"%d\" 2\n",count0);
+    for (i=0;i<n;i++)
+        fprintf(f,"%g %g\n",x0[i],hist[i]);
+    fprintf(f,"//nc\n");
+    fclose(f);
+    count++;
+    }
+#endif
+    for (i=0;i<n;i++)
+        x0[i]=1.0-x0[i];
+    sortxyd(x0,hist,n);
+    cnew[2]=cx[2]+1-find_threshold(x0,hist,n,threshold)*(cx[2]-cx[0]+1);
+    for (i=0;i<4;i++)
+        cx0[i]=cx[i];
+    n=bmp->height;
+    for (sum=0.,c=cx0[1]=0;cx0[1]<n;cx0[1]++)
+        {
+        double black,stdev;
+
+        i=cx0[1];
+        black=frame_black_percentage(bmp,cx0,2);
+        stdev=frame_stdev_norm(bmp,cx0,2);
+        x0[i]=(double)(i-cx[1])/(cx[3]-cx[1]+1);
+        hist[i]=black+3.*stdev;
+        if (x0[i]>=.25 && x0[i]<=.75)
+            {
+            c++;
+            sum+=hist[i];
+            }
+        }
+    if (c>0)
+        sum/=c;
+    else
+        sum=1.0;
+    for (i=0;i<n;i++)
+        hist[i] /= sum;
+    xsmooth(hist,n,pixwidth/3);
+    cnew[1]=cx[1]+find_threshold(x0,hist,bmp->width,threshold)*(cx[3]-cx[1]+1);
+#if (WILLUSDEBUGX & 0x8000)
+    {
+    FILE *f;
+    static int count=0;
+    f=fopen("acrossheight.ep",count==0?"w":"a");
+    fprintf(f,"/sa l \"%d\" 2\n",count0);
+    for (i=0;i<n;i++)
+        fprintf(f,"%g %g\n",x0[i],hist[i]);
+    fprintf(f,"//nc\n");
+    fclose(f);
+    count++;
+    }
+#endif
+    for (i=0;i<n;i++)
+        x0[i]=1.0-x0[i];
+    sortxyd(x0,hist,n);
+    cnew[3]=cx[3]+1-find_threshold(x0,hist,n,threshold)*(cx[3]-cx[1]+1);
+#if (WILLUSDEBUGX & 0x8000)
+count0++;
+#endif
+    willus_dmem_free(46,(double **)&hist,funcname);
+    for (i=0;i<4;i++)
+        cx[i]=cnew[i];
+#if (WILLUSDEBUGX & 0x8000)
+for (i=0;i<4;i++)
+printf("cxnew[%d]=%d\n",i,cx[i]);
+#endif
+    }
+
+
+static void xsmooth(double *y,int n,int cwin)
+
+    {
+    int i,dn;
+    double *y2;
+    static char *funcname="xsmooth";
+
+    willus_dmem_alloc_warn(47,(void **)&y2,sizeof(double)*n,funcname,10);
+    dn=(cwin-1)/2;
+    for (i=dn;i<n-dn;i++)
+        {
+        int j;
+        double sum;
+        for (sum=0.,j=i-dn;j<=i+dn;j++)
+            sum+=y[i];
+        y2[i]=sum/cwin;
+        }
+    for (i=0;i<dn;i++)
+        y2[i]=y2[dn];
+    for (i=n-dn;i<n;i++)
+        y2[i]=y2[n-dn-1];
+    for (i=0;i<n;i++)
+        y[i]=y2[i];
+    willus_dmem_free(47,(double **)&y2,funcname);
+    }
+
+
+static double find_threshold(double *x,double *y,int n,double threshold) 
+
+    {
+    double max,thresh;
+    int i,i0,imin;
+
+    i0=indexxd(0.,x,n);
+    if (i0<0)
+        i0=0;
+    if (i0>n-1)
+        i0=n-1;
+    for (max=0.,i=0;i<n;i++)
+        {
+        if (x[i]<0. || x[i]>1.)
+            continue;
+        if (y[i]>max)
+            max=y[i];
+        }
+    /* Find starting point -- minimum */
+    if (max<.2)
+        return(0.);
+    for (imin=i=i0;i<n;i++)
+        {
+        if (x[i]>0.35 || y[i] > 0.1*(max-y[i0]))
+            break;
+        if (y[i]<y[imin])
+            imin=i;
+        }
+    for (i=i0;i>=0;i--)
+        {
+        if (x[i]<-0.2 || y[i] > 0.1*(max-y[i0]))
+            break;
+        if (y[i]<y[imin])
+            imin=i;
+        }
+    thresh=y[imin]+(max-y[imin])*threshold;
+    for (i=imin;i<n;i++)
+        if (x[i]>0.35 || y[i] >= thresh)
+            break;
+    return(x[i-1]);
     }
 
 
@@ -1395,8 +1730,91 @@ static void bmp_convert_to_monochrome(WILLUSBITMAP *bmp,int whitethresh)
         }
     }
 
+/*
+** Calculate variation in black and white in frame.
+** 0 to 1
+** Higher value indicates part of the frame is probably over
+** a row or rows of text.
+** flags==1 does left side only
+** flags==2 does top only
+** flags==3 does whole frame
+*/
+static double frame_stdev_norm(WILLUSBITMAP *bmp,int *cx,int flags)
 
-static double frame_black_percentage(WILLUSBITMAP *bmp,int *cx)
+    {
+    unsigned char *p,*p1,*p2,*p3;
+    int i,w,h,dr,sum;
+    double stdev0,stdev;
+
+    w=cx[2]-cx[0]+1;
+    h=cx[3]-cx[1]+1-2;
+    dr=bmp_bytewidth(bmp);
+    p=bmp_rowptr_from_top(bmp,cx[1])+cx[0];
+    p1=p+dr;
+    if (flags==1)
+        {
+        h+=2;
+        p1-=dr;
+        }
+    p2=bmp_rowptr_from_top(bmp,cx[1]+1)+cx[2];
+    p3=bmp_rowptr_from_top(bmp,cx[3])+cx[0];
+    stdev=0.;
+    if (flags!=1)
+        {
+        for (sum=0,i=0;i<w-1;i++,p++)
+            {
+            int v1,v2;
+            v1=p[0];
+            v2=p[1];
+            sum+=abs(v2-v1);
+            }
+        stdev0=(double)sum/(w-1);
+        if (flags==2)
+            return(stdev0/255.);
+        if (stdev0 > stdev)
+            stdev=stdev0;
+        for (sum=0,i=0;i<w-1;i++,p3++)
+            {
+            int v1,v2;
+            v1=p3[0];
+            v2=p3[1];
+            sum+=abs(v2-v1);
+            }
+        stdev0=(double)sum/(w-1);
+        if (stdev0 > stdev)
+            stdev=stdev0;
+        }
+    for (sum=0,i=0;i<h-1;i++,p1+=dr)
+        {
+        int v1,v2;
+        v1=p1[0];
+        v2=p1[dr];
+        sum+=abs(v2-v1);
+        }
+    stdev0=(double)sum/(h-1);
+    if (flags==1)
+        return(stdev0/255.);
+    if (stdev0 > stdev)
+        stdev=stdev0;
+    for (sum=0,i=0;i<h-1;i++,p2+=dr)
+        {
+        int v1,v2;
+        v1=p2[0];
+        v2=p2[dr];
+        sum+=abs(v2-v1);
+        }
+    stdev0=(double)sum/(h-1);
+    if (stdev0 > stdev)
+        stdev=stdev0;
+    return(stdev/255.);
+    }
+
+/*
+** flags==1 does left side only
+** flags==2 does top only
+** flags==3 does whole frame
+*/
+static double frame_black_percentage(WILLUSBITMAP *bmp,int *cx,int flags)
 
     {
     unsigned char *p,*p1,*p2,*p3;
@@ -1410,11 +1828,30 @@ static double frame_black_percentage(WILLUSBITMAP *bmp,int *cx)
     p1=p+dr;
     p2=bmp_rowptr_from_top(bmp,cx[1]+1)+cx[2];
     p3=bmp_rowptr_from_top(bmp,cx[3])+cx[0];
-    for (sum=0;w>0;w--,p++,p3++)
-        sum+=(*p)+(*p3);
-    for (;h>0;h--,p1+=dr,p2+=dr)
-        sum+=(*p1)+(*p2);
-    return((double)sum/len);
+    if (flags==3)
+        {
+        for (sum=0;w>0;w--,p++,p3++)
+            sum+=(*p)+(*p3);
+        for (;h>0;h--,p1+=dr,p2+=dr)
+            sum+=(*p1)+(*p2);
+        }
+    else if (flags==1)
+        {
+        h+=2;
+        p1-=dr;
+        len=h;
+        for (sum=0;h>0;h--,p1+=dr)
+            sum+=(*p1);
+        }
+    else
+        {
+        len=w;
+        for (sum=0;w>0;w--,p++)
+            sum+=(*p);
+        }
+       
+//    return((double)sum/len);
+    return(1.-(double)sum/(255.*len));
     }
 
 
@@ -1477,9 +1914,13 @@ printf("    type[%d]=%d\n",j,type[j]);
             /* Paint over mark if it matches a color */
             if (jbest>=0)
                 {
-                p[0]=p[1]=p[2]=255;
+                int paintover;
+
+                /* paintover = (type[jbest]==K2PAGEBREAKMARK_TYPE_NOBREAK ? 0 : 255); */
+                paintover=255;
+                p[0]=p[1]=p[2]=paintover;
                 if (pg!=NULL)
-                    pg[col]=255;
+                    pg[col]=paintover;
                 }
 /*
 if (jbest>=0)
