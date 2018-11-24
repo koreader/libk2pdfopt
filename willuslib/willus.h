@@ -183,6 +183,10 @@ typedef double  real;
 #endif
 #endif
 
+#if (defined(ANDROID) || defined(DARWIN))
+#undef WILLUS_HAVE_FILE64
+#endif
+
 /*
 ** As of 2013 and gcc 4.7.x, x87_line_math is turned off entirely.
 ** My x87 in-line routines are no faster than gcc on modern Intel CPUs.
@@ -230,7 +234,7 @@ typedef double  real;
 #ifdef USE_CMAKE
 #include "config.h"
 #else /* USE_CMAKE */
-
+/*
 #ifndef HAVE_Z_LIB
 #define HAVE_Z_LIB
 #endif
@@ -252,6 +256,7 @@ typedef double  real;
 #ifndef HAVE_GOCR_LIB
 #define HAVE_GOCR_LIB
 #endif
+*/
 #ifndef HAVE_LEPTONICA_LIB
 #define HAVE_LEPTONICA_LIB
 #endif

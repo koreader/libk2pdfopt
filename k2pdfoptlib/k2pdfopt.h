@@ -70,7 +70,9 @@
 #include <willus.h>
 
 /* Uncomment below if compiling for Kindle PDF Viewer */
-/* #define K2PDFOPT_KINDLEPDFVIEWER */
+#ifndef K2PDFOPT_KINDLEPDFVIEWER
+#define K2PDFOPT_KINDLEPDFVIEWER
+#endif
 
 /*
 ** The HAVE_..._LIB defines should now be carried over from willus.h,
