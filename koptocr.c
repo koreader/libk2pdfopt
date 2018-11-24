@@ -36,16 +36,16 @@ l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs, l_int32 maxsize,
 		l_int32 reduction, l_int32 minwidth, l_int32 minheight,
 		l_int32 maxwidth, l_int32 maxheight, BOXA **pboxad, NUMA **pnai);
 
-static int k2pdfopt_tocr_inited = 0;
+void* tess_api = NULL;
 
 void k2pdfopt_tocr_init(char *datadir, char *lang) {
-	if (strncmp(lang, k2pdfopt_tocr_get_language(), 32)) {
-		k2pdfopt_tocr_end();
+	if (tess_api != NULL && strncmp(lang, k2pdfopt_tocr_get_language(tess_api), 32)) {
+		k2pdfopt_tocr_end(tess_api);
 	}
-	if (!k2pdfopt_tocr_inited) {
-		if (ocrtess_init(datadir, lang, NULL, NULL, 0) == 0 ) {
-				k2pdfopt_tocr_inited = 1;
-		} else {
+	if (tess_api == NULL) {
+		int status;
+		tess_api = ocrtess_init(datadir, lang, NULL, NULL, 0, &status);
+		if (tess_api == NULL) {
 			printf("fail to start tesseract OCR engine\n");
 		}
 	}
@@ -57,8 +57,8 @@ void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 		char *datadir, char *lang, int ocr_type,
 		int allow_spaces, int std_proc) {
 	k2pdfopt_tocr_init(datadir, lang);
-	if (k2pdfopt_tocr_inited) {
-		ocrtess_single_word_from_bmp8(
+	if (tess_api != NULL) {
+		ocrtess_single_word_from_bmp8(tess_api,
 				word, max_length, src,
 				x, y, x + w, y + h,
 				ocr_type, allow_spaces, std_proc, stderr);
@@ -66,13 +66,13 @@ void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 }
 
 const char* k2pdfopt_tocr_get_language() {
-	return tess_capi_get_init_language();
+	return tess_capi_get_init_language(tess_api);
 }
 
 void k2pdfopt_tocr_end() {
-	if (k2pdfopt_tocr_inited) {
-		ocrtess_end();
-		k2pdfopt_tocr_inited = 0;
+	if (tess_api != NULL) {
+		ocrtess_end(tess_api);
+		tess_api = NULL;
 	}
 }
 
@@ -161,7 +161,7 @@ int k2pdfopt_get_word_boxes_from_tesseract(PIX *pixs, int is_cjk,
 	if (!pixs)
 		return ERROR_INT("pixs not defined", procName, 1);
 
-	tess_capi_get_word_boxes(pixs, &boxa, is_cjk, stderr);
+	tess_capi_get_word_boxes(tess_api, pixs, &boxa, is_cjk, stderr);
 	/* 2D sort the bounding boxes of these words. */
 	baa = boxaSort2d(boxa, NULL, 3, -5, 5);
 

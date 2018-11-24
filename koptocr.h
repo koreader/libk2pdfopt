@@ -43,5 +43,8 @@ void k2pdfopt_get_reflowed_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 
 void k2pdfopt_get_native_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
         int x, int y, int w, int h);
+
+int k2pdfopt_get_word_boxes_from_tesseract(PIX *pixs, int is_cjk,
+		BOXA **pboxad, NUMA **pnai);
 #endif
 
