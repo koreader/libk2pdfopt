@@ -9,7 +9,7 @@ set(WILLUSLIB_SRC
     ocrjocr.c ocrtess.c pdfwrite.c point2d.c render.c strbuf.c string.c
     token.c wfile.c wgs.c wgui.c willusversion.c win.c winbmp.c
     wincomdlg.c winmbox.c winshell.c wmupdf.c wmupdfinfo.c wpdf.c wsys.c
-    wzfile.c
+    wzfile.c wleptonica.c
 )
 # ocr.c  
 # win.c  winbmp.c winmbox.c wincomdlg.c wgui.c winshell.c

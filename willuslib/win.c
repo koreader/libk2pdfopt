@@ -416,7 +416,7 @@ int detail_process(char *exename,char *cmdlineopts,int inherits,
 
 int win_createprocess_utf8(char *exename,char *cmdline,int inherits,int cflags,
                            char *pwd,void *si,void *pi)
-
+                           
     {
     int status;
     short *exenamew,*cmdlinew,*pwdw;
@@ -1423,7 +1423,7 @@ void win_proper_date_to_ntfs_date(struct tm *date)
     else if (!date->tm_isdst && lt.tm_isdst)
         wfile_increment_hour(date);
     }
-
+    
 
 
 void win_tm_to_windate(void *fT,struct tm *date)
@@ -2018,7 +2018,7 @@ static int get_desktop_directory_1(char *desktop,int maxlen,HKEY key_class,
         int size,valuesize,type;
         char buf[512];
         char valuename[256];
-
+        
         size=511;
         valuesize=255;
         status=RegEnumValue(newkey,(DWORD)i,valuename,(LPDWORD)&valuesize,(LPDWORD)NULL,
@@ -2036,7 +2036,7 @@ static int get_desktop_directory_1(char *desktop,int maxlen,HKEY key_class,
     if (i<values)
         return(0);
     return(-3);
-    }
+    } 
 
 
 /*
@@ -2063,7 +2063,7 @@ int win_get_path(char *path,int maxlen,int syspath)
     {
     int i,status;
     HKEY newkey;
-
+    
     if (syspath)
         status=RegOpenKeyEx(HKEY_LOCAL_MACHINE,"SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment",0,KEY_READ,&newkey);
     else
@@ -2075,7 +2075,7 @@ int win_get_path(char *path,int maxlen,int syspath)
         int size,valuesize,type;
         char buf[1024];
         char valuename[256];
-
+        
         size=1023;
         valuesize=255;
         status=RegEnumValue(newkey,(DWORD)i,valuename,(LPDWORD)&valuesize,(LPDWORD)NULL,
@@ -2145,7 +2145,7 @@ static int win_registry_search1(char *value,int maxlen,HKEY key_class,char *keyn
         {
         int size,valuesize,type;
         char valuename[512],buf[512];
-
+        
         size=511;
         valuesize=511;
         status=RegEnumValue(newkey,(DWORD)i,valuename,(LPDWORD)&valuesize,(LPDWORD)NULL,
@@ -2169,7 +2169,7 @@ static int win_registry_search1(char *value,int maxlen,HKEY key_class,char *keyn
         int valuesize;
         char valuename[512];
         char newkeyname[512];
-
+        
         valuesize=511;
         status=RegEnumKey(newkey,(DWORD)i,valuename,valuesize);
         if (status!=ERROR_SUCCESS)
@@ -2180,7 +2180,7 @@ static int win_registry_search1(char *value,int maxlen,HKEY key_class,char *keyn
         }
     RegCloseKey(newkey);
     return(i>=0 ? 0 : -3);
-    }
+    } 
 
 
 int win_get_user_and_domain(char *szUser,int maxlen,char *szDomain,int maxlen2)
@@ -2204,7 +2204,7 @@ int win_get_user_and_domain(char *szUser,int maxlen,char *szDomain,int maxlen2)
            if (GetLastError() != ERROR_NO_TOKEN)
               break;
            // Retry against process token if no thread token exists.
-           if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY,
+           if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, 
                  &hToken))
               break;
            }
@@ -2227,11 +2227,11 @@ int win_get_user_and_domain(char *szUser,int maxlen,char *szDomain,int maxlen2)
       if (!GetTokenInformation(hToken, TokenUser, ptiUser, cbti, &cbti))
           break;
       // Retrieve user name and domain name based on user's SID.
-      if (!LookupAccountSid(NULL, ptiUser->User.Sid, szUser, (LPDWORD)pcchUser,
+      if (!LookupAccountSid(NULL, ptiUser->User.Sid, szUser, (LPDWORD)pcchUser, 
             szDomain, (LPDWORD)pcchDomain, &snu))
           break;
       fSuccess = 1;
-      }
+      } 
 
     // Free resources.
     if (hToken)

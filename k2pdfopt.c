@@ -8,7 +8,7 @@
 **               downloads for MS Windows, Mac OSX, and Linux. The MS Windows
 **               version has an integrated GUI. K2pdfopt is open source.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2017  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -232,17 +232,22 @@ int main(int argc,char *argv[])
     /*
     ** Process files
     */
-    for (i=0;i<k2conv->k2files.n;i++)
-        {
-        K2PDFOPT_FILELIST_PROCESS k2listproc;
+    {
+    K2PDFOPT_FILELIST_PROCESS k2listproc;
+    double start,stop;
 
+    start=(double)clock()/CLOCKS_PER_SEC;
+    for (i=k2listproc.filecount=0;i<k2conv->k2files.n;i++)
+        {
         k2listproc.outname=NULL;
-        k2listproc.filecount=0;
         k2listproc.bmp=NULL;
         k2listproc.mode=K2PDFOPT_FILELIST_PROCESS_MODE_CONVERT_FILES;
         k2pdfopt_proc_wildarg(k2settings,k2conv->k2files.file[i],&k2listproc);
         willus_mem_free((double **)&k2listproc.outname,funcname);
         }
+    stop=(double)clock()/CLOCKS_PER_SEC;
+    k2sys_cpu_update(k2settings,start,stop);
+    }
 
     /*
     ** All done.

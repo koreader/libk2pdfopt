@@ -2,7 +2,7 @@
 ** k2settings2cmd.c    Convert changes in settings structure to equivalent
 **                     command-line arguments.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2017  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -70,7 +70,7 @@ void k2pdfopt_settings_get_cmdline(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
     STRBUF *shortest,_shortest;
     STRBUF *shortestng,_shortestng;
     K2PDFOPT_SETTINGS _src0,*src0;
-    static char *modelabel[]={"def","fw","fp","crop","2col","tm","copy",""};
+    static char *modelabel[]={"def","fw","fp","crop","2col","tm","copy","concat",""};
     int i,j,nd;
 #if (WILLUSDEBUGX & 0x80000)
 {
@@ -261,6 +261,7 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
                   &src->erase_vertical_lines,dst->erase_vertical_lines); 
     integer_check(cmdline,dst->erase_horizontal_lines==2?nongui:NULL,"-ehl",
                   &src->erase_horizontal_lines,dst->erase_horizontal_lines);    
+    integer_check(cmdline,nongui,"-er",&src->src_erosion,dst->src_erosion);
     double_plus_check(cmdline,NULL,"-fs",&src->dst_fontsize_pts,dst->dst_fontsize_pts);
     double_check(cmdline,nongui,"-vls",&src->vertical_line_spacing,dst->vertical_line_spacing);
     double_check(cmdline,nongui,"-vm",&src->vertical_multiplier,dst->vertical_multiplier);
@@ -354,9 +355,11 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
         src->src_grid_order = dst->src_grid_order;
         }
     integer_check(cmdline,nongui,"-f2p",&src->dst_fit_to_page,dst->dst_fit_to_page);
+    integer_check(cmdline,NULL,"-nt",&src->nthreads,dst->nthreads);
     double_check(cmdline,nongui,"-vb",&src->vertical_break_threshold,dst->vertical_break_threshold);
     minus_check(cmdline,NULL,"-sm",&src->show_marked_source,dst->show_marked_source);
     minus_check(cmdline,nongui,"-toc",&src->use_toc,dst->use_toc);
+    plus_minus_check(cmdline,nongui,"-jfc",&src->use_toc,dst->use_toc);
     if (src->dst_break_pages != dst->dst_break_pages)
         {
         if (dst->dst_break_pages==0)
@@ -376,7 +379,6 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
     minus_check(cmdline,nongui,"-fc",&src->fit_columns,dst->fit_columns);
     minus_check(cmdline,nongui,"-d",&src->dst_dither,dst->dst_dither);
     minus_check(cmdline,NULL,"-c",&src->dst_color,dst->dst_color);
-    minus_check(cmdline,NULL,"-ac",&src->autocrop,dst->autocrop);
     minus_check(cmdline,nongui,"-v",&src->verbose,dst->verbose);
     minus_check(cmdline,nongui,"-fr",&src->dst_figure_rotate,dst->dst_figure_rotate);
     minus_check(cmdline,nongui,"-y",&src->assume_yes,dst->assume_yes);
@@ -430,6 +432,30 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
         dst->src_autostraighten=-1;
     if (src->src_autostraighten<=0)
         src->src_autostraighten=-1;
+    if (src->dewarp != dst->dewarp)
+        {
+        if (dst->dewarp==0)
+            strbuf_dsprintf(cmdline,NULL,"-dw-");
+        else if (dst->dewarp>=4)
+            strbuf_dsprintf(cmdline,NULL,"-dw");
+        else if (dst->dewarp<3)
+            strbuf_dsprintf(cmdline,NULL,"-dw 2");
+        else
+            strbuf_dsprintf(cmdline,NULL,"-dw 3");
+        src->dewarp=dst->dewarp;
+        }
+    if (src->autocrop != dst->autocrop)
+        {
+        STRBUF *sbuf;
+        sbuf=NULL;
+        if (dst->autocrop==0)
+            strbuf_dsprintf(cmdline,sbuf,"-ac-");
+        else if (dst->autocrop==100)
+            strbuf_dsprintf(cmdline,sbuf,"-ac");
+        else
+            strbuf_dsprintf(cmdline,sbuf,"-ac %5.3f",(double)(dst->autocrop-10)/990.);
+        src->autocrop=dst->autocrop;
+        }
     if (src->src_autostraighten != dst->src_autostraighten)
         {
         STRBUF *sbuf;

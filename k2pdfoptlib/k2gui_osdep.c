@@ -821,10 +821,10 @@ printf("ContextMenu.\n");
             message->control = &k2gui->mainwin;
         }
     /* Turn special keys into other actions */
-    /* Ctrl-D into Menu selection */
+    /* Ctrl-D or I into Menu selection for call to k2gui_display_info() */
     if (iMsg==WM_KEYDOWN)
         {
-        if ((wParam&0xff)=='D' && (wParam&0xc00)>0)
+        if ((wParam&0xff)=='I' || ((wParam&0xff)=='D' && (wParam&0xc00)>0))
             {
             iMsg=WM_COMMAND;
             wParam=712;

@@ -443,7 +443,7 @@ static void winmbox_init(void)
 **    3 = Button 3 pressed
 **    4 = <Enter> pressed (if no default button)
 **
-*/
+*/ 
 int winmbox_message_box(void *parent,char *title,char *message,
                         char *button1,char *button2,char *button3,
                         char *inbuf,int maxlen,int fontsize_pixels,
@@ -455,7 +455,7 @@ int winmbox_message_box(void *parent,char *title,char *message,
                            inbuf,maxlen,fontsize_pixels,maxwidth_pixels,
                            rgbcolor,myproc,window,button_colors,NULL,0));
     }
-
+                           
 
 int winmbox_message_box_ex(void *parent,char *title,char *message,
                         char *button1,char *button2,char *button3,
@@ -498,7 +498,7 @@ int winmbox_message_box_ex(void *parent,char *title,char *message,
 **    3 = Button 3 pressed
 **    4 = <Enter> pressed (if no default button)
 **
-*/
+*/ 
 int winmbox_message_box_ex2(void *parent,char *title,char *message,
                         char *button1,char *button2,char *button3,
                         char *inbuf,int maxlen,int fontsize_pixels,
@@ -554,7 +554,7 @@ ansi_dprintf(NULL,"@winmbox_message_box_ex(%s,...) wmb_inuse=%d\n",message,wmb_i
     wndclass.lpszMenuName  = NULL;
     wndclass.lpszClassName = classname;
     wndclass.hIconSm       = NULL;
-
+    
     RegisterClassEx(&wndclass) ;
 
     wmb->inbuf=inbuf;
@@ -681,7 +681,7 @@ void winmbox_message_box_display_message(char *message,int *ypos)
 
     if (!wmb_inuse || wmb==NULL)
         return;
-    vcenter = (wmb->aboutbox.right-wmb->aboutbox.left==0 && wmb->inbuf==NULL
+    vcenter = (wmb->aboutbox.right-wmb->aboutbox.left==0 && wmb->inbuf==NULL 
                   && wmb->b1[0]=='\0' && wmb->b2[0]=='\0' && wmb->b3[0]=='\0');
     winmbox_text_extents(wmb->mf,message,&m,wmb->width);
     x1=(wmb->width-6-m.cx)/2;
@@ -924,8 +924,8 @@ wmb->msg,wmb->inbuf,wmb->aboutbox.right-wmb->aboutbox.left);
 */
 static LRESULT CALLBACK winmbox_edit_proc(HWND hwnd,UINT message,WPARAM wParam,LPARAM lParam)
 
-    {
-	switch (message)
+    {	
+	switch (message) 
         {
         case WM_SETFOCUS:
             if (wmb->aboutbox.right-wmb->aboutbox.left==0)
@@ -937,8 +937,8 @@ static LRESULT CALLBACK winmbox_edit_proc(HWND hwnd,UINT message,WPARAM wParam,L
             if ((TCHAR)wParam==VK_TAB)
                 {
                 SetFocus(GetNextDlgTabItem(GetParent(hwnd),hwnd,GetAsyncKeyState(VK_SHIFT)));
-                //cannot use WM_NEXTDLGCTL without handling in a parent window using the same code
-                return(0);
+                //cannot use WM_NEXTDLGCTL without handling in a parent window using the same code 
+                return(0); 
                 }
             if ((TCHAR)wParam==1)
                 {
@@ -1232,7 +1232,7 @@ printf("@winmbox_checkbox_button_draw: text='%s'\n",text);
     /* Bit the bitmap in the window */
     bmp_blit_to_hdc(bmp,hdc,0,0);
     bmp_free(bmp);
-/*
+/*        
     {
     RECT r;
     r.left=rect->left+(h-cbw)/2;
@@ -1312,8 +1312,8 @@ printf("@winmbox_checkbox_button_draw: text='%s'\n",text);
     DeleteObject(tbrush);
     DeleteObject(brush);
     }
-
-
+  
+ 
 /*
 ** Assumes button was created WITHOUT WS_BORDER flag!
 */
@@ -1523,11 +1523,11 @@ void winmbox_button_draw(void *hdc0,void *rect0,int state,int basecolorrgb,
     for (i=simple ? 2 : 6;i>=0;i--)
         DeleteObject(brush[i]);
     }
-
+   
 
 /*
 ** Does not work entirely correctly without PNG lib.
-*/
+*/ 
 static int special_button_text(HDC hdc,char *text,RECT *rect,HBRUSH brush,HPEN pen,int simple,
                                int r0,int g0,int b0)
 
@@ -1685,7 +1685,7 @@ ansi_dprintf(NULL,"WINMBOX: iMsg=%d, wParam=%d,%d, lParam=%d\n",(int)iMsg,(int)L
                 LPDRAWITEMSTRUCT lpdis;
                 int buttoncolor,cav,textcolor;
                 char *buttontext;
-
+                
                 buttoncolor=wmb->buttoncolor[buttonid-3];
                 if (buttonid==3)
                     buttontext=wmb->b1;
@@ -1845,7 +1845,7 @@ static void winmbox_display_text(HFONT hf,char *message,SIZE *size,int maxwidth,
 
         for (j=0;message[i]!='\0' && message[i]!='\n';i++)
             s[j++]=message[i];
-        s[j]='\0';
+        s[j]='\0'; 
         winmbox_display_line(hf,s,&sz,maxwidth,hdc,x0,y0);
         if (sz.cx > m.cx)
             m.cx=sz.cx;

@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2015  http://willus.com
+** Copyright (C) 2017  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -142,6 +142,7 @@ static void find_most_common_color(double ***hist,int n,int *r,int *g,int *b,
 static int bmp_uniform_row(WILLUSBITMAP *bmp,int row);
 static int bmp_uniform_col(WILLUSBITMAP *bmp,int col);
 static void bmp_color_xform8(WILLUSBITMAP *dest,WILLUSBITMAP *src,unsigned char *newval);
+static void bmp_one_component_erode(WILLUSBITMAP *src,WILLUSBITMAP *dst,int offsetplane,int bytesperpixel);
 static void bmp_apply_filter_gray(WILLUSBITMAP *dest,WILLUSBITMAP *src,
                                   double **filter,int ncols,int nrows);
 static double bmp_row_by_row_stdev(WILLUSBITMAP *bmp,int ccount,int whitethresh,
@@ -150,10 +151,24 @@ static int pixval_dither(int pv,int n,int maxsrc,int maxdst,int x0,int y0);
 static int dither_rec(int bits,int x0,int y0);
 
 
+double bmp_get_dpi(void)
+
+    {
+    return(bmp_dpi);
+    }
+
+
 double bmp_last_read_dpi(void)
 
     {
     return(bmp_dpi);
+    }
+
+
+void bmp_set_dpi(double dpi)
+
+    {
+    bmp_dpi=dpi;
     }
 
 
@@ -848,6 +863,8 @@ int bmp_write_png_stream(WILLUSBITMAP *bmp,FILE *f,FILE *out)
             }
         png_set_PLTE(png_ptr,info_ptr,pngpal,256);
         }
+    png_set_pHYs(png_ptr,info_ptr,(int)(bmp_dpi/.0254+.5),(int)(bmp_dpi/.0254+.5),
+                 PNG_RESOLUTION_METER);
     png_write_info(png_ptr,info_ptr);
     if (bmp->type==WILLUSBITMAP_TYPE_WIN32)
         png_set_bgr(png_ptr);
@@ -959,6 +976,12 @@ int bmp_write_jpeg_stream(WILLUSBITMAP *bmp,FILE *outfile,int quality,FILE *out)
     cinfo.input_components = bmp->bpp==8 ? 1 : 3;
     cinfo.in_color_space   = bmp->bpp==8 ? JCS_GRAYSCALE : JCS_RGB;
     jpeg_set_defaults(&cinfo);
+    if (bmp_dpi > 0)
+        {
+        cinfo.density_unit = 1;
+        cinfo.X_density    = bmp_dpi;
+        cinfo.Y_density    = bmp_dpi;
+        }
     /* See bmp_jpeg_set_std_huffman() */
     cinfo.optimize_coding  = bmp_std_huffman_tables ? 0 : 1;
     jpeg_set_quality(&cinfo,quality,TRUE);
@@ -3363,6 +3386,77 @@ static void bmp_color_xform8(WILLUSBITMAP *dest,WILLUSBITMAP *src,unsigned char 
     }
 
 
+void bmp_erode(WILLUSBITMAP *dst0,WILLUSBITMAP *src)
+
+    {
+    WILLUSBITMAP *dst,_dst;
+    int plane;
+
+    if (dst0==src || dst0==NULL)
+        {
+        dst=&_dst;
+        bmp_init(dst);
+        }
+    else
+        dst=dst0;
+    bmp_copy(dst,src);
+    if (bmp_is_grayscale(src))
+        bmp_one_component_erode(src,dst,0,1);
+    else
+        {
+        if (src->bpp==8)
+            bmp_promote_to_24(src);
+        for (plane=0;plane<3;plane++)
+            bmp_one_component_erode(src,dst,plane,3);
+        }
+    if (dst0==src || dst0==NULL)
+        {
+        bmp_copy(src,dst);
+        bmp_free(dst);
+        }
+    }
+
+
+static void bmp_one_component_erode(WILLUSBITMAP *src,WILLUSBITMAP *dst,int offsetplane,int bytesperpixel)
+
+    {
+    int r;
+
+    for (r=0;r<src->height;r++)
+        {
+        unsigned char *p[3];
+        unsigned char *d;
+        int a[9];
+        int c,min;
+
+        p[0]= (r==0) ? NULL : bmp_rowptr_from_top(src,r-1)+offsetplane;
+        p[1] = bmp_rowptr_from_top(src,r)+offsetplane;
+        p[2]= (r>=src->height-1) ? NULL : bmp_rowptr_from_top(src,r+1)+offsetplane;
+        d=bmp_rowptr_from_top(dst,r)+offsetplane;
+        for (c=0;c<src->width;c++,d+=bytesperpixel)
+            {
+            int i,j,k;
+            for (i=k=0;i<3;i++)
+                if (p[i]!=NULL)
+                    {
+                    for (j=-1;j<=1;j++)
+                        {
+                        a[k]=c+j>=0 && c+j<src->width ? p[i][(c+j)*bytesperpixel] : 255;
+                        k++;
+                        }
+                    }
+                else
+                    {
+                    a[k]=a[k+1]=a[k+2]=255;
+                    k+=3;
+                    }
+            for (min=a[0],i=1;i<9;i++)
+                if (min>a[i])
+                    min=a[i];
+            (*d)=min;
+            }
+        }
+    }
 
 /*
 ** Sharpen a bitmap.
@@ -4270,9 +4364,11 @@ static double bmp_row_by_row_stdev(WILLUSBITMAP *bmp,int ccount,int whitethresh,
                                    double theta_radians)
 
     {
+    static char *funcname="bmp_row_by_row_stdev";
     int dc1,dc2,c1,c2;
-    int r,n,nn,dw;
+    int r,n,nn,nw,dw,countthresh;
     double tanth,csum,csumsq,stdev;
+    int *row,*rowoff;
 
     c1=bmp->width/15.;
     c2=bmp->width-c1;
@@ -4295,36 +4391,52 @@ static double bmp_row_by_row_stdev(WILLUSBITMAP *bmp,int ccount,int whitethresh,
     dc2 -= bmp->height/15.;
     csum=csumsq=0.;
     n=0;
+    {
+    int c;
+    for (nw=0,c=c1;c<c2;c+=dw,nw++);
+    countthresh=nw*2/3;
+    willus_mem_alloc_warn((void **)&row,sizeof(int)*nw*2,funcname,10);
+    rowoff=&row[nw];
+    for (nn=0,c=c1;c<c2;c+=dw,nn++)
+        {
+        row[nn]=tanth*c;
+        rowoff[nn]=(int)(bmp_rowptr_from_top(bmp,row[nn]) - bmp_rowptr_from_top(bmp,0));
+        }
+    }
     for (r=dc1+1;r<bmp->height+dc2-1;r++)
         {
-        int c,count,r0last;
+        int c,cin,count;
         double dcount;
         unsigned char *p;
 
-        r0last=0;
-        p=bmp_rowptr_from_top(bmp,r0last);
-        for (nn=count=0,c=c1;c<c2;c+=dw)
+        p=bmp_rowptr_from_top(bmp,r);
+        for (cin=nn=count=0,c=c1;c<c2;c+=dw,nn++)
             {
             int r0;
 
-            r0=r+tanth*c;
+            r0=r+row[nn];
             if (r0<0 || r0>=bmp->height)
-                continue;
-            if (r0!=r0last)
                 {
-                r0last=r0;
-                p=bmp_rowptr_from_top(bmp,r0last);
+                if (cin>0)
+                    break;
+                continue;
                 }
-            nn++;
-            if (p[c]<whitethresh)
+            cin++;
+            if (p[c+rowoff[nn]]<whitethresh)
                 count++;
             }
-        dcount=100.*count/nn;
+        if (cin < countthresh)
+            continue;
+        dcount=100.*count/cin;
         csum+=dcount;
         csumsq+=dcount*dcount;
         n++;
         }
-    stdev=sqrt(fabs((csum/n)*(csum/n)-csumsq/n));
+    willus_mem_free((double **)&row,funcname);
+    if (n<=0)
+        stdev=0.;
+    else
+        stdev=sqrt(fabs((csum/n)*(csum/n)-csumsq/n));
     return(stdev);
     }
 
@@ -4333,7 +4445,7 @@ double bmp_autostraighten(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,int white,doub
                           double mindegrees,int debug,FILE *out)
 
     {
-    int i,na,n,imax;
+    int i,na,n,imax,maxpt;
     double stepsize,sdmin,sdmax,rotdeg;
     double *sdev;
     FILE *f;
@@ -4384,56 +4496,121 @@ double bmp_autostraighten(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,int white,doub
         {
         for (i=0;i<n;i++)
             nprintf(f,"%.3f %g\n",(i-na)*stepsize,sdev[i]);
-        nprintf(f,"//nc\n");
         }
     sdmin /= sdmax;
     rotdeg = -(imax-na)*stepsize;
+    /*
+    ** If (1) not a clear optimum point, or
+    **    (2) rot angle too close to zero, or
+    **    (3) rot angle too close to limits,
+    ** then: don't rotate
+    */
     if (sdmin > 0.95 || fabs(rotdeg) <= mindegrees
                      || fabs(fabs(rotdeg)-fabs(maxdegrees)) < 0.25)
         {
         willus_mem_free((double **)&sdev,funcname);
         if (debug)
             {
+            nprintf(f,"//nc\n");
             nprintf(f,"/sa l \"srcpage %d, rot=%.2f deg (no rot)\" 2\n/sa m 2 3\n%g 0\n%g 1\n//nc\n",
                  rpc,-rotdeg,-rotdeg,-rotdeg);
             fclose(f);
             }
         return(0.);
         }
-    if (imax>=3 && imax<=n-4)
+    /*
+    ** Count peaks in the rotation figure of merit
+    */
+    for (maxpt=0,i=1;i<n-1;i++)
         {
-        double sd1min,sd2min,sdthresh;
-
-        for (sd1min=sdev[imax-1],i=imax-2;i>=0;i--)
-            if (sd1min > sdev[i])
-                sd1min = sdev[i];
-        for (sd2min=sdev[imax+1],i=imax+2;i<n;i++)
-            if (sd2min > sdev[i])
-                sd2min = sdev[i];
-        sdthresh = sd1min > sd2min ? sd1min*1.01 : sd2min*1.01;
-        if (sdthresh < 0.9)
-            sdthresh = 0.9;
-        if (sdthresh < 0.95)
+        if (sdev[i]>.95 && ((sdev[i]>sdev[i-1] && sdev[i]>sdev[i+1])
+             || (i<n-2 && sdev[i]>sdev[i-1] && sdev[i]==sdev[i+1] && sdev[i+1]>sdev[i+2])))
             {
-            double deg1,deg2;
+            maxpt++;
+            }
+        }
 
-            for (i=imax-1;i>=0;i--)
-                if (sdev[i]<sdthresh)
-                    break;
-            deg1=stepsize*((i-na)+(sdthresh-sdev[i])/(sdev[i+1]-sdev[i]));
-            for (i=imax+1;i<n-1;i++)
-                if (sdev[i]<sdthresh)
-                    break;
-            deg2=stepsize*((i-na)-(sdthresh-sdev[i])/(sdev[i-1]-sdev[i]));
-            if (deg2 - deg1 < 2.5)
+    /* If one peak (maximum)--do fine grain search near that point and return the highest value */
+    if (maxpt==1)
+        {
+        double sdmax2;
+        double thbest;
+        int ifine,nfine;
+        sdmax2=1.0;
+        thbest=(imax-na)*stepsize*PI/180.;
+        nfine=5;
+        for (ifine=-nfine+1;ifine<nfine;ifine++)
+            {
+            double theta,sdev0;
+
+            if (ifine==0)
+                continue;
+            theta = (imax+(double)ifine/nfine-na)*stepsize*PI/180.;
+            sdev0=bmp_row_by_row_stdev(srcgrey,400,white,theta)/sdmax;
+            if (debug)
+                nprintf(f,"%.3f %g\n",theta*180./PI,sdev0);
+            if (sdev0>sdmax2)
                 {
-                rotdeg = -(deg1+deg2)/2.;
-                if (debug)
-                    nprintf(f,"/sa l \"srcpage %d, %.1f%% line\" 2\n/sa m 2 2\n"
-                              "%g 0\n%g 1\n//nc\n"
-                              "/sa l \"srcpage %d, %.1f%% line\" 2\n/sa m 2 2\n"
-                              "%g 0\n%g 1\n//nc\n",rpc,sdthresh*100.,deg1,deg1,
-                                                   rpc,sdthresh*100.,deg2,deg2);
+                sdmax2=sdev0;
+                thbest=theta;
+                }
+            }
+        rotdeg = -thbest*180./PI;
+        if (debug)
+            nprintf(f,"//nc\n");
+        }
+    /* If not just one max, do weighted average near highest point */
+    else
+        {
+        if (debug)
+            nprintf(f,"//nc\n");
+        if (imax>=3 && imax<=n-4)
+            {
+            double sd1min,sd2min,sdthresh;
+
+            for (sd1min=sdev[imax-1],i=imax-2;i>=0;i--)
+                if (sd1min > sdev[i])
+                    sd1min = sdev[i];
+            for (sd2min=sdev[imax+1],i=imax+2;i<n;i++)
+                if (sd2min > sdev[i])
+                    sd2min = sdev[i];
+            sdthresh = sd1min > sd2min ? sd1min*1.01 : sd2min*1.01;
+            if (sdthresh < 0.9)
+                sdthresh = 0.9;
+            if (sdthresh < 0.95)
+                {
+                double deg1,deg2;
+                int i1,i2;
+
+                for (i=imax-1;i>=0;i--)
+                    if (sdev[i]<sdthresh)
+                        break;
+                i1=i+1;
+                deg1=stepsize*((i-na)+(sdthresh-sdev[i])/(sdev[i+1]-sdev[i]));
+                for (i=imax+1;i<n-1;i++)
+                    if (sdev[i]<sdthresh)
+                        break;
+                i2=i-1;
+                deg2=stepsize*((i-na)-(sdthresh-sdev[i])/(sdev[i-1]-sdev[i]));
+                if (deg2 - deg1 < 2.5)
+                    {
+                    double wsum,sum;
+                    for (sum=wsum=0.,i=i1;i<=i2;i++)
+                        {
+                        wsum += (sdev[i]-sdthresh)*stepsize*(i-na);
+                        sum += (sdev[i]-sdthresh);
+                        }
+                    if (sum==0.)
+                        rotdeg = -(deg1+deg2)/2.;
+                    else
+                        rotdeg = -wsum/sum;
+                    if (debug)
+                        nprintf(f,"/sa l \"srcpage %d, %.1f%% line\" 2\n/sa m 2 2\n"
+                                  "%g 0\n%g 1\n//nc\n"
+                                  "/sa l \"srcpage %d, %.1f%% line\" 2\n/sa m 2 2\n"
+                                  "%g 0\n%g 1\n//nc\n",rpc,sdthresh*100.,deg1,deg1,
+                                                       rpc,sdthresh*100.,deg2,deg2);
+                    }
                 }
             }
         }

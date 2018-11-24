@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2015  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -41,7 +41,7 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
     fz_pixmap *pix;
     double dpp;
     fz_rect bounds,bounds2;
-    fz_matrix ctm;
+    fz_matrix ctm,identity;
     fz_irect bbox;
 //    fz_glyph_cache *glyphcache;
 //    fz_error error;
@@ -93,12 +93,13 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
         fz_drop_context(ctx);
         return(-3);
         }
-    fz_try(ctx) { list=fz_new_display_list(ctx);
+    fz_try(ctx) { list=fz_new_display_list(ctx,NULL);
                   dev=fz_new_list_device(ctx,list);
                   fz_run_page(ctx,page,dev,&fz_identity,NULL);
                 }
     fz_catch(ctx)
         {
+        fz_close_device(ctx,dev);
         fz_drop_device(ctx,dev);
         fz_drop_display_list(ctx,list);
         fz_drop_page(ctx,page);
@@ -106,6 +107,7 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
         fz_drop_context(ctx);
         return(-4);
         }
+    fz_close_device(ctx,dev);
     fz_drop_device(ctx,dev);
     dev=NULL;
     dpp=dpi/72.;
@@ -113,6 +115,7 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
     fz_var(pix);
     fz_bound_page(ctx,page,&bounds);
     ctm=fz_identity;
+    identity=fz_identity;
     fz_scale(&ctm,dpp,dpp);
 //    ctm=fz_concat(ctm,fz_rotate(rotation));
     bounds2=bounds;
@@ -126,13 +129,14 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
 //    pix=fz_new_pixmap_with_rect(colorspace,bbox);
     fz_try(ctx)
         {
-        pix=fz_new_pixmap_with_bbox(ctx,colorspace,&bbox);
+        pix=fz_new_pixmap_with_bbox(ctx,colorspace,&bbox,1);
         fz_clear_pixmap_with_value(ctx,pix,255);
-        dev=fz_new_draw_device(ctx,pix);
+        dev=fz_new_draw_device(ctx,&identity,pix);
         if (list)
             fz_run_display_list(ctx,list,dev,&ctm,&bounds2,NULL);
         else
             fz_run_page(ctx,page,dev,&ctm,NULL);
+        fz_close_device(ctx,dev);
         fz_drop_device(ctx,dev);
         dev=NULL;
         status=bmpmupdf_pixmap_to_bmp(bmp,ctx,pix);
@@ -140,6 +144,7 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
         }
     fz_catch(ctx)
         {
+        fz_close_device(ctx,dev);
         fz_drop_device(ctx,dev);
         fz_drop_pixmap(ctx,pix);
         fz_drop_display_list(ctx,list);
@@ -212,12 +217,13 @@ int bmpmupdf_pdffile_width_and_height(char *filename,int pageno,double *width_in
         fz_drop_context(ctx);
         return(-3);
         }
-    fz_try(ctx) { list=fz_new_display_list(ctx);
+    fz_try(ctx) { list=fz_new_display_list(ctx,NULL);
                   dev=fz_new_list_device(ctx,list);
                   fz_run_page(ctx,page,dev,&fz_identity,NULL);
                 }
     fz_catch(ctx)
         {
+        fz_close_device(ctx,dev);
         fz_drop_device(ctx,dev);
         fz_drop_display_list(ctx,list);
         fz_drop_page(ctx,page);
@@ -225,6 +231,7 @@ int bmpmupdf_pdffile_width_and_height(char *filename,int pageno,double *width_in
         fz_drop_context(ctx);
         return(-4);
         }
+    fz_close_device(ctx,dev);
     fz_drop_device(ctx,dev);
     dev=NULL;
     fz_bound_page(ctx,page,&bounds);
@@ -261,8 +268,10 @@ static int bmpmupdf_pixmap_to_bmp(WILLUSBITMAP *bmp,fz_context *ctx,fz_pixmap *p
     bmp->bpp=(ncomp==2) ? 8 : 24;
     bmp_alloc(bmp);
     if (ncomp==2)
+        {
         for (i=0;i<256;i++)
             bmp->red[i]=bmp->green[i]=bmp->blue[i]=i;
+        }
 	p = fz_pixmap_samples(ctx,pixmap);
     if (ncomp==1)
         for (row=0;row<bmp->height;row++)
@@ -273,6 +282,7 @@ static int bmpmupdf_pixmap_to_bmp(WILLUSBITMAP *bmp,fz_context *ctx,fz_pixmap *p
             p+=bmp->width;
             }
     else if (ncomp==2)
+        {
         for (row=0;row<bmp->height;row++)
             {
             unsigned char *dest;
@@ -280,7 +290,9 @@ static int bmpmupdf_pixmap_to_bmp(WILLUSBITMAP *bmp,fz_context *ctx,fz_pixmap *p
             for (col=0;col<bmp->width;col++,dest++,p+=2)
                 dest[0]=p[0];
             }
+        }
     else
+        {
         for (row=0;row<bmp->height;row++)
             {
             unsigned char *dest;
@@ -288,6 +300,7 @@ static int bmpmupdf_pixmap_to_bmp(WILLUSBITMAP *bmp,fz_context *ctx,fz_pixmap *p
             for (col=0;col<bmp->width;col++,dest+=ncomp-1,p+=ncomp)
                 memcpy(dest,p,ncomp-1);
             }
+        }
 	return(0);
     }
 #endif /* HAVE_MUPDF_LIB */

@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2015  http://willus.com
+** Copyright (C) 2016  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -26,7 +26,7 @@
 #include <string.h>
 #include <math.h>
 #include <locale.h>
-#ifdef WIN32
+#ifdef HAVE_WIN32_API
 #include <windows.h>
 #endif
 #ifdef UNIX
@@ -311,6 +311,19 @@ void wsys_sleep(int secs)
     }
 
 
+int wsys_num_cpus(void)
+
+    {
+#ifdef HAVE_WIN32_API
+    SYSTEM_INFO sysinfo;
+    GetSystemInfo(&sysinfo);
+    return(sysinfo.dwNumberOfProcessors);
+#else
+    return((int)sysconf(_SC_NPROCESSORS_ONLN));
+#endif
+    }
+
+
 char *wsys_full_exe_name(char *s)
 
     {
@@ -588,7 +601,7 @@ int wsys_get_envvar_ex(char *varname,char *value,int maxlen)
 #ifdef HAVE_WIN32_API
     int i,status;
     HKEY newkey;
-
+    
     status=RegOpenKeyEx(HKEY_CURRENT_USER,"Environment",0,KEY_READ,&newkey);
     if (status==ERROR_SUCCESS)
         {
@@ -597,7 +610,7 @@ int wsys_get_envvar_ex(char *varname,char *value,int maxlen)
             int size,valuesize,type;
             char buf[1024];
             char valuename[256];
-
+            
             size=1023;
             valuesize=255;
             status=RegEnumValue(newkey,(DWORD)i,valuename,(LPDWORD)&valuesize,(LPDWORD)NULL,

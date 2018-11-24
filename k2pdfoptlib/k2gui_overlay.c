@@ -333,7 +333,7 @@ printf(" = %d x %d\n",bmp->width,bmp->height);
 /*
 printf("delw=%d, delw2=%d, delh=%d, delh2=%d\n",delw,delw2,delh,delh2);
 */
-        willusgui_window_get_rect(NULL,&rect);
+        willusgui_get_desktop_workarea(&rect);
         dw=rect.right-rect.left+1;
         dh=rect.bottom-rect.top+1;
         h = dh*3/4;

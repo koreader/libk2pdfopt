@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2017  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -42,9 +42,8 @@ static void wmupdf_convert_pages_to_forms(pdf_document *xref,fz_context *ctx,int
                                           double *defaultbbox);
 static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ctx,
                                                pdf_obj *srcpageref,int pageno,double *defaultbbox);
-static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,int *length);
-static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,
-                                 int pagegen,pdf_obj *dict);
+static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int *length);
+static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,pdf_obj *dict);
 static char *xobject_name(int pageno);
 static pdf_obj *start_new_destpage(fz_context *ctx,pdf_document *doc,double width_pts,double height_pts);
 static void wmupdf_preserve_old_dests(pdf_obj *olddests,fz_context *ctx,pdf_document *xref,
@@ -63,7 +62,7 @@ static void matrix_rotate(double m[][3],double deg);
 static void matrix_xymul(double m[][3],double *x,double *y);
 
 /* Character positions */
-static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_text_page *page,
+static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_stext_page *page,
                                     int boundingbox);
 /*
 ** Outline functions
@@ -142,7 +141,7 @@ int wmupdf_info_field(char *infile,char *label,char *buf,int maxlen)
             }
         if (pdf_needs_password(ctx,xref) && !pdf_authenticate_password(ctx,xref,password))
             {
-            pdf_close_document(ctx,xref);
+            pdf_drop_document(ctx,xref);
             fz_drop_context(ctx);
             return(-3);
             }
@@ -157,7 +156,7 @@ int wmupdf_info_field(char *infile,char *label,char *buf,int maxlen)
         }
     fz_always(ctx)
         {
-        pdf_close_document(ctx,xref);
+        pdf_drop_document(ctx,xref);
         }
     fz_catch(ctx)
         {
@@ -178,19 +177,19 @@ int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_
     {
     pdf_document *xref;
     fz_context *ctx;
-    fz_write_options fzopts;
+    pdf_write_options pdf_write_opts;
     char *password="";
     int status;
     int write_failed;
 
-    memset(&fzopts,0,sizeof(fz_write_options));
-    fzopts.do_incremental=0;
-    fzopts.do_ascii=0;
-    fzopts.do_expand=0;
-    fzopts.do_linear=0;
-    fzopts.do_garbage=1; /* 2 and 3 don't work for this. */
-    fzopts.continue_on_error=0;
-    fzopts.errors=NULL;
+    memset(&pdf_write_opts,0,sizeof(pdf_write_options));
+    pdf_write_opts.do_incremental=0;
+    pdf_write_opts.do_ascii=0;
+    pdf_write_opts.do_compress=1;
+    pdf_write_opts.do_linear=0;
+    pdf_write_opts.do_garbage=1; /* 2 and 3 don't work for this. */
+    pdf_write_opts.continue_on_error=0;
+    pdf_write_opts.errors=NULL;
     write_failed=0;
     wpdfpageinfo_sort(pageinfo);
     xref=NULL;
@@ -215,7 +214,7 @@ int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_
             }
         if (pdf_needs_password(ctx,xref) && !pdf_authenticate_password(ctx,xref,password))
             {
-            pdf_close_document(ctx,xref);
+            pdf_drop_document(ctx,xref);
             fz_drop_context(ctx);
             nprintf(out,"wmupdf_remake_pdf:  Cannot authenticate PDF file %s.\n",infile);
             return(-3);
@@ -223,18 +222,18 @@ int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_
         status=wmupdf_pdfdoc_newpages(xref,ctx,pageinfo,use_forms,wpdfoutline,out);
         if (status<0)
             {
-            pdf_close_document(ctx,xref);
+            pdf_drop_document(ctx,xref);
             fz_drop_context(ctx);
             nprintf(out,"wmupdf_remake_pdf:  Error re-paginating PDF file %s.\n",infile);
             return(status);
             }
         info_update(ctx,xref,pageinfo->producer,pageinfo->author,pageinfo->title);
         /* Write output */
-        pdf_write_document(ctx,xref,outfile,&fzopts);
+        pdf_save_document(ctx,xref,outfile,&pdf_write_opts);
         }
     fz_always(ctx)
         {
-        pdf_close_document(ctx,xref);
+        pdf_drop_document(ctx,xref);
         }
     fz_catch(ctx)
         {
@@ -864,20 +863,19 @@ static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ct
 
     {
     pdf_obj *array,*srcpageobj,*srcpagecontents;
-    int i,len,streamlen,pageref,pagegen,compressed;
+    int i,len,streamlen,pageref,compressed;
     double bbox_array[4];
     double matrix[6];
 
     srcpageobj = pdf_resolve_indirect(ctx,srcpageref);
     pageref=pdf_to_num(ctx,srcpageref);
-    pagegen=pdf_to_gen(ctx,srcpageref);
     wmupdf_object_bbox(ctx,srcpageobj,bbox_array,defaultbbox);
     for (i=0;i<6;i++)
         matrix[i]=0.;
     matrix[0]=matrix[3]=1.;
     srcpagecontents=pdf_dict_gets(ctx,srcpageobj,"Contents");
     /* Concatenate all indirect streams from source page directly into it. */
-/* printf("Adding streams to source page %d (pageref=%d, pagegen=%d)...\n",pageno,pageref,pagegen); */
+/* printf("Adding streams to source page %d (pageref=%d)...\n",pageno,pageref); */
     streamlen=0;
     /* k2pdfopt v2.10:  check if NULL--can be NULL on empty page */
     if (srcpagecontents!=NULL)
@@ -891,16 +889,16 @@ static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ct
                 obj=pdf_array_get(ctx,srcpagecontents,k);
                 if (pdf_is_indirect(ctx,obj))
                     pdf_resolve_indirect(ctx,obj);
-                streamlen=add_to_srcpage_stream(xref,ctx,pageref,pagegen,obj);
+                streamlen=add_to_srcpage_stream(xref,ctx,pageref,obj);
                 }
             }
         else
             {
             if (pdf_is_indirect(ctx,srcpagecontents))
                 pdf_resolve_indirect(ctx,srcpagecontents);
-            streamlen=add_to_srcpage_stream(xref,ctx,pageref,pagegen,srcpagecontents);
+            streamlen=add_to_srcpage_stream(xref,ctx,pageref,srcpagecontents);
             }
-        compressed=stream_deflate(xref,ctx,pageref,pagegen,&streamlen);
+        compressed=stream_deflate(xref,ctx,pageref,&streamlen);
         }
     else
         compressed=0;
@@ -942,7 +940,7 @@ static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ct
     }
 
 
-static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pagegen,int *length)
+static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int *length)
 
     {
     fz_buffer *strbuf;
@@ -956,7 +954,7 @@ static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pag
     int nw;
 #endif
 
-    strbuf=pdf_load_stream(ctx,xref,pageref,pagegen);
+    strbuf=pdf_load_stream_number(ctx,xref,pageref);
     n=fz_buffer_storage(ctx,strbuf,&p);
 #ifdef HAVE_Z_LIB
     /*
@@ -984,7 +982,10 @@ static int stream_deflate(pdf_document *xref,fz_context *ctx,int pageref,int pag
         fclose(f);
     wfile_remove_utf8(tempfile);
     p[nw]='\n';
+/* mupdf 1.10a mod */
+/*
     strbuf->len=nw+1;
+*/
     wmupdf_update_stream(ctx,xref,pageref,strbuf);
     fz_drop_buffer(ctx,strbuf);
 /*
@@ -1003,8 +1004,7 @@ printf("    After drop, xref->table[%d].stm_buf=%p, refs=%d\n",pageref,xref->tab
 /*
 ** To do:  Can we use fz_buffer_cat for this?
 */
-static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,
-                                 int pagegen,pdf_obj *srcdict)
+static int add_to_srcpage_stream(pdf_document *xref,fz_context *ctx,int pageref,pdf_obj *srcdict)
 
     {
     fz_buffer *srcbuf;
@@ -1016,21 +1016,21 @@ printf("@add_to_srcpage_stream()...pageref=%d\n",pageref);
 printf("srcdict=%p\n",srcdict);
 printf("pdf_to_num(ctx,srcdict)=%d\n",pdf_to_num(ctx,srcdict));
 */
-    srcbuf=pdf_load_stream(ctx,xref,pdf_to_num(ctx,srcdict),pdf_to_gen(ctx,srcdict));
+    srcbuf=pdf_load_stream_number(ctx,xref,pdf_to_num(ctx,srcdict));
     if (srcbuf==NULL)
         {
-        dstbuf=pdf_load_stream(ctx,xref,pageref,pagegen);
+        dstbuf=pdf_load_stream_number(ctx,xref,pageref);
         if (dstbuf==NULL)
             return(0);
         dstlen=fz_buffer_storage(ctx,dstbuf,NULL);
         fz_drop_buffer(ctx,dstbuf);
         return(dstlen);
         }
-    if (!pdf_is_stream(ctx,xref,pageref,pagegen))
+    if (!pdf_obj_num_is_stream(ctx,xref,pageref))
         dstbuf=fz_new_buffer(ctx,16);
     else
         {
-        dstbuf=pdf_load_stream(ctx,xref,pageref,pagegen);
+        dstbuf=pdf_load_stream_number(ctx,xref,pageref);
         if (dstbuf==NULL)
             dstbuf=fz_new_buffer(ctx,16);
         }
@@ -1053,7 +1053,11 @@ printf("    srcptr = %p\n",srcbuf->data);
         whitespace[1]='\0';
         fz_write_buffer(ctx,dstbuf,whitespace,1);
         }
+    /* mupdf 1.10a--replace write with append */
+    /*
     fz_write_buffer(ctx,dstbuf,srcbuf->data,fz_buffer_storage(ctx,srcbuf,NULL));
+    */
+    fz_append_buffer(ctx,dstbuf,srcbuf);
     dstlen=fz_buffer_storage(ctx,dstbuf,NULL);
 /*
 printf("    dstlen after = %d\n",dstlen);
@@ -1170,10 +1174,10 @@ static void wmupdf_update_stream(fz_context *ctx,pdf_document *doc,int num,fz_bu
     x=pdf_get_xref_entry(ctx,doc,num);
     fz_drop_buffer(ctx,x->stm_buf);
     x->stm_buf = fz_keep_buffer(ctx,newbuf);
-    obj = pdf_load_object(ctx,doc,num,0);
+    obj = pdf_load_object(ctx,doc,num);
     if (obj!=NULL)
         {
-        pdf_dict_puts_drop(ctx,obj,"Length",pdf_new_int(ctx,doc,newbuf->len));
+        pdf_dict_puts_drop(ctx,obj,"Length",pdf_new_int(ctx,doc,fz_buffer_storage(ctx,newbuf,NULL)));
         /*
         if (!compressed)
             {
@@ -1389,9 +1393,9 @@ int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char 
     fz_document *doc=NULL;
     fz_display_list *list=NULL;
     fz_context *ctx;
-    fz_text_sheet *textsheet=NULL;
+    fz_stext_sheet *textsheet=NULL;
     fz_page *page;
-    fz_text_page *text=NULL;
+    fz_stext_page *text=NULL;
     fz_device *dev=NULL;
     fz_rect bounds;
 
@@ -1427,12 +1431,13 @@ int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char 
             }
         fz_try(ctx)
             {
-            list=fz_new_display_list(ctx);
+            list=fz_new_display_list(ctx,NULL);
             dev=fz_new_list_device(ctx,list);
             fz_run_page(ctx,page,dev,&fz_identity,NULL);
             }
         fz_always(ctx)
             {
+            fz_close_device(ctx,dev);
             fz_drop_device(ctx,dev);
             dev=NULL;
             }
@@ -1448,25 +1453,36 @@ int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char 
         fz_bound_page(ctx,page,&bounds);
         wtc->width=fabs(bounds.x1-bounds.x0);
         wtc->height=fabs(bounds.y1-bounds.y0);
-        textsheet=fz_new_text_sheet(ctx);
+        textsheet=fz_new_stext_sheet(ctx);
         fz_try(ctx)
             {
-            text=fz_new_text_page(ctx);
-            dev=fz_new_text_device(ctx,textsheet,text);
+            /* options= FZ_STEXT_PRESERVE_LIGATURES | FZ_STEXT_PRESERVE_WHITESPACE; */
+            /* Do not preserve ligatures or white space */
+            if (list)
+                text=fz_new_stext_page_from_display_list(ctx,list,textsheet,0);
+            else
+                text=fz_new_stext_page_from_page(ctx,page,textsheet,0);
+/*
+            dev=fz_new_stext_device(ctx,textsheet,text,options);
             if (list)
                 fz_run_display_list(ctx,list,dev,&fz_identity,&fz_infinite_rect,NULL);
             else
                 fz_run_page(ctx,page,dev,&fz_identity,NULL);
+            fz_close_device(ctx,dev);
             fz_drop_device(ctx,dev);
             dev=NULL;
+*/
             wtextchars_add_fz_chars(wtc,ctx,text,boundingbox);
             }
         fz_always(ctx)
             {
+/*
+            fz_close_device(ctx,dev);
             fz_drop_device(ctx,dev);
             dev=NULL;
-            fz_drop_text_page(ctx,text);
-            fz_drop_text_sheet(ctx,textsheet);
+*/
+            fz_drop_stext_page(ctx,text);
+            fz_drop_stext_sheet(ctx,textsheet);
             fz_drop_display_list(ctx,list);
             fz_drop_page(ctx,page);
             fz_drop_document(ctx,doc);
@@ -1487,16 +1503,17 @@ int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char 
     }
 
 
-static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_text_page *page,
+static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_stext_page *page,
                                     int boundingbox)
 
     {
-    int iblock;
+    int iblock,lig;
 
-    for (iblock=0;iblock<page->len;iblock++)
+    lig=-1;
+    for (iblock=lig=0;iblock<page->len;iblock++)
         {
-        fz_text_block *block;
-        fz_text_line *line;
+        fz_stext_block *block;
+        fz_stext_line *line;
         char *s;
 
         if (page->blocks[iblock].type != FZ_PAGE_BLOCK_TEXT)
@@ -1504,11 +1521,11 @@ static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_text_page
         block=page->blocks[iblock].u.text;
         for (line=block->lines;line<block->lines+block->len;line++)
             {
-            fz_text_span *span;
+            fz_stext_span *span;
 
             for (span=line->first_span;span;span=span->next)
                 {
-                fz_text_style *style=NULL;
+                fz_stext_style *style=NULL;
                 int char_num;
 /*
 printf("Span:\n");
@@ -1527,7 +1544,7 @@ printf("    indent=%g\n",span->indent);
 */
                 for (char_num=0;char_num<span->len;char_num++)
                     {
-                    fz_text_char *ch;
+                    fz_stext_char *ch;
                     fz_rect rect;
                     double dx,dy;
                     WTEXTCHAR textchar;
@@ -1535,12 +1552,52 @@ printf("    indent=%g\n",span->indent);
                     ch=&span->text[char_num];
                     if (ch->style != style)
                         {
+                        char *fname;
                         /* style change if style!=NULL */
                         style=ch->style;
-                        s=strchr(style->font->name,'+');
-                        s= s ? s+1 : style->font->name;
+                        fname=(char *)fz_font_name(ctx,style->font);
+                        s=strchr(fname,'+');
+                        s= s ? s+1 : fname;
                         }
-                    fz_text_char_bbox(ctx,&rect,span,char_num);
+                    fz_stext_char_bbox(ctx,&rect,span,char_num);
+                    if (lig>0)
+                        lig++;
+                    /* Ligature char? */
+                    if (rect.x0==rect.x1 && ch->c!=' ')
+                        lig=1;
+                    /* Skip space after ligature */
+                    if (lig==3 && ch->c==' ')
+                        {
+                        lig = -1;
+                        continue;
+                        }
+#if 0
+                    /*
+                    ** Deal correctly with ligatures
+                    */
+                    /* Indicator of second char in ligature, e.g. 'i' in 'fi' */
+                    if (ch->p.x==0. && ch->p.y==0.)
+                        {
+                        if (char_num>0)
+                            {
+                            fz_stext_char *ch2;
+                            fz_rect rect2;
+                            ch2=&span->text[char_num-1];
+                            fz_stext_char_bbox(ctx,&rect2,span,char_num-1);
+                            ch->p.y=ch2->p.y;
+                            rect.y0+=ch2->p.y;
+                            rect.y1+=ch2->p.y;
+                            rect.x0=rect.x1=rect2.x0;
+                            }
+                        lig=1;
+                        }
+                    /* Indicator of first char in ligature, e.g. 'f' in 'fi' */
+                    else if (rect.x0==0. && rect.y0<0.)
+                        {
+                        rect.x0 = rect.x1;
+                        rect.y0 += ch->p.y;
+                        }
+#endif
                     textchar.x1=rect.x0;
                     textchar.y1=rect.y0;
                     textchar.x2=rect.x1;
@@ -1574,8 +1631,42 @@ printf("    indent=%g\n",span->indent);
 printf("Char %4d: (%7.1f,%7.1f) - (%7.1f,%7.1f) (%7.1f,%7.1f)\n",
 ch->c,textchar.x1,textchar.y1,textchar.x2,textchar.y2,textchar.xp,textchar.yp);
 */
+#if 0
+                    /* If just had ligature, adjust x-values */
+                    if (lig==2)
+                        {
+                        if (wtc->n>1)
+                            {
+                            double xmid;
+                            WTEXTCHAR *tc1,*tc2;
+                            tc1=&wtc->wtextchar[wtc->n-2];
+                            tc2=&wtc->wtextchar[wtc->n-1];
+                            xmid = (tc1->x1 + textchar.x1)/2.;
+                            tc1->x2 = tc2->x1 = tc2->xp = xmid;
+                            tc2->x2 = textchar.x1;
+                            }
+                        else if (wtc->n>0)
+                            {
+                            WTEXTCHAR *tc1;
+                            tc1=&wtc->wtextchar[wtc->n-1];
+                            tc1->x2=textchar.x1;
+                            }
+                        lig=0;
+                        }
+                    else if (lig==1)
+                        lig++;
+#endif
                     if (boundingbox==0 || wtc->n<=0)
+                        {
                         wtextchars_add_wtextchar(wtc,&textchar);
+                        /* Split difference in char widths for ligature */
+                        if (lig==2 && wtc->n>1)
+                            {
+                            wtc->wtextchar[wtc->n-1].xp =
+                            wtc->wtextchar[wtc->n-2].x2 = wtc->wtextchar[wtc->n-1].x1
+                               = (wtc->wtextchar[wtc->n-2].x1+wtc->wtextchar[wtc->n-1].x2)/2.;
+                            }
+                        }
                     else
                         {
                         WTEXTCHAR *tc0;
@@ -1661,8 +1752,16 @@ static WPDFOUTLINE *wpdfoutline_convert_from_fitz_outline(fz_outline *fzoutline)
         x->title=p;
         strcpy(x->title,fzoutline->title);
         }
+    /*
     if (fzoutline->dest.kind==FZ_LINK_GOTO || fzoutline->dest.kind==FZ_LINK_GOTOR)
         x->srcpage=fzoutline->dest.ld.gotor.page;
+    */
+    if (fzoutline->uri==NULL)
+        x->srcpage=-1;
+    else if (fzoutline->uri[0]=='#')
+        x->srcpage=atoi(&fzoutline->uri[1])-1;
+    else if (atoi(fzoutline->uri)>0)
+        x->srcpage=atoi(fzoutline->uri)-1;
     else
         x->srcpage=-1;
     x->dstpage=-1;

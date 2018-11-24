@@ -34,9 +34,9 @@
 #ifdef HAVE_CONFIG_H
 #include "config_auto.h"
 #endif
+#include <locale.h>
 #ifdef USING_GETTEXT
 #include <libintl.h>
-#include <locale.h>
 #define _(x) gettext(x)
 #else
 #define _(x) (x)
@@ -47,7 +47,6 @@
 #include "strngs.h"
 #include "params.h"
 #include "blobs.h"
-#include <new>
 /*
 #include "notdll.h"
 */
@@ -55,7 +54,7 @@
 /* C Wrappers */
 #include "tesseract.h"
 
-static tesseract::TessBaseAPI api;
+// static tesseract::TessBaseAPI api[4];
 
 /*
 ** ocr_type=0:  OEM_DEFAULT
@@ -63,17 +62,23 @@ static tesseract::TessBaseAPI api;
 ** ocr_type=2:  OEM_CUBE_ONLY
 ** ocr_type=3:  OEM_TESSERACT_CUBE_COMBINED
 */
-int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out,
-                   char *initstr,int maxlen)
+void *tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out,
+                     char *initstr,int maxlen,int *status)
 
     {
-    int status;
+    char original_locale[256];
+    tesseract::TessBaseAPI *api = new tesseract::TessBaseAPI;
 
 #ifdef USE_NLS
     setlocale (LC_ALL, "");
     bindtextdomain (PACKAGE, LOCALEDIR);
     textdomain (PACKAGE);
 #endif
+    /* willus mod, 11-24-16 */
+    /* Tesseract needs "C" locale to correctly parse all data .traineddata files. */
+    strncpy(original_locale,setlocale(LC_ALL,NULL),255);
+    original_locale[255]='\0';
+    setlocale(LC_ALL,"C");
     // fprintf(stderr, "tesseract %s\n", tesseract::TessBaseAPI::Version());
     // Make the order of args a bit more forgiving than it used to be.
     const char* lang = "eng";
@@ -104,27 +109,20 @@ int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out,
         }
     */
 
-    api.SetOutputName(NULL);
-    /* fix crash in init:
-     * see http://sourceforge.net/p/djvu/discussion/103285/thread/7e6563e3/
-     * For short, djvulibre overloads new operator and eat up bad_alloc
-     * exception. So we will disable the overloading.
-     */
-    std::set_new_handler(0);
-    try {
-		status=api.Init(datapath,lang,
-				 ocr_type==0 ? tesseract::OEM_DEFAULT :
-					(ocr_type==1 ? tesseract::OEM_TESSERACT_ONLY :
-					   (ocr_type==2 ? tesseract::OEM_CUBE_ONLY :
-									  (tesseract::OEM_TESSERACT_CUBE_COMBINED))));
-		if (status)
-			return(status);
-
-    } catch (const std::bad_alloc& ba) {
-    	if (out!=NULL)
-    	    fprintf(out,"tesscapi:  Error during initiating. %s\n", ba.what());
-    	return -1;
-    }
+    api->SetOutputName(NULL);
+    (*status)=api->Init(datapath,lang,
+              ocr_type==0 ? tesseract::OEM_DEFAULT :
+                (ocr_type==1 ? tesseract::OEM_TESSERACT_ONLY :
+                   (ocr_type==2 ? tesseract::OEM_CUBE_ONLY :
+                                  (tesseract::OEM_TESSERACT_CUBE_COMBINED))));
+    if ((*status)!=0)
+        {
+        /* willus mod, 11-24-16 */
+        setlocale(LC_ALL,original_locale);
+        api->End();
+        delete api;
+        return(NULL);
+        }
     /*
     api.Init("tesscapi",lang,tesseract::OEM_DEFAULT,
            &(argv[arg]), argc - arg, NULL, NULL, false);
@@ -141,8 +139,8 @@ int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out,
     // tesseract::PSM_SINGLE_BLOCK is from the command line.
     // It would be simpler if we could set the value before Init,
     // but that doesn't work.
-    if (api.GetPageSegMode() == tesseract::PSM_SINGLE_BLOCK)
-        api.SetPageSegMode(pagesegmode);
+    if (api->GetPageSegMode() == tesseract::PSM_SINGLE_BLOCK)
+        api->SetPageSegMode(pagesegmode);
 
     /*
     ** Initialization message
@@ -169,75 +167,50 @@ int tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out,
 
 
     /* Turn off CUBE debugging output */
-    api.SetVariable("cube_debug_level","0");
+    api->SetVariable("cube_debug_level","0");
 #if (WILLUSDEBUG & 1)
-    api.SetVariable("cube_debug_level","9");
-    api.SetVariable("paragraph_debug_level","9");
-    api.SetVariable("tessdata_manager_debug_level","9");
-    api.SetVariable("tosp_debug_level","9");
-    api.SetVariable("wordrec_debug_level","9");
-    api.SetVariable("segsearch_debug_level","9");
+    api->SetVariable("cube_debug_level","9");
+    api->SetVariable("paragraph_debug_level","9");
+    api->SetVariable("tessdata_manager_debug_level","9");
+    api->SetVariable("tosp_debug_level","9");
+    api->SetVariable("wordrec_debug_level","9");
+    api->SetVariable("segsearch_debug_level","9");
 #endif
-    return(0);
+    /* willus mod, 11-24-16 */
+    setlocale(LC_ALL,original_locale);
+    return((void *)api);
     }
 
 
-int tess_capi_get_ocr(PIX *pix,char *outstr,int maxlen,FILE *out)
+int tess_capi_get_ocr(void *vapi,PIX *pix,char *outstr,int maxlen,FILE *out)
 
     {
-    try {
-        if (!api.ProcessPage(pix,0,NULL,NULL,0,NULL))
-            {
-            /* pixDestroy(&pix); */
-            if (out!=NULL)
-                fprintf(out,"tesscapi:  Error during bitmap processing.\n");
-            api.Clear();
-            return(-1);
-            }
-    } catch (const std::exception& ex) {
-    	if (out!=NULL)
-    	    fprintf(out,"tesscapi:  Error during bitmap processing. %s\n", ex.what());
-    	api.Clear();
-    	return -1;
-    }
-    strncpy(outstr,api.GetUTF8Text(),maxlen-1);
+    tesseract::TessBaseAPI *api;
+
+    api=(tesseract::TessBaseAPI *)vapi;
+    if (!api->ProcessPage(pix,0,NULL,NULL,0,NULL))
+        {
+        /* pixDestroy(&pix); */
+        if (out!=NULL)
+            fprintf(out,"tesscapi:  Error during bitmap processing.\n");
+        api->Clear();
+        return(-1);
+        }
+    strncpy(outstr,api->GetUTF8Text(),maxlen-1);
     outstr[maxlen-1]='\0';
-    api.Clear();
+    api->Clear();
     return(0);
     }
 
-int tess_capi_get_word_boxes(PIX *pix, BOXA **out_boxa, int is_cjk, FILE *out)
+
+void tess_capi_end(void *vapi)
 
     {
-    try {
-		api.InitForAnalysePage();
-		api.SetPageSegMode(tesseract::PSM_AUTO);
-		api.SetImage(pix);
-		if (is_cjk) {
-			api.SetVariable("textord_use_cjk_fp_model","1");
-			*out_boxa = api.GetConnectedComponents(NULL);
-		} else {
-			api.SetVariable("textord_use_cjk_fp_model","0");
-			*out_boxa = api.GetWords(NULL);
-		}
-    } catch (const std::exception& ex) {
-    	if (out!=NULL)
-    	    fprintf(out,"tesscapi:  Error during page segmentation. %s\n", ex.what());
-    	api.Clear();
-    	return -1;
-    }
-    printf("engine inited in %s\n", api.GetInitLanguagesAsString());
-    api.ClearAdaptiveClassifier();
-    api.Clear();
-    return(0);
-    }
+    tesseract::TessBaseAPI *api;
 
-const char* tess_capi_get_init_language() {
-	return api.GetInitLanguagesAsString();
-}
-
-void tess_capi_end(void)
-
-    {
-    api.End();
+    if (vapi==NULL)
+        return;
+    api=(tesseract::TessBaseAPI *)vapi;
+    api->End();
+    delete api;
     }

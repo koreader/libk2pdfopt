@@ -183,14 +183,11 @@ typedef double  real;
 #endif
 #endif
 
-#if (defined(ANDROID) || defined(DARWIN))
-#undef WILLUS_HAVE_FILE64
-#endif
-
 /*
 ** As of 2013 and gcc 4.7.x, x87_line_math is turned off entirely.
 ** My x87 in-line routines are no faster than gcc on modern Intel CPUs.
 */
+
 #if (defined(__linux) || defined(linux) || defined(__linux__))
 #define LINUX
 #if (defined(WILLUS_HAVE_FILE64) && !defined(_off64_t))
@@ -233,7 +230,7 @@ typedef double  real;
 #ifdef USE_CMAKE
 #include "config.h"
 #else /* USE_CMAKE */
-/*
+
 #ifndef HAVE_Z_LIB
 #define HAVE_Z_LIB
 #endif
@@ -255,7 +252,6 @@ typedef double  real;
 #ifndef HAVE_GOCR_LIB
 #define HAVE_GOCR_LIB
 #endif
-*/
 #ifndef HAVE_LEPTONICA_LIB
 #define HAVE_LEPTONICA_LIB
 #endif
@@ -397,6 +393,8 @@ typedef struct
     int     size_allocated;
     int     type;  /* See defines above for WILLUSBITMAP_TYPE_... */
     } WILLUSBITMAP;
+double bmp_get_dpi(void);
+void bmp_set_dpi(double dpi);
 double bmp_last_read_dpi(void);
 void bmp_set_pdf_dpi(double dpi);
 double bmp_get_pdf_dpi(void);
@@ -410,6 +408,7 @@ int  bmp_bmp_info(char *filename,int *width,int *height,int *bpp,FILE *out);
 int  bmp_jpeg_info(char *filename,int *width,int *height,int *bpp);
 int  bmp_promote_to_24(WILLUSBITMAP *bmp);
 void bmp_convert_to_greyscale(WILLUSBITMAP *bmp);
+void bmp_erode(WILLUSBITMAP *dst,WILLUSBITMAP *src);
 #define bmp_convert_to_grayscale(bmp) bmp_convert_to_greyscale(bmp)
 void bmp_convert_to_greyscale_ex(WILLUSBITMAP *dst,WILLUSBITMAP *src);
 #define bmp_convert_to_grayscale_ex(dst,src) bmp_convert_to_greyscale_ex(dst,src)
@@ -664,6 +663,7 @@ int wide_strlen(short *s);
 void wide_strcpy(short *d,short *s);
 char  *wide_to_char(char *d,short *s);
 short *char_to_wide(short *d,char *s);
+short *char_to_wide_list(short *d,char *s);
 int utf8_to_unicode(int *d,char *s,int maxlen);
 int utf8_length(int *s,int n);
 char *unicode_to_utf8(char *d,int *s,int n);
@@ -884,7 +884,7 @@ typedef void *compress_handle;
 compress_handle compress_start(FILE* f, int level);
 void compress_done(FILE* f, compress_handle *h);
 size_t compress_write(FILE* f, compress_handle h, const void *buf, size_t size);
-
+    
 /* win.c */
 #ifdef HAVE_WIN32_API
 void *win_activewin(void);
@@ -1070,6 +1070,7 @@ void   wsys_system_version(char *system,char *_os,char *_chip,char *_compiler);
 int    wsys_win32_api(void);
 int    wsys_wpid_status(int wpid);
 void   wsys_sleep(int secs);
+int    wsys_num_cpus(void);
 char  *wsys_full_exe_name(char *s);
 void   wsys_append_nul_redirect(char *s);
 int    wsys_which(char *exactname,char *exename);
@@ -1369,20 +1370,20 @@ void ocrwords_concatenate(OCRWORDS *dst,OCRWORDS *src);
 void ocr_text_proc(char *s,int allow_spaces);
 
 #ifdef HAVE_GOCR_LIB
-/* ocrjocr.c */
-void jocr_single_word_from_bmp8(char *text,int maxlen,WILLUSBITMAP *bmp8,
+/* ocrgocr.c */
+void gocr_single_word_from_bmp8(char *text,int maxlen,WILLUSBITMAP *bmp8,
                                 int x1,int y1,int x2,int y2,int allow_spaces,
                                 int std_proc);
 #endif
 
 #ifdef HAVE_TESSERACT_LIB
 /* ocrtess.c */
-int ocrtess_init(char *datadir,char *lang,FILE *out,char *initstr,int maxlen);
-void ocrtess_end(void);
-void ocrtess_single_word_from_bmp8(char *text,int maxlen,WILLUSBITMAP *bmp8,
-                                int x1,int y1,int x2,int y2,
-                                int ocr_type,int allow_spaces,
-                                int std_proc,FILE *out);
+void *ocrtess_init(char *datadir,char *lang,FILE *out,char *initstr,int maxlen,int *status);
+void ocrtess_end(void *api);
+void ocrtess_single_word_from_bmp8(void *api,char *text,int maxlen,WILLUSBITMAP *bmp8,
+                                   int x1,int y1,int x2,int y2,
+                                   int ocr_type,int allow_spaces,
+                                   int std_proc,FILE *out);
 #endif
 
 /* pdfwrite.c */
@@ -1732,6 +1733,7 @@ void willusgui_control_get_text(WILLUSGUICONTROL *control,char *text,int maxlen)
 int  willusgui_control_get_textlen(WILLUSGUICONTROL *control);
 void willusgui_control_scroll_to_bottom(WILLUSGUICONTROL *control);
 int  willusgui_window_get_rect(WILLUSGUIWINDOW *win,WILLUSGUIRECT *guirect);
+int  willusgui_get_desktop_workarea(WILLUSGUIRECT *guirect);
 int  willusgui_window_set_pos(WILLUSGUIWINDOW *win,WILLUSGUIRECT *guirect);
 int  willusgui_window_get_useable_rect(WILLUSGUIWINDOW *win,WILLUSGUIRECT *guirect);
 void willusgui_window_accept_draggable_files(WILLUSGUIWINDOW *win);
@@ -1791,6 +1793,11 @@ void willusgui_sbitmap_change_size(WILLUSGUICONTROL *control,int delsize);
 void willusgui_sbitmap_proc(void *handle,int message,int wparam,void *lparam);
 void willusgui_set_ime_notify(int status);
 int  willusgui_folder_select(char *foldername,int maxlen);
+
+/* Generic (cross-platform) message box functions */
+/* wleptonica.c */
+void wlept_bmp_dewarp(WILLUSBITMAP *src,WILLUSBITMAP *bmp1,WILLUSBITMAP *bmp2,int wthresh,int fit_order,
+                      char *debugfile);
 
 
 #ifdef PI
