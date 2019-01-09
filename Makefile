@@ -1,7 +1,8 @@
 MAJVER=  2
 
 MOD_INC = include_mod
-LEPTONICA_DIR = $(CURDIR)/leptonica-1.69
+LEPTONICA_DIR = $(CURDIR)/leptonica-1.74.1
+LEPTONICA_MOD = $(CURDIR)/leptonica_mod
 TESSERACT_DIR = tesseract-ocr
 TESSERACT_MOD = $(CURDIR)/tesseract_mod
 WILLUSLIB_DIR = willuslib
@@ -60,7 +61,7 @@ TARGET_ALIBS= $(TARGET_XLIBS) $(LIBS) $(TARGET_LIBS)
 K2PDFOPT_A= libk2pdfopt.a
 K2PDFOPT_SO= $(TARGET_SONAME)
 
-LEPTONICA_LIB= liblept$(if $(WIN32),-4.dll,$(if $(DARWIN),.dylib,.so))
+LEPTONICA_LIB= liblept$(if $(WIN32),-5.dll,$(if $(DARWIN),.dylib,.so))
 TESSERACT_LIB= libtesseract$(if $(WIN32),-3.dll,$(if $(DARWIN),.dylib,.so))
 K2PDFOPT_LIB= libk2pdfopt$(if $(WIN32),-$(MAJVER).dll,$(if $(DARWIN),.$(MAJVER).dylib,.so.$(MAJVER)))
 
@@ -80,6 +81,7 @@ K2PDFOPT_LIB= libk2pdfopt$(if $(WIN32),-$(MAJVER).dll,$(if $(DARWIN),.$(MAJVER).
 # Target file rules.
 ##############################################################################
 $(LEPTONICA_LIB):
+	cp -f $(LEPTONICA_MOD)/dewarp2.c $(LEPTONICA_DIR)/src/dewarp2.c
 	# leptonica 1.73 and up requires to run autobuild first
 	cd $(LEPTONICA_DIR) && ! test -f ./configure && sh ./autobuild || true
 	cd $(LEPTONICA_DIR) && sh ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
@@ -92,7 +94,7 @@ $(LEPTONICA_LIB):
 	cd $(LEPTONICA_DIR) && sed -ie "s|archive_cmds_need_lc='yes'|archive_cmds_need_lc='no'|" config.status
 	cd $(LEPTONICA_DIR) && chmod +x config/install-sh # fix Permission denied on OSX
 	cd $(LEPTONICA_DIR) && $(MAKE) CFLAGS='$(LEPT_CFLAGS)' \
-		install --silent >/dev/null 2>&1
+		install
 ifdef WIN32
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept*.dll ./
 else
@@ -100,7 +102,7 @@ else
 endif
 
 $(TESSERACT_LIB): $(LEPTONICA_LIB)
-	cp $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/
+	cp -f $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/tessdatamanager.cpp
 	-cd $(TESSERACT_DIR) && \
 		patch -N -p1 < $(TESSERACT_MOD)/baseapi.cpp.patch
 	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q \
@@ -114,7 +116,7 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		--with-extra-libraries=$(LEPTONICA_DIR)/src/.libs \
 		--disable-static --enable-shared --disable-graphics
 	cd $(TESSERACT_DIR) && sed -ie 's|-lstdc++||g' libtool
-	$(MAKE) -C $(TESSERACT_DIR) --silent >/dev/null 2>&1
+	$(MAKE) -C $(TESSERACT_DIR)
 ifdef WIN32
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract-3.dll ./
 else
