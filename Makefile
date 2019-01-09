@@ -61,7 +61,7 @@ TARGET_ALIBS= $(TARGET_XLIBS) $(LIBS) $(TARGET_LIBS)
 K2PDFOPT_A= libk2pdfopt.a
 K2PDFOPT_SO= $(TARGET_SONAME)
 
-LEPTONICA_LIB= liblept$(if $(WIN32),-4.dll,$(if $(DARWIN),.dylib,.so))
+LEPTONICA_LIB= liblept$(if $(WIN32),-5.dll,$(if $(DARWIN),.dylib,.so))
 TESSERACT_LIB= libtesseract$(if $(WIN32),-3.dll,$(if $(DARWIN),.dylib,.so))
 K2PDFOPT_LIB= libk2pdfopt$(if $(WIN32),-$(MAJVER).dll,$(if $(DARWIN),.$(MAJVER).dylib,.so.$(MAJVER)))
 
