@@ -94,7 +94,7 @@ $(LEPTONICA_LIB):
 	cd $(LEPTONICA_DIR) && sed -ie "s|archive_cmds_need_lc='yes'|archive_cmds_need_lc='no'|" config.status
 	cd $(LEPTONICA_DIR) && chmod +x config/install-sh # fix Permission denied on OSX
 	cd $(LEPTONICA_DIR) && $(MAKE) CFLAGS='$(LEPT_CFLAGS)' \
-		install --silent >/dev/null 2>&1
+		install
 ifdef WIN32
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept*.dll ./
 else
@@ -116,7 +116,7 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		--with-extra-libraries=$(LEPTONICA_DIR)/src/.libs \
 		--disable-static --enable-shared --disable-graphics
 	cd $(TESSERACT_DIR) && sed -ie 's|-lstdc++||g' libtool
-	$(MAKE) -C $(TESSERACT_DIR) --silent >/dev/null 2>&1
+	$(MAKE) -C $(TESSERACT_DIR)
 ifdef WIN32
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract-3.dll ./
 else
