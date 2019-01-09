@@ -1,7 +1,7 @@
 MAJVER=  2
 
 MOD_INC = include_mod
-LEPTONICA_DIR = $(CURDIR)/leptonica-1.69
+LEPTONICA_DIR = $(CURDIR)/leptonica-1.74.1
 LEPTONICA_MOD = $(CURDIR)/leptonica_mod
 TESSERACT_DIR = tesseract-ocr
 TESSERACT_MOD = $(CURDIR)/tesseract_mod
