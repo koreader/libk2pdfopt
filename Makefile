@@ -2,6 +2,7 @@ MAJVER=  2
 
 MOD_INC = include_mod
 LEPTONICA_DIR = $(CURDIR)/leptonica-1.69
+LEPTONICA_MOD = $(CURDIR)/leptonica_mod
 TESSERACT_DIR = tesseract-ocr
 TESSERACT_MOD = $(CURDIR)/tesseract_mod
 WILLUSLIB_DIR = willuslib
@@ -80,6 +81,7 @@ K2PDFOPT_LIB= libk2pdfopt$(if $(WIN32),-$(MAJVER).dll,$(if $(DARWIN),.$(MAJVER).
 # Target file rules.
 ##############################################################################
 $(LEPTONICA_LIB):
+	cp -f $(LEPTONICA_MOD)/dewarp2.c $(LEPTONICA_DIR)/src/dewarp2.c
 	# leptonica 1.73 and up requires to run autobuild first
 	cd $(LEPTONICA_DIR) && ! test -f ./configure && sh ./autobuild || true
 	cd $(LEPTONICA_DIR) && sh ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
@@ -100,7 +102,7 @@ else
 endif
 
 $(TESSERACT_LIB): $(LEPTONICA_LIB)
-	cp $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/
+	cp -f $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/tessdatamanager.cpp
 	-cd $(TESSERACT_DIR) && \
 		patch -N -p1 < $(TESSERACT_MOD)/baseapi.cpp.patch
 	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q \
