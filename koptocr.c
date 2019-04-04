@@ -92,20 +92,22 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 	k2pdfopt_settings_new_source_document_init(k2settings);
 
 	if (box_type == 0) {
-        pboxa = &kctx->rboxa;
-        pnai = &kctx->rnai;
-    } else if (box_type == 1) {
-        pboxa = &kctx->nboxa;
-        pnai = &kctx->nnai;
-    }
+		pboxa = &kctx->rboxa;
+		pnai = &kctx->rnai;
+	} else if (box_type == 1) {
+		pboxa = &kctx->nboxa;
+		pnai = &kctx->nnai;
+	}
 
 	if (*pboxa == NULL && *pnai == NULL && src->bpp == 8) {
 		assert(x + w <= src->width);
 		assert(y + h <= src->height);
 		pixs = bitmap2pix(src, x, y, w, h);
 		if (kctx->cjkchar) {
-			k2pdfopt_get_word_boxes_from_tesseract(pixs, kctx->cjkchar,
-					pboxa, pnai);
+			if (k2pdfopt_get_word_boxes_from_tesseract(pixs, kctx->cjkchar,
+					pboxa, pnai) != 0) {
+				printf("failed to get word boxes from tesseract\n");
+			}
 		} else {
 			pixb = pixConvertTo1(pixs, 128);
 			k2pdfopt_pixGetWordBoxesInTextlines(pixb,
@@ -161,7 +163,11 @@ int k2pdfopt_get_word_boxes_from_tesseract(PIX *pixs, int is_cjk,
 	if (!pixs)
 		return ERROR_INT("pixs not defined", procName, 1);
 
-	tess_capi_get_word_boxes(tess_api, pixs, &boxa, is_cjk, stderr);
+	if (tess_capi_get_word_boxes(tess_api, pixs, &boxa, is_cjk, stderr) != 0) {
+		*pboxad = NULL;
+		*pnai = NULL;
+		return ERROR_INT("Tesseract failed to get word boxes", procName, 1);
+	}
 	/* 2D sort the bounding boxes of these words. */
 	baa = boxaSort2d(boxa, NULL, 3, -5, 5);
 
