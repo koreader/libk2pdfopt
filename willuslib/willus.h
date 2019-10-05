@@ -195,7 +195,16 @@ typedef double  real;
 #if (defined(__linux) || defined(linux) || defined(__linux__))
 #define LINUX
 #if (defined(WILLUS_HAVE_FILE64) && !defined(_off64_t))
+#ifdef __off64_t
 #define _off64_t __off64_t
+#else
+/*
+** No, __off64_t exists, since we assume that we have a libc (like musl)
+** where off_t is always 64bit.
+** See: https://wiki.musl-libc.org/faq.html#Q:-Do-I-need-to-define-%3Ccode%3E_LARGEFILE64_SOURCE%3C/code%3E-to-get-64bit-%3Ccode%3Eoff_t%3C/code%3E%3F
+*/
+#define _off64_t off_t
+#endif
 #endif
 #endif
 
