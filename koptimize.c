@@ -53,6 +53,7 @@ void k2pdfopt_optimize_bmp(KOPTContext *kctx) {
     k2settings->text_wrap=0;
     k2settings->max_columns=1;
     k2settings->vertical_break_threshold=-2;
+    k2settings->src_dpi=kctx->dev_dpi;
     k2settings->dst_userwidth=1.0;
     k2settings->dst_userwidth_units=UNITS_SOURCE;
     k2settings->dst_userheight=1.0;
