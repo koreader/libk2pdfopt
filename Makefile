@@ -3,23 +3,8 @@ LIBNAME ?= libk2pdfopt.so # can be also libk2pdofopt.a if you omit -shared from 
 CFLAGS ?= -O2 -fPIC -s -ffunction-sections -fdata-sections
 # -fvisibility=hidden
 LDFLAGS ?= -shared -Wl,--gc-sections -Wl,--version-script=export.map
-#-Wl,--version-script=exports.version
 
-XCFLAGS ?= \
-	-DHAVE_TESSERACT_LIB \
-	-DHAVE_Z_LIB \
-	-DHAVE_PNG_LIB \
-	-DHAVE_JPEG_LIB \
-	-DHAVE_MUPDF_LIB \
-	-DHAVE_DJVU_LIB \
-	-DHAVE_LEPTONICA_LIB \
-	-DHAVE_TESSERACT_LIB
-#-DHAVE_JASPER_LIB
-#-DHAVE_GSL_LIB
-#-DHAVE_GHOSTSCRIPT
-#-DHAVE_GOCR_LIB
-
-# must match what XCFLAGS says
+# must match what config.h says
 XLIBS ?= \
 	-lz -lpng -ljpeg -lmupdf -ldjvulibre -llept -ltesseract -lm -lpthread
 ########################

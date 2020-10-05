@@ -27,7 +27,9 @@
  **
  */
 
+#ifndef NO_TESSERACT
 #include <tesseract/capi.h>
+#endif
 #include <assert.h>
 #include "setting.h"
 #include "koptocr.h"
