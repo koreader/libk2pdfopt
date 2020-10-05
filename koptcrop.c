@@ -26,8 +26,7 @@
  **
  */
 
-#include "setting.h"
-#include "koptcrop.h"
+#include "koptpublic.h"
 
 void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	static char *funcname="k2pdfopt_crop_bmp";

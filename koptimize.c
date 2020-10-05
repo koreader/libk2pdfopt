@@ -28,8 +28,7 @@
  **
  */
 
-#include "setting.h"
-#include "koptimize.h"
+#include "koptpublic.h"
 
 void k2pdfopt_optimize_bmp(KOPTContext *kctx) {
     K2PDFOPT_SETTINGS _k2settings, *k2settings;

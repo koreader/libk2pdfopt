@@ -29,8 +29,7 @@
 
 #include <tesseract/capi.h>
 #include <assert.h>
-#include "setting.h"
-#include "koptocr.h"
+#include "koptpublic.h"
 #include "tcapi.h"
 
 PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h);
@@ -39,6 +38,10 @@ l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs, l_int32 maxsize,
 		l_int32 maxwidth, l_int32 maxheight, BOXA **pboxad, NUMA **pnai);
 
 void* tess_api = NULL;
+
+const char* k2pdfopt_tocr_get_language() {
+	return TessBaseAPIGetInitLanguagesAsString(tess_api);
+}
 
 void k2pdfopt_tocr_init(char *datadir, char *lang) {
 	if (tess_api != NULL && strncmp(lang, k2pdfopt_tocr_get_language(tess_api), 32)) {
@@ -65,10 +68,6 @@ void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 				x, y, x + w, y + h, 100, //XXX 100dpi
 				ocr_type, allow_spaces, std_proc, stderr);
 	}
-}
-
-const char* k2pdfopt_tocr_get_language() {
-	return TessBaseAPIGetInitLanguagesAsString(tess_api);
 }
 
 void k2pdfopt_tocr_end() {
