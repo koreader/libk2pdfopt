@@ -41,7 +41,7 @@ XCFLAGS += -DK2PDFOPT_KINDLEPDFVIEWER
 XCFLAGS += -I$(INC_DIR) -I$(WILLUS_DIR) -I$(K2PDFOPT_DIR) -I.
 
 SRC=$(wildcard $(WILLUS_DIR)/*.c) $(wildcard $(K2PDFOPT_DIR)/*.c) \
-	setting.c koptreflow.c koptcrop.c koptocr.c koptimize.c
+	setting.c koptreflow.c koptcrop.c koptocr.c koptimize.c koptcb.c
 OBJ=$(SRC:%.c=%.o)
 
 %.o: %.c
