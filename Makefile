@@ -26,7 +26,7 @@ all: $(LIBNAME)
 
 clean:
 	rm -rf tesseract leptonica mupdf
-	rm -f *.o $(LIBNAME)
+	rm -f *.o */*/*.o $(LIBNAME)
 dist_clean: clean
 	rm -f patches/*.patch
 
@@ -42,7 +42,11 @@ XCFLAGS += -I$(INC_DIR) -I$(WILLUS_DIR) -I$(K2PDFOPT_DIR) -I.
 
 SRC=$(wildcard $(WILLUS_DIR)/*.c) $(wildcard $(K2PDFOPT_DIR)/*.c) \
 	setting.c koptreflow.c koptcrop.c koptocr.c koptimize.c
+OBJ=$(SRC:%.c=%.o)
 
-$(LIBNAME): $(SRC)
-	echo > $(WILLUS_DIR)/config.h
-	$(CC) $(CFLAGS) $(XCFLAGS) $(LDFLAGS) $(SRC) -o $(LIBNAME) $(XLIBS)
+%.o: %.c
+	$(CC) $(CFLAGS) $(XCFLAGS) -c $< -o $@
+
+$(LIBNAME): $(OBJ)
+	$(CC) $(LDFLAGS) $(OBJ) -o $(LIBNAME) $(XLIBS)
+
