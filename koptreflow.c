@@ -70,6 +70,7 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     WILLUSBITMAP *src, *dst;
     BMPREGION region;
     int i, bw, martop, marbot, marleft;
+    char initstr[256];
 
     src = &kctx->src;
     srcgrey = &_srcgrey;
@@ -81,7 +82,7 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
     k2pdfopt_settings_quick_sanity_check(k2settings);
     /* Init for new source doc */
-    k2pdfopt_settings_new_source_document_init(k2settings);
+    k2pdfopt_settings_new_source_document_init(k2settings, initstr);
     /* Init master output structure */
     masterinfo_init(masterinfo, k2settings);
     wrapbmp_init(&masterinfo->wrapbmp, k2settings->dst_color);
