@@ -1,0 +1,10 @@
+K2PDFOPT_2_53 {
+	global:
+		bmp_init; bmp_free; bmp_alloc; bmp_copy; bmp_rowptr_from_top;
+		wrectmaps_init; wrectmaps_free; wrectmap_inside;
+		pageregions_init; pageregions_free;
+		k2pdfopt_*;
+		pixmap_to_bmp;
+		bitmap2pix;
+	local: *;
+};

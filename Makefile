@@ -1,7 +1,9 @@
 ######################## config variables
 LIBNAME ?= libk2pdfopt.so # can be also libk2pdofopt.a if you omit -shared from LDFLAGS
-CFLAGS ?= -O2 -fPIC -s -ffunction-sections -fdata-sections -fvisibility=hidden
-LDFLAGS ?= -shared -Wl,--gc-sections -fvisibility=hidden
+CFLAGS ?= -O2 -fPIC -s -ffunction-sections -fdata-sections
+# -fvisibility=hidden
+LDFLAGS ?= -shared -Wl,--gc-sections -Wl,--version-script=export.map
+#-Wl,--version-script=exports.version
 
 XCFLAGS ?= \
 	-DHAVE_TESSERACT_LIB \
