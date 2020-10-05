@@ -27,7 +27,9 @@
  **
  */
 
-#include "koptpublic.h"
+#include "setting.h"
+#include "koptreflow.h"
+#include "leptonica.h"
 
 void pixmap_to_bmp(WILLUSBITMAP *bmp, unsigned char *pix_data, int ncomp) {
     int i,j;
