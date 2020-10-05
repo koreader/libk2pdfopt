@@ -45,7 +45,7 @@ SRC=$(wildcard $(WILLUS_DIR)/*.c) $(wildcard $(K2PDFOPT_DIR)/*.c) \
 OBJ=$(SRC:%.c=%.o)
 
 %.o: %.c
-	$(CC) $(CFLAGS) $(XCFLAGS) -c $< -o $@
+	$(CC) $(XCFLAGS) $(CFLAGS) -c $< -o $@
 
 $(LIBNAME): $(OBJ)
 	$(CC) $(LDFLAGS) $(OBJ) -o $(LIBNAME) $(XLIBS)

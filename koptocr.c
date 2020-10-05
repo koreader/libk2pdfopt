@@ -27,6 +27,7 @@
  **
  */
 
+#include <tesseract/capi.h>
 #include <assert.h>
 #include "setting.h"
 #include "koptocr.h"
@@ -67,7 +68,7 @@ void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 }
 
 const char* k2pdfopt_tocr_get_language() {
-	return tess_capi_get_init_language(tess_api);
+	return TessBaseAPIGetInitLanguagesAsString(tess_api);
 }
 
 void k2pdfopt_tocr_end() {
