@@ -112,7 +112,7 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED',) \
 		$(if $(ANDROID),CPPFLAGS='-DANDROID=1',) \
 		LIBLEPT_HEADERSDIR=$(LEPTONICA_DIR)/src \
-		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
+		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN $(ZLIB_LDFLAGS) $(PNG_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' \
 		--with-extra-libraries=$(LEPTONICA_DIR)/src/.libs \
 		--disable-static --enable-shared --disable-graphics
 	$(MAKE) -C $(TESSERACT_DIR)
