@@ -529,6 +529,7 @@ printf("    row[%2d].lc/h5050/cap = %3d %3d %3d\n",i,textrows->textrow[i].lcheig
         {
         int lch,rh,c1new,partial,r0,nrt;
         int *prowthresh,*rthresh;
+        prowthresh=NULL;
 
         lch=0;
         if (i>0 && textrows->textrow[i].capheight > textrows->textrow[i-1].capheight*1.8)

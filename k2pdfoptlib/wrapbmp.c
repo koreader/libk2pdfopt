@@ -235,6 +235,7 @@ exit(10);
         WRECTMAP _wrmap,*wrmap;
 
         wrmap=&_wrmap;
+        memset(wrmap, 0, sizeof (WRECTMAP));
         wrmap->srcpageno = region->pageno;
         wrmap->srcwidth = region->bmp8->width;
         wrmap->srcheight = region->bmp8->height;
@@ -318,6 +319,7 @@ k2printf("3.  wbh=%d x %d, tmp=%d x %d x %d, new_base=%d, wbbase=%d\n",wrapbmp->
     WRECTMAP _wrmap,*wrmap;
 
     wrmap=&_wrmap;
+    memset(wrmap, 0, sizeof (WRECTMAP));
     wrmap->srcpageno = region->pageno;
     wrmap->srcwidth = region->bmp8->width;
     wrmap->srcheight = region->bmp8->height;
