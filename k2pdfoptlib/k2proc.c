@@ -1579,6 +1579,7 @@ printf("Creating single wrmap.\n");
 #endif
             wrmaps0=&_wrmaps0;
             wrectmaps_init(wrmaps0);
+            memset(&wrmap, 0, sizeof (wrmap));
             wrmap.srcpageno=newregion->pageno;
             wrmap.srcwidth=newregion->bmp->width;
             wrmap.srcheight=newregion->bmp->height;
