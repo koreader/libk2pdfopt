@@ -86,10 +86,10 @@ $(LEPTONICA_LIB):
 	cd $(LEPTONICA_DIR) && ! test -f ./configure && sh ./autobuild || true
 	# No stupid build rpaths
 	cd $(LEPTONICA_DIR) && sed -ie 's/\(hardcode_into_libs\)=.*$/\1=no/' configure
-	cd $(LEPTONICA_DIR) && sh ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
+	cd $(LEPTONICA_DIR) && sh ./configure $(if $(EMULATE_READER),,--host $(HOST)) \
 		--prefix=$(LEPTONICA_DIR) \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(LEPT_CFLAGS)' \
-		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,"libs" $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
+		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
 		--disable-static --enable-shared \
 		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff --without-libopenjpeg
 	# fix cannot find library -lc on mingw-w64
@@ -110,7 +110,7 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cd $(TESSERACT_DIR) && ./autogen.sh
 	# No stupid build rpaths
 	cd $(TESSERACT_DIR) && sed -ie 's/\(hardcode_into_libs\)=.*$/\1=no/' configure
-	cd $(TESSERACT_DIR) && ./configure -q \
+	cd $(TESSERACT_DIR) && ./configure \
 		$(if $(EMULATE_READER),,--host=$(HOST)) \
 		CXX='$(strip $(CCACHE) $(CXX))' \
 		CXXFLAGS='$(CXXFLAGS) -I$(MOD_INC)' \
@@ -135,7 +135,7 @@ $(K2PDFOPT_A): $(K2PDFOPT_O) tesseract_capi
 	$(AR) rcs $@ $(K2PDFOPT_O) $(TESSERACT_API_O)
 
 $(K2PDFOPT_LIB): $(K2PDFOPT_O) tesseract_capi
-	$(CXX) $(TARGET_ASHLDFLAGS) -Wl,-rpath,'libs' -o $@ \
+	$(CXX) $(TARGET_ASHLDFLAGS) -Wl,-rpath,$$ORIGIN -o $@ \
 		$(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS) \
 		$(TESSERACT_LIB) $(LEPTONICA_LIB)
 ifndef WIN32
