@@ -85,7 +85,7 @@ $(LEPTONICA_LIB):
 	# leptonica 1.73 and up requires to run autobuild first
 	cd $(LEPTONICA_DIR) && ! test -f ./configure && sh ./autobuild || true
 	# No stupid build rpaths
-	cd $(LEPTONICA_DIR) && sed -ie 's/\(hardcode_into_libs\)=.*$/\1=no/' configure
+	cd $(LEPTONICA_DIR) && sed -ie 's/\(hardcode_into_libs\)=.*$$/\1=no/' configure
 	cd $(LEPTONICA_DIR) && sh ./configure $(if $(EMULATE_READER),,--host $(HOST)) \
 		--prefix=$(LEPTONICA_DIR) \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(CFLAGS) $(LEPT_CFLAGS)' \
@@ -109,7 +109,7 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		patch -N -p1 < $(TESSERACT_MOD)/baseapi.cpp.patch
 	cd $(TESSERACT_DIR) && ./autogen.sh
 	# No stupid build rpaths
-	cd $(TESSERACT_DIR) && sed -ie 's/\(hardcode_into_libs\)=.*$/\1=no/' configure
+	cd $(TESSERACT_DIR) && sed -ie 's/\(hardcode_into_libs\)=.*$$/\1=no/' configure
 	cd $(TESSERACT_DIR) && ./configure \
 		$(if $(EMULATE_READER),,--host=$(HOST)) \
 		CXX='$(strip $(CCACHE) $(CXX))' \
