@@ -110,14 +110,13 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cd $(TESSERACT_DIR) && ./autogen.sh
 	# No stupid build rpaths
 	cd $(TESSERACT_DIR) && sed -ie 's/\(hardcode_into_libs\)=.*$$/\1=no/' configure
-	cd $(TESSERACT_DIR) && ./configure \
-		$(if $(EMULATE_READER),,--host=$(HOST)) \
+	cd $(TESSERACT_DIR) && sh ./configure $(if $(EMULATE_READER),,--host=$(HOST)) \
 		CXX='$(strip $(CCACHE) $(CXX))' \
 		CXXFLAGS='$(CXXFLAGS) -I$(MOD_INC)' \
 		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED',) \
 		$(if $(ANDROID),CPPFLAGS='-DANDROID=1',) \
-		LIBLEPT_HEADERSDIR=$(LEPTONICA_DIR)/src \
-		LDFLAGS='$(LDFLAGS) $(LEPT_LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' -Wl,-rpath,\$$$$ORIGIN' \
+		LIBLEPT_HEADERSDIR='$(LEPTONICA_DIR)/src' \
+		LDFLAGS='$(LDFLAGS) $(LEPT_LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),) -Wl,-rpath,\$$$$ORIGIN' \
 		--disable-static --enable-shared --disable-graphics
 	$(MAKE) -C $(TESSERACT_DIR)
 ifdef WIN32
