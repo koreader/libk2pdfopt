@@ -88,8 +88,8 @@ $(LEPTONICA_LIB):
 	cd $(LEPTONICA_DIR) && sed -ie 's/\(hardcode_into_libs\)=.*$/\1=no/' configure
 	cd $(LEPTONICA_DIR) && sh ./configure $(if $(EMULATE_READER),,--host $(HOST)) \
 		--prefix=$(LEPTONICA_DIR) \
-		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(LEPT_CFLAGS)' \
-		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
+		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(CFLAGS) $(LEPT_CFLAGS)' \
+		LDFLAGS='$(LDFLAGS) $(LEPT_LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN' \
 		--disable-static --enable-shared \
 		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff --without-libopenjpeg
 	# fix cannot find library -lc on mingw-w64
@@ -117,8 +117,7 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED',) \
 		$(if $(ANDROID),CPPFLAGS='-DANDROID=1',) \
 		LIBLEPT_HEADERSDIR=$(LEPTONICA_DIR)/src \
-		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN $(ZLIB_LDFLAGS) $(PNG_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' \
-		--with-extra-libraries=$(LEPTONICA_DIR)/src/.libs \
+		LDFLAGS='$(LDFLAGS) $(LEPT_LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' -Wl,-rpath,\$$$$ORIGIN' \
 		--disable-static --enable-shared --disable-graphics
 	$(MAKE) -C $(TESSERACT_DIR)
 ifdef WIN32
