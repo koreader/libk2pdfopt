@@ -54,7 +54,7 @@ ifdef DARWIN
 else
 	TARGET_XSHLDFLAGS= -shared $(if $(WIN32),,-fPIC) -Wl,-soname,$(TARGET_SONAME)
 endif
-TARGET_ASHLDFLAGS= $(TARGET_XSHLDFLAGS) $(TARGET_DYLIBPATH) $(TARGET_FLAGS) $(TARGET_SHLDFLAGS)
+TARGET_ASHLDFLAGS= $(LDFLAGS) $(TARGET_XSHLDFLAGS) $(TARGET_DYLIBPATH) $(TARGET_FLAGS) $(TARGET_SHLDFLAGS)
 TARGET_XLIBS= -lm
 TARGET_ALIBS= $(TARGET_XLIBS) $(LIBS) $(TARGET_LIBS)
 
@@ -89,7 +89,7 @@ $(LEPTONICA_LIB):
 	cd $(LEPTONICA_DIR) && sh ./configure $(if $(EMULATE_READER),,--host $(HOST)) \
 		--prefix=$(LEPTONICA_DIR) \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(CFLAGS) $(LEPT_CFLAGS)' \
-		LDFLAGS='$(LDFLAGS) $(LEPT_LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN' \
+		LDFLAGS='$(LDFLAGS) $(LEPT_LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS)' \
 		--disable-static --enable-shared \
 		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff --without-libopenjpeg
 	# fix cannot find library -lc on mingw-w64
@@ -116,7 +116,7 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED',) \
 		$(if $(ANDROID),CPPFLAGS='-DANDROID=1',) \
 		LIBLEPT_HEADERSDIR='$(LEPTONICA_DIR)/src' \
-		LDFLAGS='$(LDFLAGS) $(LEPT_LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),) -Wl,-rpath,\$$$$ORIGIN' \
+		LDFLAGS='$(LDFLAGS) $(LEPT_LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' \
 		--disable-static --enable-shared --disable-graphics
 	$(MAKE) -C $(TESSERACT_DIR)
 ifdef WIN32
@@ -133,7 +133,7 @@ $(K2PDFOPT_A): $(K2PDFOPT_O) tesseract_capi
 	$(AR) rcs $@ $(K2PDFOPT_O) $(TESSERACT_API_O)
 
 $(K2PDFOPT_LIB): $(K2PDFOPT_O) tesseract_capi
-	$(CXX) $(TARGET_ASHLDFLAGS) -Wl,-rpath,'$$ORIGIN' -o $@ \
+	$(CXX) $(TARGET_ASHLDFLAGS) -o $@ \
 		$(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS) \
 		$(TESSERACT_LIB) $(LEPTONICA_LIB)
 ifndef WIN32
