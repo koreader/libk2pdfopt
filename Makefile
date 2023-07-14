@@ -89,13 +89,13 @@ $(LEPTONICA_LIB):
 	cd $(LEPTONICA_DIR) && sh ./configure $(if $(EMULATE_READER),,--host $(HOST)) \
 		--prefix=$(LEPTONICA_DIR) \
 		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(CFLAGS) $(LEPT_CFLAGS)' \
-		LDFLAGS='$(LDFLAGS) $(LEPT_LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS)' \
+		LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS)' \
 		--disable-static --enable-shared \
 		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff --without-libopenjpeg
 	# fix cannot find library -lc on mingw-w64
 	cd $(LEPTONICA_DIR) && sed -ie "s|archive_cmds_need_lc='yes'|archive_cmds_need_lc='no'|" config.status
 	cd $(LEPTONICA_DIR) && chmod +x config/install-sh # fix Permission denied on OSX
-	cd $(LEPTONICA_DIR) && $(MAKE) CFLAGS='$(LEPT_CFLAGS)' \
+	cd $(LEPTONICA_DIR) && $(MAKE) $(MAKEFLAGS) CFLAGS='$(LEPT_CFLAGS)' \
 		install
 ifdef WIN32
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept*.dll ./
@@ -116,9 +116,9 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED',) \
 		$(if $(ANDROID),CPPFLAGS='-DANDROID=1',) \
 		LIBLEPT_HEADERSDIR='$(LEPTONICA_DIR)/src' \
-		LDFLAGS='$(LDFLAGS) $(LEPT_LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' \
+		LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' \
 		--disable-static --enable-shared --disable-graphics
-	$(MAKE) -C $(TESSERACT_DIR)
+	$(MAKE) $(MAKEFLAGS) -C $(TESSERACT_DIR)
 ifdef WIN32
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract-3.dll ./
 else
