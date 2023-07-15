@@ -15,9 +15,9 @@ TESSCAPI_CFLAGS = -I$(MOD_INC) -I$(LEPTONICA_DIR)/src \
 	-I$(TESSERACT_DIR) -I$(TESSERACT_DIR)/api \
 	-I$(TESSERACT_DIR)/ccutil -I$(TESSERACT_DIR)/ccstruct \
 	-I$(TESSERACT_DIR)/image -I$(TESSERACT_DIR)/viewer \
-    -I$(TESSERACT_DIR)/textord -I$(TESSERACT_DIR)/dict \
-    -I$(TESSERACT_DIR)/classify -I$(TESSERACT_DIR)/ccmain \
-    -I$(TESSERACT_DIR)/wordrec -I$(TESSERACT_DIR)/cutil
+	-I$(TESSERACT_DIR)/textord -I$(TESSERACT_DIR)/dict \
+	-I$(TESSERACT_DIR)/classify -I$(TESSERACT_DIR)/ccmain \
+	-I$(TESSERACT_DIR)/wordrec -I$(TESSERACT_DIR)/cutil
 
 OBJS:=$(KOPT_SRC:%.c=%.o) \
 	$(K2PDFOPTLIB_SRC:%.c=%.o) \
@@ -54,7 +54,7 @@ ifdef DARWIN
 else
 	TARGET_XSHLDFLAGS= -shared $(if $(WIN32),,-fPIC) -Wl,-soname,$(TARGET_SONAME)
 endif
-TARGET_ASHLDFLAGS= $(TARGET_XSHLDFLAGS) $(TARGET_DYLIBPATH) $(TARGET_FLAGS) $(TARGET_SHLDFLAGS)
+TARGET_ASHLDFLAGS= $(LDFLAGS) $(TARGET_XSHLDFLAGS) $(TARGET_DYLIBPATH) $(TARGET_FLAGS) $(TARGET_SHLDFLAGS)
 TARGET_XLIBS= -lm
 TARGET_ALIBS= $(TARGET_XLIBS) $(LIBS) $(TARGET_LIBS)
 
@@ -84,17 +84,25 @@ $(LEPTONICA_LIB):
 	cp -f $(LEPTONICA_MOD)/dewarp2.c $(LEPTONICA_DIR)/src/dewarp2.c
 	# leptonica 1.73 and up requires to run autobuild first
 	cd $(LEPTONICA_DIR) && ! test -f ./configure && sh ./autobuild || true
-	cd $(LEPTONICA_DIR) && sh ./configure -q $(if $(EMULATE_READER),,--host $(HOST)) \
+	# No stupid build rpaths
+	cd $(LEPTONICA_DIR) && sed -ie 's/\(hardcode_into_libs\)=.*$$/\1=no/' configure
+	cd $(LEPTONICA_DIR) && env CC='$(strip $(CCACHE) $(CC))' \
+		CFLAGS='$(CFLAGS) $(LEPT_CFLAGS)' \
+		LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS)' \
+		./configure $(if $(EMULATE_READER),,--host $(HOST)) \
 		--prefix=$(LEPTONICA_DIR) \
-		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(LEPT_CFLAGS)' \
-		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,"libs" $(ZLIB_LDFLAGS) $(PNG_LDFLAGS)' \
 		--disable-static --enable-shared \
 		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff --without-libopenjpeg
 	# fix cannot find library -lc on mingw-w64
 	cd $(LEPTONICA_DIR) && sed -ie "s|archive_cmds_need_lc='yes'|archive_cmds_need_lc='no'|" config.status
-	cd $(LEPTONICA_DIR) && chmod +x config/install-sh # fix Permission denied on OSX
-	cd $(LEPTONICA_DIR) && $(MAKE) CFLAGS='$(LEPT_CFLAGS)' \
-		install
+	# fix Permission denied on OSX
+	cd $(LEPTONICA_DIR) && chmod +x config/install-sh
+	# Yes, the duplication appears necessary... -_-"
+	cd $(LEPTONICA_DIR) && $(MAKE) \
+	CFLAGS='$(CFLAGS) $(LEPT_CFLAGS)' \
+	LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS)' \
+	install
+
 ifdef WIN32
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept*.dll ./
 else
@@ -105,15 +113,16 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cp -f $(TESSERACT_MOD)/tessdatamanager.cpp $(TESSERACT_DIR)/ccutil/tessdatamanager.cpp
 	-cd $(TESSERACT_DIR) && \
 		patch -N -p1 < $(TESSERACT_MOD)/baseapi.cpp.patch
-	cd $(TESSERACT_DIR) && ./autogen.sh && ./configure -q \
-		$(if $(EMULATE_READER),,--host=$(HOST)) \
-		CXX='$(strip $(CCACHE) $(CXX))' \
+	cd $(TESSERACT_DIR) && ./autogen.sh
+	# No stupid build rpaths
+	cd $(TESSERACT_DIR) && sed -ie 's/\(hardcode_into_libs\)=.*$$/\1=no/' configure
+	cd $(TESSERACT_DIR) && env CXX='$(strip $(CCACHE) $(CXX))' \
 		CXXFLAGS='$(CXXFLAGS) -I$(MOD_INC)' \
-		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED',) \
-		$(if $(ANDROID),CPPFLAGS='-DANDROID=1',) \
-		LIBLEPT_HEADERSDIR=$(LEPTONICA_DIR)/src \
-		LDFLAGS='$(LEPT_LDFLAGS) -Wl,-rpath,\$$$$ORIGIN $(ZLIB_LDFLAGS) $(PNG_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' \
-		--with-extra-libraries=$(LEPTONICA_DIR)/src/.libs \
+		$(if $(WIN32),CPPFLAGS='$(CPPFLAGS) -D_tagBLOB_DEFINED',) \
+		$(if $(ANDROID),CPPFLAGS='$(CPPFLAGS) -DANDROID=1',) \
+		LIBLEPT_HEADERSDIR='$(LEPTONICA_DIR)/src' \
+		LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' \
+		./configure $(if $(EMULATE_READER),,--host=$(HOST)) \
 		--disable-static --enable-shared --disable-graphics
 	$(MAKE) -C $(TESSERACT_DIR)
 ifdef WIN32
@@ -130,7 +139,7 @@ $(K2PDFOPT_A): $(K2PDFOPT_O) tesseract_capi
 	$(AR) rcs $@ $(K2PDFOPT_O) $(TESSERACT_API_O)
 
 $(K2PDFOPT_LIB): $(K2PDFOPT_O) tesseract_capi
-	$(CXX) $(TARGET_ASHLDFLAGS) -Wl,-rpath,'libs' -o $@ \
+	$(CXX) $(CXXFLAGS) $(TARGET_ASHLDFLAGS) -o $@ \
 		$(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS) \
 		$(TESSERACT_LIB) $(LEPTONICA_LIB)
 ifndef WIN32
