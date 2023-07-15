@@ -122,8 +122,9 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		$(if $(ANDROID),CPPFLAGS='$(CPPFLAGS) -DANDROID=1',) \
 		LIBLEPT_HEADERSDIR='$(LEPTONICA_DIR)/src' \
 		LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' \
+		OPENCL_LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' \
 		./configure $(if $(EMULATE_READER),,--host=$(HOST)) \
-		--disable-static --enable-shared --disable-graphics --with-extra-libraries=$(K2PDFOPT_DIR)
+		--disable-static --enable-shared --disable-graphics
 	$(MAKE) -C $(TESSERACT_DIR)
 ifdef WIN32
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract-3.dll ./
