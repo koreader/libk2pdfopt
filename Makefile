@@ -95,9 +95,9 @@ $(LEPTONICA_LIB):
 		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff --without-libopenjpeg
 	# fix cannot find library -lc on mingw-w64
 	cd $(LEPTONICA_DIR) && sed -ie "s|archive_cmds_need_lc='yes'|archive_cmds_need_lc='no'|" config.status
-	cd $(LEPTONICA_DIR) && chmod +x config/install-sh # fix Permission denied on OSX
-	cd $(LEPTONICA_DIR) && $(MAKE) V=1 CFLAGS='$(LEPT_CFLAGS)' \
-		install
+	 # fix Permission denied on OSX
+	cd $(LEPTONICA_DIR) && chmod +x config/install-sh
+	cd $(LEPTONICA_DIR) && $(MAKE) V=1 install
 ifdef WIN32
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept*.dll ./
 else
@@ -134,7 +134,7 @@ $(K2PDFOPT_A): $(K2PDFOPT_O) tesseract_capi
 	$(AR) rcs $@ $(K2PDFOPT_O) $(TESSERACT_API_O)
 
 $(K2PDFOPT_LIB): $(K2PDFOPT_O) tesseract_capi
-	$(CXX) $(TARGET_ASHLDFLAGS) -o $@ \
+	$(CXX) $(CXXFLAGS) $(TARGET_ASHLDFLAGS) -o $@ \
 		$(K2PDFOPT_DYNO) $(TESSERACT_API_DYNO) $(TARGET_ALIBS) \
 		$(TESSERACT_LIB) $(LEPTONICA_LIB)
 ifndef WIN32
