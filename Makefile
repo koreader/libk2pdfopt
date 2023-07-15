@@ -98,7 +98,7 @@ $(LEPTONICA_LIB):
 	# fix Permission denied on OSX
 	cd $(LEPTONICA_DIR) && chmod +x config/install-sh
 	# Yes, the duplication appears necessary... -_-"
-	cd $(LEPTONICA_DIR) && $(MAKE) V=1 \
+	cd $(LEPTONICA_DIR) && $(MAKE) \
 	CFLAGS='$(CFLAGS) $(LEPT_CFLAGS)' \
 	LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS)' \
 	install
@@ -124,7 +124,7 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' \
 		./configure $(if $(EMULATE_READER),,--host=$(HOST)) \
 		--disable-static --enable-shared --disable-graphics
-	$(MAKE) V=1 -C $(TESSERACT_DIR)
+	$(MAKE) -C $(TESSERACT_DIR)
 ifdef WIN32
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract-3.dll ./
 else
