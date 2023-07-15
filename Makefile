@@ -124,7 +124,13 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 		LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' \
 		./configure $(if $(EMULATE_READER),,--host=$(HOST)) \
 		--disable-static --enable-shared --disable-graphics
-	$(MAKE) -C $(TESSERACT_DIR)
+	$(MAKE) -C $(TESSERACT_DIR) \
+	# Fight stupid with stupid?
+	CXXFLAGS='$(CXXFLAGS) -I$(MOD_INC)' \
+	$(if $(WIN32),CPPFLAGS='$(CPPFLAGS) -D_tagBLOB_DEFINED',) \
+	$(if $(ANDROID),CPPFLAGS='$(CPPFLAGS) -DANDROID=1',) \
+	LIBLEPT_HEADERSDIR='$(LEPTONICA_DIR)/src' \
+	LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)'
 ifdef WIN32
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract-3.dll ./
 else
