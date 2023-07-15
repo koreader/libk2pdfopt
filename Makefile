@@ -15,9 +15,9 @@ TESSCAPI_CFLAGS = -I$(MOD_INC) -I$(LEPTONICA_DIR)/src \
 	-I$(TESSERACT_DIR) -I$(TESSERACT_DIR)/api \
 	-I$(TESSERACT_DIR)/ccutil -I$(TESSERACT_DIR)/ccstruct \
 	-I$(TESSERACT_DIR)/image -I$(TESSERACT_DIR)/viewer \
-    -I$(TESSERACT_DIR)/textord -I$(TESSERACT_DIR)/dict \
-    -I$(TESSERACT_DIR)/classify -I$(TESSERACT_DIR)/ccmain \
-    -I$(TESSERACT_DIR)/wordrec -I$(TESSERACT_DIR)/cutil
+	-I$(TESSERACT_DIR)/textord -I$(TESSERACT_DIR)/dict \
+	-I$(TESSERACT_DIR)/classify -I$(TESSERACT_DIR)/ccmain \
+	-I$(TESSERACT_DIR)/wordrec -I$(TESSERACT_DIR)/cutil
 
 OBJS:=$(KOPT_SRC:%.c=%.o) \
 	$(K2PDFOPTLIB_SRC:%.c=%.o) \
@@ -86,16 +86,17 @@ $(LEPTONICA_LIB):
 	cd $(LEPTONICA_DIR) && ! test -f ./configure && sh ./autobuild || true
 	# No stupid build rpaths
 	cd $(LEPTONICA_DIR) && sed -ie 's/\(hardcode_into_libs\)=.*$$/\1=no/' configure
-	cd $(LEPTONICA_DIR) && sh ./configure $(if $(EMULATE_READER),,--host $(HOST)) \
-		--prefix=$(LEPTONICA_DIR) \
-		CC='$(strip $(CCACHE) $(CC))' CFLAGS='$(CFLAGS) $(LEPT_CFLAGS)' \
+	cd $(LEPTONICA_DIR) && env CC='$(strip $(CCACHE) $(CC))' \
+		CFLAGS='$(CFLAGS) $(LEPT_CFLAGS)' \
 		LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS)' \
+		./configure $(if $(EMULATE_READER),,--host $(HOST)) \
+		--prefix=$(LEPTONICA_DIR) \
 		--disable-static --enable-shared \
 		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff --without-libopenjpeg
 	# fix cannot find library -lc on mingw-w64
 	cd $(LEPTONICA_DIR) && sed -ie "s|archive_cmds_need_lc='yes'|archive_cmds_need_lc='no'|" config.status
 	cd $(LEPTONICA_DIR) && chmod +x config/install-sh # fix Permission denied on OSX
-	cd $(LEPTONICA_DIR) && $(MAKE) $(MAKEFLAGS) CFLAGS='$(LEPT_CFLAGS)' \
+	cd $(LEPTONICA_DIR) && $(MAKE) V=1 CFLAGS='$(LEPT_CFLAGS)' \
 		install
 ifdef WIN32
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept*.dll ./
@@ -110,15 +111,15 @@ $(TESSERACT_LIB): $(LEPTONICA_LIB)
 	cd $(TESSERACT_DIR) && ./autogen.sh
 	# No stupid build rpaths
 	cd $(TESSERACT_DIR) && sed -ie 's/\(hardcode_into_libs\)=.*$$/\1=no/' configure
-	cd $(TESSERACT_DIR) && sh ./configure $(if $(EMULATE_READER),,--host=$(HOST)) \
-		CXX='$(strip $(CCACHE) $(CXX))' \
+	cd $(TESSERACT_DIR) && env CXX='$(strip $(CCACHE) $(CXX))' \
 		CXXFLAGS='$(CXXFLAGS) -I$(MOD_INC)' \
-		$(if $(WIN32),CPPFLAGS='-D_tagBLOB_DEFINED',) \
-		$(if $(ANDROID),CPPFLAGS='-DANDROID=1',) \
+		$(if $(WIN32),CPPFLAGS='$(CPPFLAGS) -D_tagBLOB_DEFINED',) \
+		$(if $(ANDROID),CPPFLAGS='$(CPPFLAGS) -DANDROID=1',) \
 		LIBLEPT_HEADERSDIR='$(LEPTONICA_DIR)/src' \
 		LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS) $(if $(ANDROID),$(SHARED_STL_LINK_FLAG),)' \
+		./configure $(if $(EMULATE_READER),,--host=$(HOST)) \
 		--disable-static --enable-shared --disable-graphics
-	$(MAKE) $(MAKEFLAGS) -C $(TESSERACT_DIR)
+	$(MAKE) V=1 -C $(TESSERACT_DIR)
 ifdef WIN32
 	cp -a $(TESSERACT_DIR)/api/.libs/libtesseract-3.dll ./
 else
