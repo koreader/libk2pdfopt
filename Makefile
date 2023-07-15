@@ -95,9 +95,14 @@ $(LEPTONICA_LIB):
 		--with-zlib --with-libpng --without-jpeg --without-giflib --without-libtiff --without-libopenjpeg
 	# fix cannot find library -lc on mingw-w64
 	cd $(LEPTONICA_DIR) && sed -ie "s|archive_cmds_need_lc='yes'|archive_cmds_need_lc='no'|" config.status
-	 # fix Permission denied on OSX
+	# fix Permission denied on OSX
 	cd $(LEPTONICA_DIR) && chmod +x config/install-sh
-	cd $(LEPTONICA_DIR) && $(MAKE) V=1 install
+	# Yes, the duplication appears necessary... -_-"
+	cd $(LEPTONICA_DIR) && $(MAKE) V=1 \
+	CFLAGS='$(CFLAGS) $(LEPT_CFLAGS)' \
+	LDFLAGS='$(LDFLAGS) $(PNG_LDFLAGS) $(ZLIB_LDFLAGS) $(LEPT_LDFLAGS)' \
+	install
+
 ifdef WIN32
 	cp -a $(LEPTONICA_DIR)/src/.libs/liblept*.dll ./
 else
