@@ -231,6 +231,7 @@ l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs,
 	*pnai = nai;
 	*pboxad = boxad;
 
+	pixDestroy(&pix1);
 	pixaDestroy(&pixa1);
 	pixaDestroy(&pixad);
 	boxaDestroy(&boxa1);
