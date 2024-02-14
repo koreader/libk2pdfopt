@@ -29,6 +29,10 @@
 #include "setting.h"
 #include "koptcrop.h"
 
+float min(float a, float b) {
+    return (a < b) ? a : b;
+}
+
 void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	static char *funcname="k2pdfopt_crop_bmp";
 	K2PDFOPT_SETTINGS _k2settings, *k2settings;
@@ -39,6 +43,14 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	int *colcount,*rowcount;
 	int i,j;
 	float margin;
+	float margin_bottom;
+	float margin_left;
+	float margin_right;
+	float margin_top;
+	int original_c1;
+	int original_c2;
+	int original_r1;
+	int original_r2;
 
 	src = &kctx->src;
 	srcgrey = &_srcgrey;
@@ -65,6 +77,10 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 			region, k2settings->src_rot, NULL, NULL, 1, -1, NULL);
 	//printf("source page (%d,%d) - (%d,%d)\n",region->c1,region->r1,region->c2,region->r2);
 	//printf("source page bgcolor %d\n", region->bgcolor);
+	original_c1 = region->c1;
+	original_c2 = region->c2;
+	original_r1 = region->r1;
+	original_r2 = region->r2;
 	bmpregion_trim_margins(region,k2settings,0xf);
 	margin = kctx->margin*k2settings->dst_dpi;
 	/*
@@ -78,10 +94,15 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	*/
 	margin = margin*(region->c2 - region->c1)/(kctx->dev_width - margin)/2;
 
-	kctx->bbox.x0 = (float)region->c1 - margin;
-	kctx->bbox.y0 = (float)region->r1 - margin;
-	kctx->bbox.x1 = (float)region->c2 + margin;
-	kctx->bbox.y1 = (float)region->r2 + margin;
+	margin_bottom = min(margin, original_r2 - region->r2);
+	margin_left = min(margin, region->c1 - original_c1);
+	margin_right = min(margin, original_c2 - region->c2);
+	margin_top = min(margin, region->r1 - original_r1);
+
+	kctx->bbox.x0 = (float)region->c1 - margin_left;
+	kctx->bbox.y0 = (float)region->r1 - margin_top;
+	kctx->bbox.x1 = (float)region->c2 + margin_right;
+	kctx->bbox.y1 = (float)region->r2 + margin_bottom;
 
 	bmp_free(src);
 	bmp_free(srcgrey);
