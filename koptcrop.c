@@ -95,13 +95,12 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 		kctx->bbox.y0 = (float)region->r1 - min(margin, region->r1 - original_r1); // margin top;
 		kctx->bbox.x1 = (float)region->c2 + min(margin, original_c2 - region->c2); // margin right;
 		kctx->bbox.y1 = (float)region->r2 + min(margin, original_r2 - region->r2); // margin bottom;
-    }
-    else {
+	} else {
 		kctx->bbox.x0 = (float)region->c1 - margin;
 		kctx->bbox.y0 = (float)region->r1 - margin;
 		kctx->bbox.x1 = (float)region->c2 + margin;
 		kctx->bbox.y1 = (float)region->r2 + margin;
-    }
+	}
 
 	bmp_free(src);
 	bmp_free(srcgrey);
