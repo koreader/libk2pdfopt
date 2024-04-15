@@ -183,7 +183,7 @@ typedef double  real;
 #endif
 #endif
 
-#if (defined(ANDROID) || defined(DARWIN))
+#if (defined(__ANDROID__) || defined(__APPLE__))
 #undef WILLUS_HAVE_FILE64
 #endif
 

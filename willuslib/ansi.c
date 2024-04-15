@@ -41,7 +41,7 @@
 #include <sys/ioctl.h>
 #endif
 
-#ifdef ANDROID
+#ifdef __ANDROID__
 #include <asm/termios.h>
 #endif
 

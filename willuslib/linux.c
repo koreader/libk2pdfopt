@@ -31,7 +31,7 @@
 #include <ctype.h>
 #include <time.h>
 #include <unistd.h>
-#ifndef ANDROID
+#ifndef __ANDROID__
 #include <sys/termios.h>
 #else
 #include <asm/termios.h>
