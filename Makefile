@@ -81,7 +81,7 @@ K2PDFOPT_LIB= libk2pdfopt$(if $(WIN32),-$(MAJVER).dll,$(if $(DARWIN),.$(MAJVER).
 # Target file rules.
 ##############################################################################
 $(LEPTONICA_LIB):
-	cp -f $(LEPTONICA_MOD)/dewarp2.c $(LEPTONICA_DIR)/src/dewarp2.c
+	cp -f $(addprefix $(LEPTONICA_MOD)/,allheaders.h dewarp2.c) $(LEPTONICA_DIR)/src/
 	# leptonica 1.73 and up requires to run autobuild first
 	cd $(LEPTONICA_DIR) && ! test -f ./configure && sh ./autobuild || true
 	# No stupid build rpaths
