@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.15)
 project(k2pdfopt LANGUAGES C CXX)
 
+set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+find_package(Threads REQUIRED)
+
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(Leptonica lept REQUIRED IMPORTED_TARGET)
 pkg_check_modules(Tesseract tesseract REQUIRED IMPORTED_TARGET)
@@ -18,7 +21,7 @@ add_library(k2pdfopt SHARED
 set_target_properties(k2pdfopt PROPERTIES SOVERSION 2)
 target_compile_definitions(k2pdfopt PRIVATE BUILDING_LIBK2PDFOPT)
 target_include_directories(k2pdfopt PRIVATE ../k2pdfoptlib ../willuslib .)
-target_link_libraries(k2pdfopt PRIVATE m PkgConfig::Leptonica PkgConfig::Tesseract)
+target_link_libraries(k2pdfopt PRIVATE m PkgConfig::Leptonica PkgConfig::Tesseract Threads::Threads)
 
 install(TARGETS k2pdfopt)
 install(FILES ${HDR} DESTINATION ${CMAKE_INSTALL_PREFIX}/include/k2pdfopt)
