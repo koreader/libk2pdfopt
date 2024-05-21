@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -33,6 +33,7 @@
 #include <errno.h>
 #include <unistd.h>
 #endif
+#include <fcntl.h> /* MinGW has this -- using for file locking */
 
 /*
 Digital Mars:  __DMC__ == 0x700 (7.0) 0x720 (7.2) 0x800 (8.0)
@@ -363,6 +364,7 @@ int wsys_which(char *exactname,char *exename)
     }
 
 
+#ifndef NO_FILELIST
 int wsys_most_recent_in_path(char *exename,char *wildcard)
 
     {
@@ -376,6 +378,7 @@ int wsys_most_recent_in_path(char *exename,char *wildcard)
 #endif
 #endif
     }
+#endif
 
 
 void wsys_computer_name(char *name,int maxlen)
@@ -454,7 +457,7 @@ char *wsys_utc_string(void)
     {
     double tz;
     int c,hr,min;
-    static char buf[8];
+    static char buf[32];
 
     tz = wsys_utc_offset();
     if (tz<0)
@@ -638,5 +641,34 @@ int wsys_get_envvar_ex(char *varname,char *value,int maxlen)
         return(-10);
     strncpy(value,p,maxlen-1);
     value[maxlen-1]='\0';
+    return(0);
+    }
+
+/*
+** Returns -1 for no lock, otherwise, file lock obtained
+** and returns file descriptor.
+*/
+int wsys_file_lock(char *filename)
+
+    {
+    return(open(filename,O_CREAT|O_EXCL,0644));
+    }
+
+
+/*
+** Returns -1 or -2 for failure
+** Returns 0 for file correctly unlocked
+*/
+int wsys_file_unlock(char *filename,int fd)
+
+    {
+    int status;
+
+    status=close(fd);
+    if (status!=0)
+        return(-1);
+    status=remove(filename);
+    if (status!=0)
+        return(-2);
     return(0);
     }

@@ -30,7 +30,7 @@
 
 #define LIBLEPT_MAJOR_VERSION   1
 #define LIBLEPT_MINOR_VERSION   74
-#define LIBLEPT_PATCH_VERSION   1
+#define LIBLEPT_PATCH_VERSION   4
 
 /*====================================================================*
  -  Copyright (C) 2001 Leptonica.  All rights reserved.
@@ -206,6 +206,12 @@ typedef uintptr_t l_uintptr_t;
     !defined(_WIN32)
 #define  HAVE_FMEMOPEN    0
 #endif  /* ! HAVE_CONFIG_H etc. */
+/* willus mod */
+#ifdef HAVE_FMEOPEN
+#undef HAVE_FMEOPEN
+#endif
+#define HAVE_FMEOPEN 0
+
 
 
 /*--------------------------------------------------------------------*
@@ -1921,8 +1927,10 @@ struct L_Dewarp
     struct Pix        *pixs;         /*!< source pix, 1 bpp                  */
     struct FPix       *sampvdispar;  /*!< sampled vert disparity array       */
     struct FPix       *samphdispar;  /*!< sampled horiz disparity array      */
+    struct FPix       *sampydispar;  /*!< sampled slope h-disparity array    */
     struct FPix       *fullvdispar;  /*!< full vert disparity array          */
     struct FPix       *fullhdispar;  /*!< full horiz disparity array         */
+    struct FPix       *fullydispar;  /*!< full slope h-disparity array       */
     struct Numa       *namidys;      /*!< sorted y val of midpoint each line */
     struct Numa       *nacurves;     /*!< sorted curvature of each line      */
     l_int32            w;            /*!< width of source image              */
@@ -1944,6 +1952,7 @@ struct L_Dewarp
     l_int32            refpage;      /*!< page with disparity model to use   */
     l_int32            vsuccess;     /*!< sets to 1 if vert disparity builds */
     l_int32            hsuccess;     /*!< sets to 1 if horiz disparity builds */
+    l_int32            ysuccess;     /*!< sets to 1 if slope disparity builds */
     l_int32            vvalid;       /*!< sets to 1 if valid vert disparity  */
     l_int32            hvalid;       /*!< sets to 1 if valid horiz disparity */
     l_int32            skip_horiz;   /*!< if 1, skip horiz disparity         */
@@ -3474,7 +3483,7 @@ enum {
 
 
 /*-------------------------------------------------------------------------*
- *                     Color component selection flags                     *
+ *                    Color component selection flags                      *
  *-------------------------------------------------------------------------*/
 
 /*! Color component selection flags */
@@ -3484,7 +3493,9 @@ enum {
     L_SELECT_BLUE = 3,          /*!< use blue component                    */
     L_SELECT_MIN = 4,           /*!< use min color component               */
     L_SELECT_MAX = 5,           /*!< use max color component               */
-    L_SELECT_AVERAGE = 6        /*!< use average of color components       */
+    L_SELECT_AVERAGE = 6,       /*!< use average of color components       */
+    L_SELECT_HUE = 7,           /*!< use hue value (in HSV color space)    */
+    L_SELECT_SATURATION = 8     /*!< use saturation value (in HSV space)   */
 };
 
 
@@ -3496,10 +3507,11 @@ enum {
 enum {
     L_LS_BYTE = 1,              /*!< use LSB                               */
     L_MS_BYTE = 2,              /*!< use MSB                               */
-    L_CLIP_TO_FF = 3,           /*!< use max(val, 255)                     */
-    L_LS_TWO_BYTES = 4,         /*!< use two LSB                           */
-    L_MS_TWO_BYTES = 5,         /*!< use two MSB                           */
-    L_CLIP_TO_FFFF = 6          /*!< use max(val, 65535)                   */
+    L_AUTO_BYTE = 3,            /*!< use LSB if max(val) < 256; else MSB   */
+    L_CLIP_TO_FF = 4,           /*!< use max(val, 255)                     */
+    L_LS_TWO_BYTES = 5,         /*!< use two LSB                           */
+    L_MS_TWO_BYTES = 6,         /*!< use two MSB                           */
+    L_CLIP_TO_FFFF = 7          /*!< use max(val, 65535)                   */
 };
 
 
@@ -3989,95 +4001,106 @@ typedef void (*dealloc_fn)(void *);
  * \file recog.h
  *
  * <pre>
- *     A simple utility for training and recognizing individual
- *     machine-printed text characters.  In an application, one can
- *     envision using a number of these, one for each trained set.
+ *     This is a simple utility for training and recognizing individual
+ *     machine-printed text characters.  It is designed to be adapted
+ *     to a particular set of character images; e.g., from a book.
  *
- *     In training mode, a set of labelled bitmaps is presented, either
- *     one at a time, or in a directory, or in a pixa.  If in a directory,
- *     or a pixa, the labelling text string must be embedded in the
- *     text field of the image file.
+ *     There are two methods of training the recognizer.  In the most
+ *     simple, a set of bitmaps has been labeled by some means, such
+ *     a generic OCR program.  This is input either one template at a time
+ *     or as a pixa of templates, to a function that creates a recog.
+ *     If in a pixa, the text string label must be embedded in the
+ *     text field of each pix.
  *
- *     Any number of recognizers (L_Recog) can be trained and then used
- *     together in an array (L_Recoga).  All these trained structures
- *     can be serialized to file and read back.  The serialized version
- *     holds all the bitmaps used for training, plus, for arbitrary
- *     character sets, the UTF8 representation and the lookup table
- *     mapping from the character representation to index.
+ *     If labeled data is not available, we start with a bootstrap
+ *     recognizer (BSR) that has labeled data from a variety of sources.
+ *     These images are scaled, typically to a fixed height, and then
+ *     fed similarly scaled unlabeled images from the source (e.g., book),
+ *     and the BSR attempts to identify them.  All images that have
+ *     a high enough correlation score with one of the templates in the
+ *     BSR are emitted in a pixa, which now holds unscaled and labeled
+ *     templates from the source.  This is the generator for a book adapted
+ *     recognizer (BAR).
  *
- *     There are three levels of "sets" here:
+ *     The pixa should always be thought of as the primary structure.
+ *     It is the generator for the recog, because a recog is built
+ *     from a pixa of unscaled images.
  *
- *       (1) Example set: the examples representing a character that
- *           were printed in the same way, so that they can be combined
- *           without scaling to form an "average" template for the character.
- *           In the recognition phase, we use either this aligned average,
- *           or the individual bitmaps.  All examples in the set are given
- *           the same character label.   Example: the letter 'a' in the
- *           predominant font in a book.
+ *     New image templates can be added to a recog as long as it is
+ *     in training mode.  Once training is finished, to add templates
+ *     it is necessary to extract the generating pixa, add templates
+ *     to that pixa, and make a new recog.  Similarly, we do not
+ *     join two recog; instead, we simply join their generating pixa,
+ *     and make a recog from that.
  *
- *       (2) Character set (represented by L_Recog, a single recognizer):
- *           The set of different characters, each of which is described
- *           by (1).  Each element of the set has a different character
- *           label.  Example: the digits '0' through '9' that are used for
- *           page numbering in a book.
+ *     To remove outliers from a pixa of labeled pix, make a recog,
+ *     determine the outliers, and generate a new pixa with the
+ *     outliers removed.  The outliers are determined by building
+ *     special templates for each character set that are scaled averages
+ *     of the individual templates.  Then a correlation score is found
+ *     between each template and the averaged templates.  There are
+ *     two implementations; outliers are determined as either:
+ *      (1) a template having a correlation score with its class average
+ *          that is below a threshold, or
+ *      (2) a template having a correlation score with its class average
+ *          that is smaller than the correlation score with the average
+ *          of another class.
+ *     Outliers are removed from the generating pixa.  Scaled averaging
+ *     is only performed for determining outliers and for splitting
+ *     characters; it is never used in a trained recognizer for identifying
+ *     unlabeled samples.
  *
- *       (3) Recognizer set (represented by L_Recoga, an array of recogs):
- *           A set of recognizers, each of which is described by (2).
- *           In general, we do not want to combine the character sets
- *           with the same labels within different recognizer sets,
- *           because the bitmaps can differ in font type, style or size.
- *           Example 1: the letter 'a' can be printed in two very different
- *           ways (either with a large loop or with a smaller loop in
- *           the lower half); both share the same label but need to be
- *           distinguished so that they are not mixed when averaging.
- *           Example 2: a recognizer trained for a book may be missing
- *           some characters, so we need to supplement it with another
- *           "generic" or "bootstrap" recognizer that has the additional
- *           characters from a variety of sources.  Bootstrap recognizers
- *           must be run in a mode where all characters are scaled.
+ *     Two methods using averaged templates are provided for splitting
+ *     touching characters:
+ *      (1) greedy matching
+ *      (2) document image decoding (DID)
+ *     The DID method is the default.  It is about 5x faster and
+ *     possibly more accurate.
  *
- *     In the recognition process, for each component in an input image,
- *     each recognizer (L_Recog) records the best match (highest
- *     correlation score).  If there is more than one recognizer, these
- *     results are aggregated to find the best match for each character
- *     for all the recognizers, and this is stored in L_Recoga.
+ *     Once a BAR has been made, unlabeled sample images are identified
+ *     by finding the individual template in the BAR with highest
+ *     correlation.  The input images and images in the BAR can be
+ *     represented in two ways:
+ *      (1) as scanned, binarized to 1 bpp
+ *      (2) as a width-normalized outline formed by thinning to a
+ *          skeleton and then dilating by a fixed amount.
+ *
+ *     The recog can be serialized to file and read back.  The serialized
+ *     version holds the templates used for correlation (which may have
+ *     been modified by scaling and turning into lines from the unscaled
+ *     templates), plus, for arbitrary character sets, the UTF8
+ *     representation and the lookup table mapping from the character
+ *     representation to index.
+ *
+ *     Why do we not use averaged templates for recognition?
+ *     Letterforms can take on significantly different shapes (eg.,
+ *     the letters 'a' and 'g'), and it makes no sense to average these.
+ *     The previous version of this utility allowed multiple recognizers
+ *     to exist, but this is an unnecessary complication if recognition
+ *     is done on all samples instead of on averages.
  * </pre>
  */
 
-#define  RECOG_VERSION_NUMBER      1
-
-struct L_Recoga {
-    l_int32              n;      /*!< number of recogs                       */
-    l_int32              nalloc; /*!< number of recog ptrs allocated         */
-    struct L_Recog     **recog;  /*!< recog ptr array                        */
-    struct L_Rcha       *rcha;   /*!< stores the array of best chars         */
-};
-typedef struct L_Recoga L_RECOGA;
-
+#define  RECOG_VERSION_NUMBER      2
 
 struct L_Recog {
     l_int32        scalew;       /*!< scale all examples to this width;      */
                                  /*!< use 0 prevent horizontal scaling       */
     l_int32        scaleh;       /*!< scale all examples to this height;     */
                                  /*!< use 0 prevent vertical scaling         */
-    l_int32        templ_type;   /*!< template type: either an average of    */
-                                 /*!< examples (L_USE_AVERAGE) or the set    */
-                                 /*!< of all examples (L_USE_ALL)            */
+    l_int32        linew;        /*!< use a value > 0 to convert the bitmap  */
+                                 /*!< to lines of fixed width; 0 to skip     */
+    l_int32        templ_use;    /*!< template use: use either the average   */
+                                 /*!< or all temmplates (L_USE_AVERAGE or    */
+                                 /*!< L_USE_ALL)                             */
     l_int32        maxarraysize; /*!< initialize container arrays to this    */
     l_int32        setsize;      /*!< size of character set                  */
     l_int32        threshold;    /*!< for binarizing if depth > 1            */
     l_int32        maxyshift;    /*!< vertical jiggle on nominal centroid    */
                                  /*!< alignment; typically 0 or 1            */
-    l_float32      asperity_fr;  /*!< +- allowed fractional asperity ratio   */
     l_int32        charset_type; /*!< one of L_ARABIC_NUMERALS, etc.         */
-    l_int32        charset_size; /*!< expected number of classes in charse   */
-    char          *bootdir;      /*!< dir with bootstrap pixa charsets       */
-    char          *bootpattern;  /*!< file pattern: bootstrap pixa charsets  */
-    char          *bootpath;     /*!< path for single bootstrap pixa charset */
-    l_int32        boot_iters;   /*!< num of 2x2 erosion iters on boot pixa  */
+    l_int32        charset_size; /*!< expected number of classes in charset  */
     l_int32        min_nopad;    /*!< min number of samples without padding  */
-    l_int32        max_afterpad; /*!< max number of samples after padding    */
-    l_int32        min_samples;  /*!< min num of total samples; else use boot */
     l_int32        num_samples;  /*!< number of training samples             */
     l_int32        minwidth_u;   /*!< min width averaged unscaled templates  */
     l_int32        maxwidth_u;   /*!< max width averaged unscaled templates  */
@@ -4088,26 +4111,27 @@ struct L_Recog {
     l_int32        ave_done;     /*!< set to 1 when averaged bitmaps are made */
     l_int32        train_done;   /*!< set to 1 when training is complete or  */
                                  /*!< identification has started             */
+    l_float32      max_wh_ratio; /*!< max width/height ratio to split        */
+    l_float32      max_ht_ratio; /*!< max of max/min template height ratio   */
     l_int32        min_splitw;   /*!< min component width kept in splitting  */
-    l_int32        min_splith;   /*!< min component height kept in splitting */
     l_int32        max_splith;   /*!< max component height kept in splitting */
     struct Sarray *sa_text;      /*!< text array for arbitrary char set      */
     struct L_Dna  *dna_tochar;   /*!< index-to-char lut for arbitrary charset */
     l_int32       *centtab;      /*!< table for finding centroids            */
     l_int32       *sumtab;       /*!< table for finding pixel sums           */
-    struct Pixaa  *pixaa_u;      /*!< all unscaled bitmaps for each class    */
-    struct Pixa   *pixa_u;       /*!< averaged unscaled bitmaps per class    */
-    struct Ptaa   *ptaa_u;       /*!< centroids of all unscaled bitmaps      */
-    struct Pta    *pta_u;        /*!< centroids of unscaled averaged bitmaps */
-    struct Numaa  *naasum_u;     /*!< area of all unscaled bitmap examples   */
-    struct Numa   *nasum_u;      /*!< area of unscaled averaged bitmaps      */
-    struct Pixaa  *pixaa;        /*!< all bitmap examples for each class     */
-    struct Pixa   *pixa;         /*!< averaged bitmaps for each class        */
-    struct Ptaa   *ptaa;         /*!< centroids of all bitmap examples       */
-    struct Pta    *pta;          /*!< centroids of averaged bitmaps          */
-    struct Numaa  *naasum;       /*!< area of all bitmap examples            */
-    struct Numa   *nasum;        /*!< area of averaged bitmaps               */
-    struct Pixa   *pixa_tr;      /*!< input training images                  */
+    struct Pixaa  *pixaa_u;      /*!< all unscaled templates for each class  */
+    struct Ptaa   *ptaa_u;       /*!< centroids of all unscaled templates    */
+    struct Numaa  *naasum_u;     /*!< area of all unscaled templates         */
+    struct Pixaa  *pixaa;        /*!< all (scaled) templates for each class  */
+    struct Ptaa   *ptaa;         /*!< centroids of all (scaledl) templates   */
+    struct Numaa  *naasum;       /*!< area of all (scaled) templates         */
+    struct Pixa   *pixa_u;       /*!< averaged unscaled templates per class  */
+    struct Pta    *pta_u;        /*!< centroids of unscaled ave. templates   */
+    struct Numa   *nasum_u;      /*!< area of unscaled averaged templates    */
+    struct Pixa   *pixa;         /*!< averaged (scaled) templates per class  */
+    struct Pta    *pta;          /*!< centroids of (scaled) ave. templates   */
+    struct Numa   *nasum;        /*!< area of (scaled) averaged templates    */
+    struct Pixa   *pixa_tr;      /*!< all input training images              */
     struct Pixa   *pixadb_ave;   /*!< unscaled and scaled averaged bitmaps   */
     struct Pixa   *pixa_id;      /*!< input images for identifying           */
     struct Pix    *pixdb_ave;    /*!< debug: best match of input against ave. */
@@ -4119,10 +4143,6 @@ struct L_Recog {
     struct L_Rdid *did;          /*!< temp data used for image decoding      */
     struct L_Rch  *rch;          /*!< temp data used for holding best char   */
     struct L_Rcha *rcha;         /*!< temp data used for array of best chars */
-    l_int32        bootrecog;    /*!< 1 if using bootstrap samples; else 0   */
-    l_int32        index;        /*!< recog index in recoga; -1 if no parent */
-    struct L_Recoga  *parent;    /*!< ptr to parent array; can be null       */
-
 };
 typedef struct L_Recog L_RECOG;
 
@@ -4176,8 +4196,10 @@ struct L_Rdid {
     struct Numa   *naxloc;       /*!< x locations of best path templates     */
     struct Numa   *nadely;       /*!< y locations of best path templates     */
     struct Numa   *nawidth;      /*!< widths of best path templates          */
+    struct Boxa   *boxa;         /*!< Viterbi result for splitting input pixs */
     struct Numa   *nascore;      /*!< correlation scores: best path templates */
     struct Numa   *natempl_r;    /*!< indices of best rescored templates     */
+    struct Numa   *nasample_r;   /*!< samples of best scored templates       */
     struct Numa   *naxloc_r;     /*!< x locations of best rescoredtemplates  */
     struct Numa   *nadely_r;     /*!< y locations of best rescoredtemplates  */
     struct Numa   *nawidth_r;    /*!< widths of best rescoredtemplates       */
@@ -4187,30 +4209,8 @@ typedef struct L_Rdid L_RDID;
 
 
 /*-------------------------------------------------------------------------*
- *                    Flags for selecting processing                       *
- *-------------------------------------------------------------------------*/
-
-/*! Flags for selecting processing */
-enum {
-    L_SELECT_UNSCALED = 0,     /*!< select the unscaled bitmaps            */
-    L_SELECT_SCALED = 1,       /*!< select the scaled bitmaps              */
-    L_SELECT_BOTH = 2          /*!< select both unscaled and scaled        */
-};
-
-/*-------------------------------------------------------------------------*
- *                Flags for determining what to test against               *
- *-------------------------------------------------------------------------*/
-
-/*! Flags for determining what to test against */
-enum {
-    L_USE_AVERAGE = 0,       /*!< form template from class average         */
-    L_USE_ALL = 1            /*!< match against all elements of each class */
-};
-
-/*-------------------------------------------------------------------------*
  *             Flags for describing limited character sets                 *
  *-------------------------------------------------------------------------*/
-
 /*! Flags for describing limited character sets */
 enum {
     L_UNKNOWN = 0,           /*!< character set type is not specified      */
@@ -4219,6 +4219,15 @@ enum {
     L_UC_ROMAN_NUMERALS = 3, /*!< 7 upper-case letters (I,V,X,L,C,D,M)     */
     L_LC_ALPHA = 4,          /*!< 26 lower-case letters                    */
     L_UC_ALPHA = 5           /*!< 26 upper-case letters                    */
+};
+
+/*-------------------------------------------------------------------------*
+ *      Flags for selecting between using average and all templates        *
+ *-------------------------------------------------------------------------*/
+/*! Flags for selecting average or all templates: recog->templ_use */
+enum {
+    L_USE_ALL_TEMPLATES = 0,     /*!< use all templates; default            */
+    L_USE_AVERAGE_TEMPLATES = 1  /*!< use average templates; special cases  */
 };
 
 #endif  /* LEPTONICA_RECOG_H */
@@ -4651,10 +4660,10 @@ LEPT_DLL extern l_int32 l_getDataFourBytes ( void *line, l_int32 n );
 LEPT_DLL extern void l_setDataFourBytes ( void *line, l_int32 n, l_int32 val );
 LEPT_DLL extern char * barcodeDispatchDecoder ( char *barstr, l_int32 format, l_int32 debugflag );
 LEPT_DLL extern l_int32 barcodeFormatIsSupported ( l_int32 format );
-LEPT_DLL extern NUMA * pixFindBaselines ( PIX *pixs, PTA **ppta, l_int32 debug );
+LEPT_DLL extern NUMA * pixFindBaselines ( PIX *pixs, PTA **ppta, PIXA *pixadb );
 LEPT_DLL extern PIX * pixDeskewLocal ( PIX *pixs, l_int32 nslices, l_int32 redsweep, l_int32 redsearch, l_float32 sweeprange, l_float32 sweepdelta, l_float32 minbsdelta );
 LEPT_DLL extern l_int32 pixGetLocalSkewTransform ( PIX *pixs, l_int32 nslices, l_int32 redsweep, l_int32 redsearch, l_float32 sweeprange, l_float32 sweepdelta, l_float32 minbsdelta, PTA **pptas, PTA **pptad );
-LEPT_DLL extern NUMA * pixGetLocalSkewAngles ( PIX *pixs, l_int32 nslices, l_int32 redsweep, l_int32 redsearch, l_float32 sweeprange, l_float32 sweepdelta, l_float32 minbsdelta, l_float32 *pa, l_float32 *pb );
+LEPT_DLL extern NUMA * pixGetLocalSkewAngles ( PIX *pixs, l_int32 nslices, l_int32 redsweep, l_int32 redsearch, l_float32 sweeprange, l_float32 sweepdelta, l_float32 minbsdelta, l_float32 *pa, l_float32 *pb, l_int32 debug );
 LEPT_DLL extern L_BBUFFER * bbufferCreate ( l_uint8 *indata, l_int32 nalloc );
 LEPT_DLL extern void bbufferDestroy ( L_BBUFFER **pbb );
 LEPT_DLL extern l_uint8 * bbufferDestroyAndSaveData ( L_BBUFFER **pbb, size_t *pnbytes );
@@ -4719,9 +4728,9 @@ LEPT_DLL extern l_int32 bmfGetBaseline ( L_BMF *bmf, char chr, l_int32 *pbaselin
 LEPT_DLL extern PIXA * pixaGetFont ( const char *dir, l_int32 fontsize, l_int32 *pbl0, l_int32 *pbl1, l_int32 *pbl2 );
 LEPT_DLL extern l_int32 pixaSaveFont ( const char *indir, const char *outdir, l_int32 fontsize );
 LEPT_DLL extern PIX * pixReadStreamBmp ( FILE *fp );
+LEPT_DLL extern PIX * pixReadMemBmp ( const l_uint8 *cdata, size_t size );
 LEPT_DLL extern l_int32 pixWriteStreamBmp ( FILE *fp, PIX *pix );
-LEPT_DLL extern PIX * pixReadMemBmp ( const l_uint8 *data, size_t size );
-LEPT_DLL extern l_int32 pixWriteMemBmp ( l_uint8 **pdata, size_t *psize, PIX *pix );
+LEPT_DLL extern l_int32 pixWriteMemBmp ( l_uint8 **pfdata, size_t *pfsize, PIX *pixs );
 LEPT_DLL extern PIXA * l_bootnum_gen1 ( void );
 LEPT_DLL extern PIXA * l_bootnum_gen2 ( void );
 LEPT_DLL extern PIXA * l_bootnum_gen3 ( void );
@@ -4790,22 +4799,29 @@ LEPT_DLL extern l_int32 boxPrintStreamInfo ( FILE *fp, BOX *box );
 LEPT_DLL extern l_int32 boxContains ( BOX *box1, BOX *box2, l_int32 *presult );
 LEPT_DLL extern l_int32 boxIntersects ( BOX *box1, BOX *box2, l_int32 *presult );
 LEPT_DLL extern BOXA * boxaContainedInBox ( BOXA *boxas, BOX *box );
+LEPT_DLL extern l_int32 boxaContainedInBoxCount ( BOXA *boxa, BOX *box, l_int32 *pcount );
+LEPT_DLL extern l_int32 boxaContainedInBoxa ( BOXA *boxa1, BOXA *boxa2, l_int32 *pcontained );
 LEPT_DLL extern BOXA * boxaIntersectsBox ( BOXA *boxas, BOX *box );
+LEPT_DLL extern l_int32 boxaIntersectsBoxCount ( BOXA *boxa, BOX *box, l_int32 *pcount );
 LEPT_DLL extern BOXA * boxaClipToBox ( BOXA *boxas, BOX *box );
-LEPT_DLL extern BOXA * boxaCombineOverlaps ( BOXA *boxas );
+LEPT_DLL extern BOXA * boxaCombineOverlaps ( BOXA *boxas, PIXA *pixadb );
+LEPT_DLL extern l_int32 boxaCombineOverlapsInPair ( BOXA *boxas1, BOXA *boxas2, BOXA **pboxad1, BOXA **pboxad2, PIXA *pixadb );
 LEPT_DLL extern BOX * boxOverlapRegion ( BOX *box1, BOX *box2 );
 LEPT_DLL extern BOX * boxBoundingRegion ( BOX *box1, BOX *box2 );
 LEPT_DLL extern l_int32 boxOverlapFraction ( BOX *box1, BOX *box2, l_float32 *pfract );
 LEPT_DLL extern l_int32 boxOverlapArea ( BOX *box1, BOX *box2, l_int32 *parea );
 LEPT_DLL extern BOXA * boxaHandleOverlaps ( BOXA *boxas, l_int32 op, l_int32 range, l_float32 min_overlap, l_float32 max_ratio, NUMA **pnamap );
 LEPT_DLL extern l_int32 boxSeparationDistance ( BOX *box1, BOX *box2, l_int32 *ph_sep, l_int32 *pv_sep );
+LEPT_DLL extern l_int32 boxCompareSize ( BOX *box1, BOX *box2, l_int32 type, l_int32 *prel );
 LEPT_DLL extern l_int32 boxContainsPt ( BOX *box, l_float32 x, l_float32 y, l_int32 *pcontains );
 LEPT_DLL extern BOX * boxaGetNearestToPt ( BOXA *boxa, l_int32 x, l_int32 y );
+LEPT_DLL extern BOX * boxaGetNearestToLine ( BOXA *boxa, l_int32 x, l_int32 y );
 LEPT_DLL extern l_int32 boxGetCenter ( BOX *box, l_float32 *pcx, l_float32 *pcy );
 LEPT_DLL extern l_int32 boxIntersectByLine ( BOX *box, l_int32 x, l_int32 y, l_float32 slope, l_int32 *px1, l_int32 *py1, l_int32 *px2, l_int32 *py2, l_int32 *pn );
 LEPT_DLL extern BOX * boxClipToRectangle ( BOX *box, l_int32 wi, l_int32 hi );
 LEPT_DLL extern l_int32 boxClipToRectangleParams ( BOX *box, l_int32 w, l_int32 h, l_int32 *pxstart, l_int32 *pystart, l_int32 *pxend, l_int32 *pyend, l_int32 *pbw, l_int32 *pbh );
 LEPT_DLL extern BOX * boxRelocateOneSide ( BOX *boxd, BOX *boxs, l_int32 loc, l_int32 sideflag );
+LEPT_DLL extern BOXA * boxaAdjustSides ( BOXA *boxas, l_int32 delleft, l_int32 delright, l_int32 deltop, l_int32 delbot );
 LEPT_DLL extern BOX * boxAdjustSides ( BOX *boxd, BOX *boxs, l_int32 delleft, l_int32 delright, l_int32 deltop, l_int32 delbot );
 LEPT_DLL extern BOXA * boxaSetSide ( BOXA *boxad, BOXA *boxas, l_int32 side, l_int32 val, l_int32 thresh );
 LEPT_DLL extern BOXA * boxaAdjustWidthToTarget ( BOXA *boxad, BOXA *boxas, l_int32 sides, l_int32 target, l_int32 thresh );
@@ -4848,7 +4864,7 @@ LEPT_DLL extern PIX * pixPaintBoxaRandom ( PIX *pixs, BOXA *boxa );
 LEPT_DLL extern PIX * pixBlendBoxaRandom ( PIX *pixs, BOXA *boxa, l_float32 fract );
 LEPT_DLL extern PIX * pixDrawBoxa ( PIX *pixs, BOXA *boxa, l_int32 width, l_uint32 val );
 LEPT_DLL extern PIX * pixDrawBoxaRandom ( PIX *pixs, BOXA *boxa, l_int32 width );
-LEPT_DLL extern PIX * boxaaDisplay ( BOXAA *baa, l_int32 linewba, l_int32 linewb, l_uint32 colorba, l_uint32 colorb, l_int32 w, l_int32 h );
+LEPT_DLL extern PIX * boxaaDisplay ( PIX *pixs, BOXAA *baa, l_int32 linewba, l_int32 linewb, l_uint32 colorba, l_uint32 colorb, l_int32 w, l_int32 h );
 LEPT_DLL extern PIXA * pixaDisplayBoxaa ( PIXA *pixas, BOXAA *baa, l_int32 colorflag, l_int32 width );
 LEPT_DLL extern BOXA * pixSplitIntoBoxa ( PIX *pixs, l_int32 minsum, l_int32 skipdist, l_int32 delta, l_int32 maxbg, l_int32 maxcomps, l_int32 remainder );
 LEPT_DLL extern BOXA * pixSplitComponentIntoBoxa ( PIX *pix, BOX *box, l_int32 minsum, l_int32 skipdist, l_int32 delta, l_int32 maxbg, l_int32 maxcomps, l_int32 remainder );
@@ -4862,6 +4878,8 @@ LEPT_DLL extern BOXA * boxaSelectBySize ( BOXA *boxas, l_int32 width, l_int32 he
 LEPT_DLL extern NUMA * boxaMakeSizeIndicator ( BOXA *boxa, l_int32 width, l_int32 height, l_int32 type, l_int32 relation );
 LEPT_DLL extern BOXA * boxaSelectByArea ( BOXA *boxas, l_int32 area, l_int32 relation, l_int32 *pchanged );
 LEPT_DLL extern NUMA * boxaMakeAreaIndicator ( BOXA *boxa, l_int32 area, l_int32 relation );
+LEPT_DLL extern BOXA * boxaSelectByWHRatio ( BOXA *boxas, l_float32 ratio, l_int32 relation, l_int32 *pchanged );
+LEPT_DLL extern NUMA * boxaMakeWHRatioIndicator ( BOXA *boxa, l_float32 ratio, l_int32 relation );
 LEPT_DLL extern BOXA * boxaSelectWithIndicator ( BOXA *boxas, NUMA *na, l_int32 *pchanged );
 LEPT_DLL extern BOXA * boxaPermutePseudorandom ( BOXA *boxas );
 LEPT_DLL extern BOXA * boxaPermuteRandom ( BOXA *boxad, BOXA *boxas );
@@ -4952,6 +4970,7 @@ LEPT_DLL extern PIX * pixColorMagnitude ( PIX *pixs, l_int32 rwhite, l_int32 gwh
 LEPT_DLL extern PIX * pixMaskOverColorPixels ( PIX *pixs, l_int32 threshdiff, l_int32 mindist );
 LEPT_DLL extern PIX * pixMaskOverColorRange ( PIX *pixs, l_int32 rmin, l_int32 rmax, l_int32 gmin, l_int32 gmax, l_int32 bmin, l_int32 bmax );
 LEPT_DLL extern l_int32 pixColorFraction ( PIX *pixs, l_int32 darkthresh, l_int32 lightthresh, l_int32 diffthresh, l_int32 factor, l_float32 *ppixfract, l_float32 *pcolorfract );
+LEPT_DLL extern l_int32 pixFindColorRegions ( PIX *pixs, PIX *pixm, l_int32 factor, l_int32 lightthresh, l_int32 darkthresh, l_int32 mindiff, l_int32 colordiff, l_float32 edgefract, l_float32 *pcolorfract, PIX **pcolormask1, PIX **pcolormask2, PIXA *pixadb );
 LEPT_DLL extern l_int32 pixNumSignificantGrayColors ( PIX *pixs, l_int32 darkthresh, l_int32 lightthresh, l_float32 minfract, l_int32 factor, l_int32 *pncolors );
 LEPT_DLL extern l_int32 pixColorsForQuantization ( PIX *pixs, l_int32 thresh, l_int32 *pncolors, l_int32 *piscolor, l_int32 debug );
 LEPT_DLL extern l_int32 pixNumColors ( PIX *pixs, l_int32 factor, l_int32 *pncolors );
@@ -5006,6 +5025,8 @@ LEPT_DLL extern l_int32 pixcmapGetDistanceToColor ( PIXCMAP *cmap, l_int32 index
 LEPT_DLL extern l_int32 pixcmapGetRangeValues ( PIXCMAP *cmap, l_int32 select, l_int32 *pminval, l_int32 *pmaxval, l_int32 *pminindex, l_int32 *pmaxindex );
 LEPT_DLL extern PIXCMAP * pixcmapGrayToColor ( l_uint32 color );
 LEPT_DLL extern PIXCMAP * pixcmapColorToGray ( PIXCMAP *cmaps, l_float32 rwt, l_float32 gwt, l_float32 bwt );
+LEPT_DLL extern PIXCMAP * pixcmapConvertTo4 ( PIXCMAP *cmaps );
+LEPT_DLL extern PIXCMAP * pixcmapConvertTo8 ( PIXCMAP *cmaps );
 LEPT_DLL extern PIXCMAP * pixcmapRead ( const char *filename );
 LEPT_DLL extern PIXCMAP * pixcmapReadStream ( FILE *fp );
 LEPT_DLL extern PIXCMAP * pixcmapReadMem ( const l_uint8 *data, size_t size );
@@ -5183,14 +5204,16 @@ LEPT_DLL extern l_int32 dewarpaWrite ( const char *filename, L_DEWARPA *dewa );
 LEPT_DLL extern l_int32 dewarpaWriteStream ( FILE *fp, L_DEWARPA *dewa );
 LEPT_DLL extern l_int32 dewarpaWriteMem ( l_uint8 **pdata, size_t *psize, L_DEWARPA *dewa );
 LEPT_DLL extern l_int32 dewarpBuildPageModel ( L_DEWARP *dew, const char *debugfile );
-LEPT_DLL extern l_int32 dewarpBuildPageModel_ex ( L_DEWARP *dew, const char *debugfile,l_int32 fit_order );
 LEPT_DLL extern l_int32 dewarpFindVertDisparity ( L_DEWARP *dew, PTAA *ptaa, l_int32 rotflag );
-LEPT_DLL extern l_int32 dewarpFindVertDisparity_ex ( L_DEWARP *dew, PTAA *ptaa, l_int32 rotflag,l_int32 fit_order );
 LEPT_DLL extern l_int32 dewarpFindHorizDisparity ( L_DEWARP *dew, PTAA *ptaa );
 LEPT_DLL extern PTAA * dewarpGetTextlineCenters ( PIX *pixs, l_int32 debugflag );
 LEPT_DLL extern PTAA * dewarpRemoveShortLines ( PIX *pixs, PTAA *ptaas, l_float32 fract, l_int32 debugflag );
+LEPT_DLL extern l_int32 dewarpFindHorizSlopeDisparity ( L_DEWARP *dew, PIX *pixb, l_float32 fractthresh, l_int32 parity );
 LEPT_DLL extern l_int32 dewarpBuildLineModel ( L_DEWARP *dew, l_int32 opensize, const char *debugfile );
-LEPT_DLL extern l_int32 dewarpBuildLineModel_ex ( L_DEWARP *dew, l_int32 opensize, const char *debugfile,l_int32 fit_order );
+/* WILLUS MOD */
+    LEPT_DLL extern l_int32 dewarpBuildPageModel_ex ( L_DEWARP *dew, const char *debugfile,l_int32 fit_order );
+    LEPT_DLL extern l_int32 dewarpFindVertDisparity_ex ( L_DEWARP *dew, PTAA *ptaa, l_int32 rotflag,l_int32 fit_order );
+    LEPT_DLL extern l_int32 dewarpBuildLineModel_ex ( L_DEWARP *dew, l_int32 opensize, const char *debugfile,l_int32 fit_order );
 LEPT_DLL extern l_int32 dewarpaModelStatus ( L_DEWARPA *dewa, l_int32 pageno, l_int32 *pvsuccess, l_int32 *phsuccess );
 LEPT_DLL extern l_int32 dewarpaApplyDisparity ( L_DEWARPA *dewa, l_int32 pageno, PIX *pixs, l_int32 grayin, l_int32 x, l_int32 y, PIX **ppixd, const char *debugfile );
 LEPT_DLL extern l_int32 dewarpaApplyDisparityBoxa ( L_DEWARPA *dewa, l_int32 pageno, PIX *pixs, BOXA *boxas, l_int32 mapdir, l_int32 x, l_int32 y, BOXA **pboxad, const char *debugfile );
@@ -5694,7 +5717,8 @@ LEPT_DLL extern PIX * pixIntersectionOfMorphOps ( PIX *pixs, SELA *sela, l_int32
 LEPT_DLL extern PIX * pixSelectiveConnCompFill ( PIX *pixs, l_int32 connectivity, l_int32 minw, l_int32 minh );
 LEPT_DLL extern l_int32 pixRemoveMatchedPattern ( PIX *pixs, PIX *pixp, PIX *pixe, l_int32 x0, l_int32 y0, l_int32 dsize );
 LEPT_DLL extern PIX * pixDisplayMatchedPattern ( PIX *pixs, PIX *pixp, PIX *pixe, l_int32 x0, l_int32 y0, l_uint32 color, l_float32 scale, l_int32 nlevels );
-LEPT_DLL extern PIXA * pixaExtendIterative ( PIXA *pixas, l_int32 type, l_int32 niters, SEL *sel, l_int32 include );
+LEPT_DLL extern PIXA * pixaExtendByMorph ( PIXA *pixas, l_int32 type, l_int32 niters, SEL *sel, l_int32 include );
+LEPT_DLL extern PIXA * pixaExtendByScaling ( PIXA *pixas, NUMA *nasc, l_int32 type, l_int32 include );
 LEPT_DLL extern PIX * pixSeedfillMorph ( PIX *pixs, PIX *pixm, l_int32 maxiters, l_int32 connectivity );
 LEPT_DLL extern NUMA * pixRunHistogramMorph ( PIX *pixs, l_int32 runtype, l_int32 direction, l_int32 maxsize );
 LEPT_DLL extern PIX * pixTophat ( PIX *pixs, l_int32 hsize, l_int32 vsize, l_int32 type );
@@ -5793,6 +5817,7 @@ LEPT_DLL extern NUMA * numaMakeAbsValue ( NUMA *nad, NUMA *nas );
 LEPT_DLL extern NUMA * numaAddBorder ( NUMA *nas, l_int32 left, l_int32 right, l_float32 val );
 LEPT_DLL extern NUMA * numaAddSpecifiedBorder ( NUMA *nas, l_int32 left, l_int32 right, l_int32 type );
 LEPT_DLL extern NUMA * numaRemoveBorder ( NUMA *nas, l_int32 left, l_int32 right );
+LEPT_DLL extern l_int32 numaCountNonzeroRuns ( NUMA *na, l_int32 *pcount );
 LEPT_DLL extern l_int32 numaGetNonzeroRange ( NUMA *na, l_float32 eps, l_int32 *pfirst, l_int32 *plast );
 LEPT_DLL extern l_int32 numaGetCountRelativeToZero ( NUMA *na, l_int32 type, l_int32 *pcount );
 LEPT_DLL extern NUMA * numaClipToInterval ( NUMA *nas, l_int32 first, l_int32 last );
@@ -5878,10 +5903,13 @@ LEPT_DLL extern PIX * pixGenTextblockMask ( PIX *pixs, PIX *pixvws, PIXA *pixadb
 LEPT_DLL extern BOX * pixFindPageForeground ( PIX *pixs, l_int32 threshold, l_int32 mindist, l_int32 erasedist, l_int32 pagenum, l_int32 showmorph, l_int32 display, const char *pdfdir );
 LEPT_DLL extern l_int32 pixSplitIntoCharacters ( PIX *pixs, l_int32 minw, l_int32 minh, BOXA **pboxa, PIXA **ppixa, PIX **ppixdebug );
 LEPT_DLL extern BOXA * pixSplitComponentWithProfile ( PIX *pixs, l_int32 delta, l_int32 mindel, PIX **ppixdebug );
-LEPT_DLL extern PIXA * pixExtractTextlines ( PIX *pixs, l_int32 maxw, l_int32 maxh, l_int32 minw, l_int32 minh );
+LEPT_DLL extern PIXA * pixExtractTextlines ( PIX *pixs, l_int32 maxw, l_int32 maxh, l_int32 minw, l_int32 minh, l_int32 adjw, l_int32 adjh, PIXA *pixadb );
+LEPT_DLL extern PIXA * pixExtractRawTextlines ( PIX *pixs, l_int32 maxw, l_int32 maxh, l_int32 adjw, l_int32 adjh, PIXA *pixadb );
+LEPT_DLL extern l_int32 pixCountTextColumns ( PIX *pixs, l_float32 deltafract, l_float32 peakfract, l_float32 clipfract, l_int32 *pncols, PIXA *pixadb );
 LEPT_DLL extern l_int32 pixDecideIfText ( PIX *pixs, BOX *box, l_int32 *pistext, PIXA *pixadb );
 LEPT_DLL extern l_int32 pixFindThreshFgExtent ( PIX *pixs, l_int32 thresh, l_int32 *ptop, l_int32 *pbot );
-LEPT_DLL extern l_int32 pixCountTextColumns ( PIX *pixs, l_float32 deltafract, l_float32 peakfract, l_float32 clipfract, l_int32 *pncols, PIXA *pixadb );
+LEPT_DLL extern l_int32 pixDecideIfTable ( PIX *pixs, BOX *box, l_int32 *pistable, PIXA *pixadb );
+LEPT_DLL extern PIX * pixPrepare1bpp ( PIX *pixs, BOX *box, l_float32 cropfract, l_int32 outres );
 LEPT_DLL extern l_int32 pixEstimateBackground ( PIX *pixs, l_int32 darkthresh, l_float32 edgecrop, l_int32 *pbg );
 LEPT_DLL extern l_int32 pixFindLargeRectangles ( PIX *pixs, l_int32 polarity, l_int32 nrect, BOXA **pboxa, PIX **ppixdb );
 LEPT_DLL extern l_int32 pixFindLargestRectangle ( PIX *pixs, l_int32 polarity, BOX **pbox, PIX **ppixdb );
@@ -6059,6 +6087,7 @@ LEPT_DLL extern l_int32 pixPaintThroughMask ( PIX *pixd, PIX *pixm, l_int32 x, l
 LEPT_DLL extern l_int32 pixPaintSelfThroughMask ( PIX *pixd, PIX *pixm, l_int32 x, l_int32 y, l_int32 searchdir, l_int32 mindist, l_int32 tilesize, l_int32 ntiles, l_int32 distblend );
 LEPT_DLL extern PIX * pixMakeMaskFromVal ( PIX *pixs, l_int32 val );
 LEPT_DLL extern PIX * pixMakeMaskFromLUT ( PIX *pixs, l_int32 *tab );
+LEPT_DLL extern PIX * pixMakeArbMaskFromRGB ( PIX *pixs, l_float32 rc, l_float32 gc, l_float32 bc, l_float32 thresh );
 LEPT_DLL extern PIX * pixSetUnderTransparency ( PIX *pixs, l_uint32 val, l_int32 debug );
 LEPT_DLL extern PIX * pixMakeAlphaFromMask ( PIX *pixs, l_int32 dist, BOX **pbox );
 LEPT_DLL extern l_int32 pixGetColorNearMaskBoundary ( PIX *pixs, PIX *pixm, BOX *box, l_int32 dist, l_uint32 *pval, l_int32 debug );
@@ -6102,6 +6131,9 @@ LEPT_DLL extern l_int32 pixGetColorHistogramMasked ( PIX *pixs, PIX *pixm, l_int
 LEPT_DLL extern NUMA * pixGetCmapHistogram ( PIX *pixs, l_int32 factor );
 LEPT_DLL extern NUMA * pixGetCmapHistogramMasked ( PIX *pixs, PIX *pixm, l_int32 x, l_int32 y, l_int32 factor );
 LEPT_DLL extern NUMA * pixGetCmapHistogramInRect ( PIX *pixs, BOX *box, l_int32 factor );
+LEPT_DLL extern l_int32 pixCountRGBColors ( PIX *pixs );
+LEPT_DLL extern L_AMAP * pixGetColorAmapHistogram ( PIX *pixs, l_int32 factor );
+LEPT_DLL extern l_int32 amapGetCountForColor ( L_AMAP *amap, l_uint32 val );
 LEPT_DLL extern l_int32 pixGetRankValue ( PIX *pixs, l_int32 factor, l_float32 rank, l_uint32 *pvalue );
 LEPT_DLL extern l_int32 pixGetRankValueMaskedRGB ( PIX *pixs, PIX *pixm, l_int32 x, l_int32 y, l_int32 factor, l_float32 rank, l_float32 *prval, l_float32 *pgval, l_float32 *pbval );
 LEPT_DLL extern l_int32 pixGetRankValueMasked ( PIX *pixs, PIX *pixm, l_int32 x, l_int32 y, l_int32 factor, l_float32 rank, l_float32 *pval, NUMA **pna );
@@ -6250,6 +6282,7 @@ LEPT_DLL extern PIX * pixSelectByAreaFraction ( PIX *pixs, l_float32 thresh, l_i
 LEPT_DLL extern PIXA * pixaSelectByAreaFraction ( PIXA *pixas, l_float32 thresh, l_int32 type, l_int32 *pchanged );
 LEPT_DLL extern PIX * pixSelectByWidthHeightRatio ( PIX *pixs, l_float32 thresh, l_int32 connectivity, l_int32 type, l_int32 *pchanged );
 LEPT_DLL extern PIXA * pixaSelectByWidthHeightRatio ( PIXA *pixas, l_float32 thresh, l_int32 type, l_int32 *pchanged );
+LEPT_DLL extern PIXA * pixaSelectByNumConnComp ( PIXA *pixas, l_int32 nmin, l_int32 nmax, l_int32 connectivity, l_int32 *pchanged );
 LEPT_DLL extern PIXA * pixaSelectWithIndicator ( PIXA *pixas, NUMA *na, l_int32 *pchanged );
 LEPT_DLL extern l_int32 pixRemoveWithIndicator ( PIX *pixs, PIXA *pixa, NUMA *na );
 LEPT_DLL extern l_int32 pixAddWithIndicator ( PIX *pixs, PIXA *pixa, NUMA *na );
@@ -6271,6 +6304,7 @@ LEPT_DLL extern PIXA * pixaaFlattenToPixa ( PIXAA *paa, NUMA **pnaindex, l_int32
 LEPT_DLL extern l_int32 pixaaSizeRange ( PIXAA *paa, l_int32 *pminw, l_int32 *pminh, l_int32 *pmaxw, l_int32 *pmaxh );
 LEPT_DLL extern l_int32 pixaSizeRange ( PIXA *pixa, l_int32 *pminw, l_int32 *pminh, l_int32 *pmaxw, l_int32 *pmaxh );
 LEPT_DLL extern PIXA * pixaClipToPix ( PIXA *pixas, PIX *pixs );
+LEPT_DLL extern l_int32 pixaClipToForeground ( PIXA *pixas, PIXA **ppixad, BOXA **pboxa );
 LEPT_DLL extern l_int32 pixaGetRenderingDepth ( PIXA *pixa, l_int32 *pdepth );
 LEPT_DLL extern l_int32 pixaHasColor ( PIXA *pixa, l_int32 *phascolor );
 LEPT_DLL extern l_int32 pixaAnyColormaps ( PIXA *pixa, l_int32 *phascmap );
@@ -6278,6 +6312,7 @@ LEPT_DLL extern l_int32 pixaGetDepthInfo ( PIXA *pixa, l_int32 *pmaxdepth, l_int
 LEPT_DLL extern PIXA * pixaConvertToSameDepth ( PIXA *pixas );
 LEPT_DLL extern l_int32 pixaEqual ( PIXA *pixa1, PIXA *pixa2, l_int32 maxdist, NUMA **pnaindex, l_int32 *psame );
 LEPT_DLL extern PIXA * pixaRotateOrth ( PIXA *pixas, l_int32 rotation );
+LEPT_DLL extern l_int32 pixaSetFullSizeBoxa ( PIXA *pixa );
 LEPT_DLL extern PIX * pixaDisplay ( PIXA *pixa, l_int32 w, l_int32 h );
 LEPT_DLL extern PIX * pixaDisplayOnColor ( PIXA *pixa, l_int32 w, l_int32 h, l_uint32 bgcolor );
 LEPT_DLL extern PIX * pixaDisplayRandomCmap ( PIXA *pixa, l_int32 w, l_int32 h );
@@ -6298,6 +6333,7 @@ LEPT_DLL extern PIXA * pixaConvertTo8 ( PIXA *pixas, l_int32 cmapflag );
 LEPT_DLL extern PIXA * pixaConvertTo8Color ( PIXA *pixas, l_int32 dither );
 LEPT_DLL extern PIXA * pixaConvertTo32 ( PIXA *pixas );
 LEPT_DLL extern PIXA * pixaConstrainedSelect ( PIXA *pixas, l_int32 first, l_int32 last, l_int32 nmax, l_int32 use_pairs, l_int32 copyflag );
+LEPT_DLL extern l_int32 pixaSelectToPdf ( PIXA *pixas, l_int32 first, l_int32 last, l_int32 res, l_float32 scalefactor, l_int32 type, l_int32 quality, l_uint32 color, l_int32 fontsize, const char *fileout );
 LEPT_DLL extern PIXA * pixaDisplayMultiTiled ( PIXA *pixas, l_int32 nx, l_int32 ny, l_int32 maxw, l_int32 maxh, l_float32 scalefactor, l_int32 spacing, l_int32 border );
 LEPT_DLL extern l_int32 pixaSplitIntoFiles ( PIXA *pixas, l_int32 nsplit, l_float32 scale, l_int32 outwidth, l_int32 write_pixa, l_int32 write_pix, l_int32 write_pdf );
 LEPT_DLL extern l_int32 convertToNUpFiles ( const char *dir, const char *substr, l_int32 nx, l_int32 ny, l_int32 tw, l_int32 spacing, l_int32 border, l_int32 fontsize, const char *outdir );
@@ -6385,6 +6421,7 @@ LEPT_DLL extern PIX * pixConvertRGBToGrayFast ( PIX *pixs );
 LEPT_DLL extern PIX * pixConvertRGBToGrayMinMax ( PIX *pixs, l_int32 type );
 LEPT_DLL extern PIX * pixConvertRGBToGraySatBoost ( PIX *pixs, l_int32 refval );
 LEPT_DLL extern PIX * pixConvertRGBToGrayArb ( PIX *pixs, l_float32 rc, l_float32 gc, l_float32 bc );
+LEPT_DLL extern PIX * pixConvertRGBToBinaryArb ( PIX *pixs, l_float32 rc, l_float32 gc, l_float32 bc, l_int32 thresh, l_int32 relation );
 LEPT_DLL extern PIX * pixConvertGrayToColormap ( PIX *pixs );
 LEPT_DLL extern PIX * pixConvertGrayToColormap8 ( PIX *pixs, l_int32 mindepth );
 LEPT_DLL extern PIX * pixColorizeGray ( PIX *pixs, l_uint32 color, l_int32 cmapflag );
@@ -6451,8 +6488,8 @@ LEPT_DLL extern l_int32 pixWritePng ( const char *filename, PIX *pix, l_float32 
 LEPT_DLL extern l_int32 pixWriteStreamPng ( FILE *fp, PIX *pix, l_float32 gamma );
 LEPT_DLL extern l_int32 pixSetZlibCompression ( PIX *pix, l_int32 compval );
 LEPT_DLL extern void l_pngSetReadStrip16To8 ( l_int32 flag );
-LEPT_DLL extern PIX * pixReadMemPng ( const l_uint8 *data, size_t size );
-LEPT_DLL extern l_int32 pixWriteMemPng ( l_uint8 **pdata, size_t *psize, PIX *pix, l_float32 gamma );
+LEPT_DLL extern PIX * pixReadMemPng ( const l_uint8 *filedata, size_t filesize );
+LEPT_DLL extern l_int32 pixWriteMemPng ( l_uint8 **pfiledata, size_t *pfilesize, PIX *pix, l_float32 gamma );
 LEPT_DLL extern PIX * pixReadStreamPnm ( FILE *fp );
 LEPT_DLL extern l_int32 readHeaderPnm ( const char *filename, l_int32 *pw, l_int32 *ph, l_int32 *pd, l_int32 *ptype, l_int32 *pbps, l_int32 *pspp );
 LEPT_DLL extern l_int32 freadHeaderPnm ( FILE *fp, l_int32 *pw, l_int32 *ph, l_int32 *pd, l_int32 *ptype, l_int32 *pbps, l_int32 *pspp );
@@ -6553,6 +6590,7 @@ LEPT_DLL extern l_int32 ptaaJoin ( PTAA *ptaad, PTAA *ptaas, l_int32 istart, l_i
 LEPT_DLL extern PTA * ptaReverse ( PTA *ptas, l_int32 type );
 LEPT_DLL extern PTA * ptaTranspose ( PTA *ptas );
 LEPT_DLL extern PTA * ptaCyclicPerm ( PTA *ptas, l_int32 xs, l_int32 ys );
+LEPT_DLL extern PTA * ptaSelectRange ( PTA *ptas, l_int32 first, l_int32 last );
 LEPT_DLL extern BOX * ptaGetBoundingRegion ( PTA *pta );
 LEPT_DLL extern l_int32 ptaGetRange ( PTA *pta, l_float32 *pminx, l_float32 *pmaxx, l_float32 *pminy, l_float32 *pmaxy );
 LEPT_DLL extern PTA * ptaGetInsideBox ( PTA *ptas, BOX *box );
@@ -6580,8 +6618,11 @@ LEPT_DLL extern PTA * ptaGetPixelsFromPix ( PIX *pixs, BOX *box );
 LEPT_DLL extern PIX * pixGenerateFromPta ( PTA *pta, l_int32 w, l_int32 h );
 LEPT_DLL extern PTA * ptaGetBoundaryPixels ( PIX *pixs, l_int32 type );
 LEPT_DLL extern PTAA * ptaaGetBoundaryPixels ( PIX *pixs, l_int32 type, l_int32 connectivity, BOXA **pboxa, PIXA **ppixa );
-LEPT_DLL extern PTAA * ptaaIndexLabelledPixels ( PIX *pixs, l_int32 *pncc );
+LEPT_DLL extern PTAA * ptaaIndexLabeledPixels ( PIX *pixs, l_int32 *pncc );
 LEPT_DLL extern PTA * ptaGetNeighborPixLocs ( PIX *pixs, l_int32 x, l_int32 y, l_int32 conn );
+LEPT_DLL extern PTA * numaConvertToPta1 ( NUMA *na );
+LEPT_DLL extern PTA * numaConvertToPta2 ( NUMA *nax, NUMA *nay );
+LEPT_DLL extern l_int32 ptaConvertToNuma ( PTA *pta, NUMA **pnax, NUMA **pnay );
 LEPT_DLL extern PIX * pixDisplayPta ( PIX *pixd, PIX *pixs, PTA *pta );
 LEPT_DLL extern PIX * pixDisplayPtaaPattern ( PIX *pixd, PIX *pixs, PTAA *ptaa, PIX *pixp, l_int32 cx, l_int32 cy );
 LEPT_DLL extern PIX * pixDisplayPtaPattern ( PIX *pixd, PIX *pixs, PTA *pta, PIX *pixp, l_int32 cx, l_int32 cy, l_uint32 color );
@@ -6591,6 +6632,7 @@ LEPT_DLL extern PTA * ptaSort ( PTA *ptas, l_int32 sorttype, l_int32 sortorder, 
 LEPT_DLL extern l_int32 ptaGetSortIndex ( PTA *ptas, l_int32 sorttype, l_int32 sortorder, NUMA **pnaindex );
 LEPT_DLL extern PTA * ptaSortByIndex ( PTA *ptas, NUMA *naindex );
 LEPT_DLL extern PTAA * ptaaSortByIndex ( PTAA *ptaas, NUMA *naindex );
+LEPT_DLL extern l_int32 ptaGetRankValue ( PTA *pta, l_float32 fract, PTA *ptasort, l_int32 sorttype, l_float32 *pval );
 LEPT_DLL extern PTA * ptaUnionByAset ( PTA *pta1, PTA *pta2 );
 LEPT_DLL extern PTA * ptaRemoveDupsByAset ( PTA *ptas );
 LEPT_DLL extern PTA * ptaIntersectionByAset ( PTA *pta1, PTA *pta2 );
@@ -6651,7 +6693,6 @@ LEPT_DLL extern L_RBTREE_NODE * l_rbtreeGetLast ( L_RBTREE *t );
 LEPT_DLL extern L_RBTREE_NODE * l_rbtreeGetPrev ( L_RBTREE_NODE *n );
 LEPT_DLL extern l_int32 l_rbtreeGetCount ( L_RBTREE *t );
 LEPT_DLL extern void l_rbtreePrint ( FILE *fp, L_RBTREE *t );
-LEPT_DLL extern l_int32 l_compareKeys ( l_int32 keytype, RB_TYPE left, RB_TYPE right );
 LEPT_DLL extern SARRAY * pixProcessBarcodes ( PIX *pixs, l_int32 format, l_int32 method, SARRAY **psaw, l_int32 debugflag );
 LEPT_DLL extern PIXA * pixExtractBarcodes ( PIX *pixs, l_int32 debugflag );
 LEPT_DLL extern SARRAY * pixReadBarcodes ( PIXA *pixa, l_int32 format, l_int32 method, SARRAY **psaw, l_int32 debugflag );
@@ -6678,34 +6719,17 @@ LEPT_DLL extern PIX * pixReadMem ( const l_uint8 *data, size_t size );
 LEPT_DLL extern l_int32 pixReadHeaderMem ( const l_uint8 *data, size_t size, l_int32 *pformat, l_int32 *pw, l_int32 *ph, l_int32 *pbps, l_int32 *pspp, l_int32 *piscmap );
 LEPT_DLL extern l_int32 writeImageFileInfo ( const char *filename, FILE *fpout, l_int32 headeronly );
 LEPT_DLL extern l_int32 ioFormatTest ( const char *filename );
-LEPT_DLL extern L_RECOGA * recogaCreateFromRecog ( L_RECOG *recog );
-LEPT_DLL extern L_RECOGA * recogaCreateFromPixaa ( PIXAA *paa, l_int32 scalew, l_int32 scaleh, l_int32 templ_type, l_int32 threshold, l_int32 maxyshift );
-LEPT_DLL extern L_RECOGA * recogaCreate ( l_int32 n );
-LEPT_DLL extern void recogaDestroy ( L_RECOGA **precoga );
-LEPT_DLL extern l_int32 recogaAddRecog ( L_RECOGA *recoga, L_RECOG *recog );
-LEPT_DLL extern l_int32 recogReplaceInRecoga ( L_RECOG **precog1, L_RECOG *recog2 );
-LEPT_DLL extern L_RECOG * recogaGetRecog ( L_RECOGA *recoga, l_int32 index );
-LEPT_DLL extern l_int32 recogaGetCount ( L_RECOGA *recoga );
-LEPT_DLL extern l_int32 recogGetCount ( L_RECOG *recog );
-LEPT_DLL extern l_int32 recogGetIndex ( L_RECOG *recog, l_int32 *pindex );
-LEPT_DLL extern L_RECOGA * recogGetParent ( L_RECOG *recog );
-LEPT_DLL extern l_int32 recogSetBootflag ( L_RECOG *recog );
-LEPT_DLL extern L_RECOG * recogCreateFromRecog ( L_RECOG *recs, l_int32 scalew, l_int32 scaleh, l_int32 templ_type, l_int32 threshold, l_int32 maxyshift );
-LEPT_DLL extern L_RECOG * recogCreateFromPixa ( PIXA *pixa, l_int32 scalew, l_int32 scaleh, l_int32 templ_type, l_int32 threshold, l_int32 maxyshift );
-LEPT_DLL extern L_RECOG * recogCreate ( l_int32 scalew, l_int32 scaleh, l_int32 templ_type, l_int32 threshold, l_int32 maxyshift );
+LEPT_DLL extern L_RECOG * recogCreateFromRecog ( L_RECOG *recs, l_int32 scalew, l_int32 scaleh, l_int32 linew, l_int32 threshold, l_int32 maxyshift );
+LEPT_DLL extern L_RECOG * recogCreateFromPixa ( PIXA *pixa, l_int32 scalew, l_int32 scaleh, l_int32 linew, l_int32 threshold, l_int32 maxyshift );
+LEPT_DLL extern L_RECOG * recogCreateFromPixaNoFinish ( PIXA *pixa, l_int32 scalew, l_int32 scaleh, l_int32 linew, l_int32 threshold, l_int32 maxyshift );
+LEPT_DLL extern L_RECOG * recogCreate ( l_int32 scalew, l_int32 scaleh, l_int32 linew, l_int32 threshold, l_int32 maxyshift );
 LEPT_DLL extern void recogDestroy ( L_RECOG **precog );
-LEPT_DLL extern l_int32 recogAppend ( L_RECOG *recog1, L_RECOG *recog2 );
+LEPT_DLL extern l_int32 recogGetCount ( L_RECOG *recog );
+LEPT_DLL extern l_int32 recogSetParams ( L_RECOG *recog, l_int32 type, l_int32 min_nopad, l_float32 max_wh_ratio, l_float32 max_ht_ratio );
 LEPT_DLL extern l_int32 recogGetClassIndex ( L_RECOG *recog, l_int32 val, char *text, l_int32 *pindex );
 LEPT_DLL extern l_int32 recogStringToIndex ( L_RECOG *recog, char *text, l_int32 *pindex );
 LEPT_DLL extern l_int32 recogGetClassString ( L_RECOG *recog, l_int32 index, char **pcharstr );
 LEPT_DLL extern l_int32 l_convertCharstrToInt ( const char *str, l_int32 *pval );
-LEPT_DLL extern L_RECOGA * recogaRead ( const char *filename );
-LEPT_DLL extern L_RECOGA * recogaReadStream ( FILE *fp );
-LEPT_DLL extern L_RECOGA * recogaReadMem ( const l_uint8 *data, size_t size );
-LEPT_DLL extern l_int32 recogaWrite ( const char *filename, L_RECOGA *recoga );
-LEPT_DLL extern l_int32 recogaWriteStream ( FILE *fp, L_RECOGA *recoga );
-LEPT_DLL extern l_int32 recogaWriteMem ( l_uint8 **pdata, size_t *psize, L_RECOGA *recoga );
-LEPT_DLL extern l_int32 recogaWritePixaa ( const char *filename, L_RECOGA *recoga );
 LEPT_DLL extern L_RECOG * recogRead ( const char *filename );
 LEPT_DLL extern L_RECOG * recogReadStream ( FILE *fp );
 LEPT_DLL extern L_RECOG * recogReadMem ( const l_uint8 *data, size_t size );
@@ -6713,20 +6737,17 @@ LEPT_DLL extern l_int32 recogWrite ( const char *filename, L_RECOG *recog );
 LEPT_DLL extern l_int32 recogWriteStream ( FILE *fp, L_RECOG *recog );
 LEPT_DLL extern l_int32 recogWriteMem ( l_uint8 **pdata, size_t *psize, L_RECOG *recog );
 LEPT_DLL extern PIXA * recogExtractPixa ( L_RECOG *recog );
-LEPT_DLL extern l_int32 recogDecode ( L_RECOG *recog, PIX *pixs, l_int32 nlevels, PIX **ppixdb );
-LEPT_DLL extern l_int32 recogMakeDecodingArrays ( L_RECOG *recog, PIX *pixs, l_int32 debug );
-LEPT_DLL extern l_int32 recogRunViterbi ( L_RECOG *recog, PIX **ppixdb );
+LEPT_DLL extern BOXA * recogDecode ( L_RECOG *recog, PIX *pixs, l_int32 nlevels, PIX **ppixdb );
 LEPT_DLL extern l_int32 recogCreateDid ( L_RECOG *recog, PIX *pixs );
 LEPT_DLL extern l_int32 recogDestroyDid ( L_RECOG *recog );
 LEPT_DLL extern l_int32 recogDidExists ( L_RECOG *recog );
 LEPT_DLL extern L_RDID * recogGetDid ( L_RECOG *recog );
 LEPT_DLL extern l_int32 recogSetChannelParams ( L_RECOG *recog, l_int32 nlevels );
-LEPT_DLL extern l_int32 recogaIdentifyMultiple ( L_RECOGA *recoga, PIX *pixs, l_int32 nitems, l_int32 minw, l_int32 minh, l_int32 skipsplit, BOXA **pboxa, PIXA **ppixa, PIX **ppixdb, l_int32 debugsplit );
-LEPT_DLL extern l_int32 recogSplitIntoCharacters ( L_RECOG *recog, PIX *pixs, l_int32 minw, l_int32 minh, l_int32 skipsplit, BOXA **pboxa, PIXA **ppixa, NUMA **pnaid, l_int32 debug );
+LEPT_DLL extern l_int32 recogIdentifyMultiple ( L_RECOG *recog, PIX *pixs, l_int32 minh, l_int32 skipsplit, BOXA **pboxa, PIXA **ppixa, PIX **ppixdb, l_int32 debugsplit );
+LEPT_DLL extern l_int32 recogSplitIntoCharacters ( L_RECOG *recog, PIX *pixs, l_int32 minh, l_int32 skipsplit, BOXA **pboxa, PIXA **ppixa, l_int32 debug );
 LEPT_DLL extern l_int32 recogCorrelationBestRow ( L_RECOG *recog, PIX *pixs, BOXA **pboxa, NUMA **pnascore, NUMA **pnaindex, SARRAY **psachar, l_int32 debug );
 LEPT_DLL extern l_int32 recogCorrelationBestChar ( L_RECOG *recog, PIX *pixs, BOX **pbox, l_float32 *pscore, l_int32 *pindex, char **pcharstr, PIX **ppixdb );
-LEPT_DLL extern l_int32 recogaIdentifyPixa ( L_RECOGA *recoga, PIXA *pixa, NUMA *naid, PIX **ppixdb );
-LEPT_DLL extern l_int32 recogIdentifyPixa ( L_RECOG *recog, PIXA *pixa, NUMA *naid, PIX **ppixdb );
+LEPT_DLL extern l_int32 recogIdentifyPixa ( L_RECOG *recog, PIXA *pixa, PIX **ppixdb );
 LEPT_DLL extern l_int32 recogIdentifyPix ( L_RECOG *recog, PIX *pixs, PIX **ppixdb );
 LEPT_DLL extern l_int32 recogSkipIdentify ( L_RECOG *recog );
 LEPT_DLL extern void rchaDestroy ( L_RCHA **prcha );
@@ -6734,36 +6755,32 @@ LEPT_DLL extern void rchDestroy ( L_RCH **prch );
 LEPT_DLL extern l_int32 rchaExtract ( L_RCHA *rcha, NUMA **pnaindex, NUMA **pnascore, SARRAY **psatext, NUMA **pnasample, NUMA **pnaxloc, NUMA **pnayloc, NUMA **pnawidth );
 LEPT_DLL extern l_int32 rchExtract ( L_RCH *rch, l_int32 *pindex, l_float32 *pscore, char **ptext, l_int32 *psample, l_int32 *pxloc, l_int32 *pyloc, l_int32 *pwidth );
 LEPT_DLL extern PIX * recogProcessToIdentify ( L_RECOG *recog, PIX *pixs, l_int32 pad );
-LEPT_DLL extern PIX * recogPreSplittingFilter ( L_RECOG *recog, PIX *pixs, l_float32 maxasp, l_float32 minaf, l_int32 debug );
-LEPT_DLL extern l_int32 recogSplittingFilter ( L_RECOG *recog, PIX *pixs, l_float32 maxasp, l_float32 minaf, l_int32 *premove, l_int32 debug );
-LEPT_DLL extern SARRAY * recogaExtractNumbers ( L_RECOGA *recoga, BOXA *boxas, l_float32 scorethresh, l_int32 spacethresh, BOXAA **pbaa, NUMAA **pnaa );
-LEPT_DLL extern l_int32 recogSetTemplateType ( L_RECOG *recog, l_int32 templ_type );
-LEPT_DLL extern l_int32 recogSetScaling ( L_RECOG *recog, l_int32 scalew, l_int32 scaleh, l_int32 templ_type );
-LEPT_DLL extern l_int32 recogTrainLabelled ( L_RECOG *recog, PIX *pixs, BOX *box, char *text, l_int32 multflag, l_int32 debug );
-LEPT_DLL extern l_int32 recogProcessMultLabelled ( L_RECOG *recog, PIX *pixs, BOX *box, char *text, PIXA **ppixa, l_int32 debug );
-LEPT_DLL extern l_int32 recogProcessSingleLabelled ( L_RECOG *recog, PIX *pixs, BOX *box, char *text, PIXA **ppixa );
-LEPT_DLL extern l_int32 recogAddSamples ( L_RECOG *recog, PIXA *pixa, l_int32 classindex, l_int32 debug );
-LEPT_DLL extern PIX * recogScaleCharacter ( L_RECOG *recog, PIX *pixs );
-LEPT_DLL extern l_int32 recogAverageSamples ( L_RECOG *recog, l_int32 debug );
+LEPT_DLL extern SARRAY * recogExtractNumbers ( L_RECOG *recog, BOXA *boxas, l_float32 scorethresh, l_int32 spacethresh, BOXAA **pbaa, NUMAA **pnaa );
+LEPT_DLL extern PIXA * showExtractNumbers ( PIX *pixs, SARRAY *sa, BOXAA *baa, NUMAA *naa, PIX **ppixdb );
+LEPT_DLL extern l_int32 recogTrainLabeled ( L_RECOG *recog, PIX *pixs, BOX *box, char *text, l_int32 debug );
+LEPT_DLL extern l_int32 recogProcessLabeled ( L_RECOG *recog, PIX *pixs, BOX *box, char *text, PIX **ppix );
+LEPT_DLL extern l_int32 recogAddSample ( L_RECOG *recog, PIX *pix, l_int32 debug );
+LEPT_DLL extern PIX * recogModifyTemplate ( L_RECOG *recog, PIX *pixs );
+LEPT_DLL extern l_int32 recogAverageSamples ( L_RECOG **precog, l_int32 debug );
 LEPT_DLL extern l_int32 pixaAccumulateSamples ( PIXA *pixa, PTA *pta, PIX **ppixd, l_float32 *px, l_float32 *py );
-LEPT_DLL extern l_int32 recogTrainingFinished ( L_RECOG *recog, l_int32 debug );
-LEPT_DLL extern l_int32 recogRemoveOutliers ( L_RECOG *recog, l_float32 targetscore, l_float32 minfract, l_int32 debug );
-LEPT_DLL extern l_int32 recogaTrainingDone ( L_RECOGA *recoga, l_int32 *pdone );
-LEPT_DLL extern l_int32 recogaFinishAveraging ( L_RECOGA *recoga );
-LEPT_DLL extern L_RECOG * recogTrainFromBoot ( PIXA *pixa, L_RECOG *recogboot, l_float32 minscore, l_int32 threshold, l_int32 scalew, l_int32 scaleh, l_int32 templ_type, l_int32 debug );
-LEPT_DLL extern l_int32 recogTrainUnlabelled ( L_RECOG *recog, L_RECOG *recogboot, PIX *pixs, BOX *box, l_float32 minscore, l_int32 debug );
-LEPT_DLL extern l_int32 recogPadTrainingSet ( L_RECOG **precog, l_int32 debug );
-LEPT_DLL extern l_int32 recogBestCorrelForPadding ( L_RECOG *recog, L_RECOGA *recoga, NUMA **pnaset, NUMA **pnaindex, NUMA **pnascore, NUMA **pnasum, PIXA *pixadb );
-LEPT_DLL extern l_int32 recogCorrelAverages ( L_RECOG *recog1, L_RECOG *recog2, NUMA **pnaindex, NUMA **pnascore, PIXA *pixadb );
-LEPT_DLL extern l_int32 recogSetPadParams ( L_RECOG *recog, const char *bootdir, const char *bootpattern, const char *bootpath, l_int32 boot_iters, l_int32 type, l_int32 min_nopad, l_int32 max_afterpad, l_int32 min_samples );
-LEPT_DLL extern L_RECOG * recogMakeBootDigitRecog ( l_int32 templ_type, l_int32 maxyshift, l_int32 display );
-LEPT_DLL extern l_int32 recogaShowContent ( FILE *fp, L_RECOGA *recoga, l_int32 display );
-LEPT_DLL extern l_int32 recogShowContent ( FILE *fp, L_RECOG *recog, l_int32 display );
-LEPT_DLL extern l_int32 recogDebugAverages ( L_RECOG *recog, l_int32 debug );
+LEPT_DLL extern l_int32 recogTrainingFinished ( L_RECOG **precog, l_int32 modifyflag, l_int32 minsize, l_float32 minfract );
+LEPT_DLL extern PIXA * recogFilterPixaBySize ( PIXA *pixas, l_int32 setsize, l_int32 maxkeep, l_float32 max_ht_ratio, NUMA **pna );
+LEPT_DLL extern PIXAA * recogSortPixaByClass ( PIXA *pixa, l_int32 setsize );
+LEPT_DLL extern l_int32 recogRemoveOutliers1 ( L_RECOG **precog, l_float32 minscore, l_int32 mintarget, l_int32 minsize, PIX **ppixsave, PIX **ppixrem );
+LEPT_DLL extern PIXA * pixaRemoveOutliers1 ( PIXA *pixas, l_float32 minscore, l_int32 mintarget, l_int32 minsize, PIX **ppixsave, PIX **ppixrem );
+LEPT_DLL extern l_int32 recogRemoveOutliers2 ( L_RECOG **precog, l_float32 minscore, l_int32 minsize, PIX **ppixsave, PIX **ppixrem );
+LEPT_DLL extern PIXA * pixaRemoveOutliers2 ( PIXA *pixas, l_float32 minscore, l_int32 minsize, PIX **ppixsave, PIX **ppixrem );
+LEPT_DLL extern PIXA * recogTrainFromBoot ( L_RECOG *recogboot, PIXA *pixas, l_float32 minscore, l_int32 threshold, l_int32 debug );
+LEPT_DLL extern l_int32 recogPadDigitTrainingSet ( L_RECOG **precog, l_int32 scaleh, l_int32 linew );
+LEPT_DLL extern l_int32 recogIsPaddingNeeded ( L_RECOG *recog, SARRAY **psa );
+LEPT_DLL extern PIXA * recogAddDigitPadTemplates ( L_RECOG *recog, SARRAY *sa );
+LEPT_DLL extern L_RECOG * recogMakeBootDigitRecog ( l_int32 scaleh, l_int32 linew, l_int32 maxyshift, l_int32 debug );
+LEPT_DLL extern PIXA * recogMakeBootDigitTemplates ( l_int32 debug );
+LEPT_DLL extern l_int32 recogShowContent ( FILE *fp, L_RECOG *recog, l_int32 index, l_int32 display );
+LEPT_DLL extern l_int32 recogDebugAverages ( L_RECOG **precog, l_int32 debug );
 LEPT_DLL extern l_int32 recogShowAverageTemplates ( L_RECOG *recog );
 LEPT_DLL extern l_int32 recogShowMatchesInRange ( L_RECOG *recog, PIXA *pixa, l_float32 minscore, l_float32 maxscore, l_int32 display );
 LEPT_DLL extern PIX * recogShowMatch ( L_RECOG *recog, PIX *pix1, PIX *pix2, BOX *box, l_int32 index, l_float32 score );
-LEPT_DLL extern l_int32 recogResetBmf ( L_RECOG *recog, l_int32 size );
 LEPT_DLL extern l_int32 regTestSetup ( l_int32 argc, char **argv, L_REGPARAMS **prp );
 LEPT_DLL extern l_int32 regTestCleanup ( L_REGPARAMS *rp );
 LEPT_DLL extern l_int32 regTestCompareValues ( L_REGPARAMS *rp, l_float32 val1, l_float32 val2, l_float32 delta );
@@ -6773,6 +6790,7 @@ LEPT_DLL extern l_int32 regTestCompareSimilarPix ( L_REGPARAMS *rp, PIX *pix1, P
 LEPT_DLL extern l_int32 regTestCheckFile ( L_REGPARAMS *rp, const char *localname );
 LEPT_DLL extern l_int32 regTestCompareFiles ( L_REGPARAMS *rp, l_int32 index1, l_int32 index2 );
 LEPT_DLL extern l_int32 regTestWritePixAndCheck ( L_REGPARAMS *rp, PIX *pix, l_int32 format );
+LEPT_DLL extern char * regTestGenLocalFilename ( L_REGPARAMS *rp, l_int32 index, l_int32 format );
 LEPT_DLL extern l_int32 pixRasterop ( PIX *pixd, l_int32 dx, l_int32 dy, l_int32 dw, l_int32 dh, l_int32 op, PIX *pixs, l_int32 sx, l_int32 sy );
 LEPT_DLL extern l_int32 pixRasteropVip ( PIX *pixd, l_int32 bx, l_int32 bw, l_int32 vshift, l_int32 incolor );
 LEPT_DLL extern l_int32 pixRasteropHip ( PIX *pixd, l_int32 by, l_int32 bh, l_int32 hshift, l_int32 incolor );
@@ -7039,6 +7057,7 @@ LEPT_DLL extern l_int32 pixHShearIP ( PIX *pixs, l_int32 yloc, l_float32 radang,
 LEPT_DLL extern l_int32 pixVShearIP ( PIX *pixs, l_int32 xloc, l_float32 radang, l_int32 incolor );
 LEPT_DLL extern PIX * pixHShearLI ( PIX *pixs, l_int32 yloc, l_float32 radang, l_int32 incolor );
 LEPT_DLL extern PIX * pixVShearLI ( PIX *pixs, l_int32 xloc, l_float32 radang, l_int32 incolor );
+LEPT_DLL extern PIX * pixDeskewBoth ( PIX *pixs, l_int32 redsearch );
 LEPT_DLL extern PIX * pixDeskew ( PIX *pixs, l_int32 redsearch );
 LEPT_DLL extern PIX * pixFindSkewAndDeskew ( PIX *pixs, l_int32 redsearch, l_float32 *pangle, l_float32 *pconf );
 LEPT_DLL extern PIX * pixDeskewGeneral ( PIX *pixs, l_int32 redsweep, l_float32 sweeprange, l_float32 sweepdelta, l_int32 redsearch, l_int32 thresh, l_float32 *pangle, l_float32 *pconf );
@@ -7098,11 +7117,13 @@ LEPT_DLL extern l_int32 bmfGetStringWidth ( L_BMF *bmf, const char *textstr, l_i
 LEPT_DLL extern SARRAY * splitStringToParagraphs ( char *textstr, l_int32 splitflag );
 LEPT_DLL extern PIX * pixReadTiff ( const char *filename, l_int32 n );
 LEPT_DLL extern PIX * pixReadStreamTiff ( FILE *fp, l_int32 n );
-LEPT_DLL extern l_int32 pixWriteTiff ( const char *filename, PIX *pix, l_int32 comptype, const char *modestring );
-LEPT_DLL extern l_int32 pixWriteTiffCustom ( const char *filename, PIX *pix, l_int32 comptype, const char *modestring, NUMA *natags, SARRAY *savals, SARRAY *satypes, NUMA *nasizes );
+LEPT_DLL extern l_int32 pixWriteTiff ( const char *filename, PIX *pix, l_int32 comptype, const char *modestr );
+LEPT_DLL extern l_int32 pixWriteTiffCustom ( const char *filename, PIX *pix, l_int32 comptype, const char *modestr, NUMA *natags, SARRAY *savals, SARRAY *satypes, NUMA *nasizes );
 LEPT_DLL extern l_int32 pixWriteStreamTiff ( FILE *fp, PIX *pix, l_int32 comptype );
+LEPT_DLL extern l_int32 pixWriteStreamTiffWA ( FILE *fp, PIX *pix, l_int32 comptype, const char *modestr );
 LEPT_DLL extern PIX * pixReadFromMultipageTiff ( const char *fname, size_t *poffset );
 LEPT_DLL extern PIXA * pixaReadMultipageTiff ( const char *filename );
+LEPT_DLL extern l_int32 pixaWriteMultipageTiff ( const char *fname, PIXA *pixa );
 LEPT_DLL extern l_int32 writeMultipageTiff ( const char *dirin, const char *substr, const char *fileout );
 LEPT_DLL extern l_int32 writeMultipageTiffSA ( SARRAY *sa, const char *fileout );
 LEPT_DLL extern l_int32 fprintTiffInfo ( FILE *fpout, const char *tiffile );
@@ -7115,6 +7136,8 @@ LEPT_DLL extern l_int32 findTiffCompression ( FILE *fp, l_int32 *pcomptype );
 LEPT_DLL extern l_int32 extractG4DataFromFile ( const char *filein, l_uint8 **pdata, size_t *pnbytes, l_int32 *pw, l_int32 *ph, l_int32 *pminisblack );
 LEPT_DLL extern PIX * pixReadMemTiff ( const l_uint8 *cdata, size_t size, l_int32 n );
 LEPT_DLL extern PIX * pixReadMemFromMultipageTiff ( const l_uint8 *cdata, size_t size, size_t *poffset );
+LEPT_DLL extern PIXA * pixaReadMemMultipageTiff ( const l_uint8 *data, size_t size );
+LEPT_DLL extern l_int32 pixaWriteMemMultipageTiff ( l_uint8 **pdata, size_t *psize, PIXA *pixa );
 LEPT_DLL extern l_int32 pixWriteMemTiff ( l_uint8 **pdata, size_t *psize, PIX *pix, l_int32 comptype );
 LEPT_DLL extern l_int32 pixWriteMemTiffCustom ( l_uint8 **pdata, size_t *psize, PIX *pix, l_int32 comptype, NUMA *natags, SARRAY *savals, SARRAY *satypes, NUMA *nasizes );
 LEPT_DLL extern l_int32 setMsgSeverity ( l_int32 newsev );

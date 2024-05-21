@@ -3,7 +3,7 @@
 **              are mostly generic bitmap functions, but there are some
 **              k2pdfopt-specific settings for some.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -1339,6 +1339,7 @@ void k2bmp_apply_autocrop(WILLUSBITMAP *bmp,int *cx0)
             }
     }
 
+#ifdef HAVE_LEPTONICA_LIB
 /*
 ** src must be grayscale
 */
@@ -1367,6 +1368,7 @@ void k2bmp_prep_for_dewarp(WILLUSBITMAP *dst,WILLUSBITMAP *src,int dx,int whitet
                 }
         }
     }
+#endif
 
 
 /*

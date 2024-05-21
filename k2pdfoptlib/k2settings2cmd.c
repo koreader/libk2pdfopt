@@ -2,7 +2,7 @@
 ** k2settings2cmd.c    Convert changes in settings structure to equivalent
 **                     command-line arguments.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -395,6 +395,10 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
     string_check(cmdline,nongui,"-ocrlang",src->dst_ocr_lang,dst->dst_ocr_lang);
 #endif
 #ifdef HAVE_OCR_LIB
+    if (src->ocr_detection_type!=dst->ocr_detection_type)
+        {
+        strbuf_dsprintf(cmdline,nongui,"-ocrd %c",dst->ocr_detection_type);
+        }
     if ((src->dst_ocr_visibility_flags&7) != (dst->dst_ocr_visibility_flags&7))
         {
         strbuf_dsprintf(cmdline,nongui,"-ocrvis %s%s%s",
@@ -432,6 +436,7 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
         dst->src_autostraighten=-1;
     if (src->src_autostraighten<=0)
         src->src_autostraighten=-1;
+#ifdef HAVE_LEPTONICA_LIB
     if (src->dewarp != dst->dewarp)
         {
         if (dst->dewarp==0)
@@ -444,6 +449,7 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
             strbuf_dsprintf(cmdline,NULL,"-dw 3");
         src->dewarp=dst->dewarp;
         }
+#endif
     if (src->autocrop != dst->autocrop)
         {
         STRBUF *sbuf;

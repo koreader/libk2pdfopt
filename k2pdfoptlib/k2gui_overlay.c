@@ -2,7 +2,7 @@
 ** k2gui_overlay.c  K2pdfopt WILLUSGUI for the overlay dialog box.
 **                  (Non-OS-specific calls.)
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -287,7 +287,7 @@ static void k2gui_overlay_start_conversion(void *data)
     /* static char *funcname="k2gui_overlay_start_conversion"; */
     char *filename;
     char *pagelist;
-    char buf[256];
+    char buf[320];
     WILLUSBITMAP *bmp;
 
 #if (WILLUSDEBUGX & 0x2000000)

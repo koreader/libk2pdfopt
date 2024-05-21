@@ -1,7 +1,7 @@
 /*
 ** k2cmdparse.c   Parse command-line options for k2pdfopt.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -765,6 +765,22 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
 #endif
             continue;
             }
+        if (!stricmp(cl->cmdarg,"-ocrd"))
+            {
+            if (cmdlineinput_next(cl)==NULL)
+                break;
+#ifdef HAVE_OCR_LIB
+            if (setvals==1)
+                {
+                int dt;
+                dt=tolower(cl->cmdarg[0]);
+                if (dt!='l' && dt!='w' && dt!='c' && dt!='p')
+                    k2printf(TTEXT_WARN "\a-ocrd expects w(ord), l(ine), c(olumn), or p(age). Arg %s ignored." TTEXT_NORMAL "\n",cl->cmdarg);
+                k2settings->ocr_detection_type=dt;
+                }
+#endif
+            continue;
+            }
         if (!stricmp(cl->cmdarg,"-ocrcol"))
             {
             if (!next_is_integer(cl,setvals==1,quiet,&good,&readnext,NULL))
@@ -901,6 +917,7 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                 k2settings->src_autostraighten = 45.;
             continue;
             }
+#ifdef HAVE_LEPTONICA_LIB
         if (!stricmp(cl->cmdarg,"-dw-"))
             {
             if (setvals==1)
@@ -922,6 +939,7 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                 readnext=0;
             continue;
             }
+#endif
         if (!stricmp(cl->cmdarg,"-rt"))
             {
             if (cmdlineinput_next(cl)==NULL)

@@ -1,7 +1,7 @@
 /*
 ** k2usage.c    K2pdfopt usage text and handling functions.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -250,6 +250,7 @@ static char *k2pdfopt_options=
 "                  your PDF reader says the PDF file is 17 x 22 inches and\n"
 "                  it should actually be 8.5 x 11 inches, use -ds 0.5.  Default\n"
 "                  is 1.0.\n"
+#ifdef HAVE_LEPTONICA_LIB
 "-dw[-] [<fitorder>] De-warp [do not de-warp] pages (uses Leptonica de-warp\n"
 "                  algorithms).  Default is not to de-warp.  Does not work\n"
 "                  for native mode output.  Optional <fitorder> specifies the\n"
@@ -264,6 +265,7 @@ static char *k2pdfopt_options=
 "                  If you want it to work on cropped areas, you should run\n"
 "                  k2pdfopt in two passes--first to create selected crop\n"
 "                  areas (e.g. -mode crop), then to apply dewarping.\n"
+#endif
 /* "-debug [<n>]      Set debug mode to <n> (def = 1).\n" */
 "-ehl <n>          Same as -evl, except erases horizontal lines instead of\n"
 "                  vertical lines.  See -evl.  Default is -ehl 0.\n"
@@ -628,6 +630,8 @@ static char *k2pdfopt_options=
 "                  Interestingly, Linux seems to have much better multithreading\n"
 "                  performance than Windows.  I suspect the OS/X results are\n"
 "                  similar to the Linux results.\n"
+"                  NOTE:  -nt has no effect if you select -ocrd c or -ocrd p.\n"
+"                         See -ocrd.\n"
 #endif
 "-o <namefmt>      Set the output file name using <namefmt>.  %s will be\n"
 "                  replaced with the full name of the source file minus the\n"
@@ -680,24 +684,50 @@ static char *k2pdfopt_options=
 "-ocrcol <n>       If you are simply processing a PDF to OCR it (e.g. if you\n"
 "                  are using the -mode copy option) and the source document has\n"
 "                  multiple columns of text, set this value to the number of\n"
-"                  columns to process (up to 4).\n"
+"                  columns to process (up to 4).  Default is to use the same\n"
+"                  value as -col.\n"
+#ifdef HAVE_TESSERACT_LIB
+"-ocrd w|l|c|p     Set OCR detection type for k2pdfopt and Tesseract.  <type>\n"
+"                  can be word (w), line (l), columns (c), or page (p).  Default\n"
+"                  is line.\n"
+"                  For -ocrd w, k2pdfopt locates each word in the scanned\n"
+"                  document and passes individual words to Tesseract for\n"
+"                  OCR conversion.  This was the only type of detection before\n"
+"                  v2.42 but is not an optimal OCR conversion method when\n"
+"                  using Tesseract.\n"
+"                  For -ocrd l, k2pdfopt passes each line of the converted\n"
+"                  file to Tesseract for conversion.  This typically gives\n"
+"                  better results than -ocrd w since Tesseract can better\n"
+"                  determine the text baseline position with a full line.\n"
+"                  For -ocrd c, k2pdfopt detects each column of the converted\n"
+"                  file and passes that to Tesseract for conversion.\n"
+"                  For -ocrd p, k2pdfopt passes the entire output page of text\n"
+"                  to Tesseract and lets Tesseract parse it for word positions.\n"
+"                  Tesseract has done considerable code development for\n"
+"                  detecting words on pages (more than k2pdfopt), so this\n"
+"                  should also be a reliable way to create the OCR layer.\n"
+"                  One drawback to -ocrd c or -ocr p is that there is no benefit\n"
+"                  to using the OCR multithreading option (see -nt).\n"
+#endif
 "-ocrhmax <in>     Set max height for an OCR'd word in inches.  Any graphic\n"
 "                  exceeding this height will not be processed with the OCR\n"
 "                  engine.  Default = 1.5.  See -ocr.\n"
 #ifdef HAVE_TESSERACT_LIB
-"-ocrlang <lang>   Select the Tesseract OCR Engine language.  This is the\n"
+"-ocrlang <lang>|? Select the Tesseract OCR Engine language.  This is the\n"
 "                  root name of the training data, e.g. -lang eng for English,\n"
 "                  -ocrlang fra for French, -ocrlang chi_sim for simplified\n"
 "                  Chinese.  You can also use -l.  The default language is\n"
 "                  whatever is in your Tesseract trained data folder.  If you\n"
 "                  have more than one .traineddata file in that folder, the\n"
 "                  one with the most recent time stamp is used.\n"
-"                  NOTE: Using the -ocrvis t option will not show the OCR text\n"
+"                  NOTE 1: Use -ocrlang ? to see the list of Tesseract language\n"
+"                  files in your Tesseract data folder.\n"
+"                  NOTE 2: Using the -ocrvis t option will not show the OCR text\n"
 "                  correctly for any character above unicode value 255 since\n"
 "                  k2pdfopt does not use any embedded fonts, but the text\n"
 "                  will convert to the correct Unicode values when copy /\n"
 "                  pasted.\n"
-"                  NOTE 2: Tesseract allows the specification of multiple\n"
+"                  NOTE 3: Tesseract allows the specification of multiple\n"
 "                  language training files, e.g. -ocrlang eng+fra would\n"
 "                  specify English as the primary and French as the secondary\n"
 "                  OCR language.  In practice I have not found this to work\n"

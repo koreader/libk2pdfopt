@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -149,6 +149,8 @@ static double bmp_row_by_row_stdev(WILLUSBITMAP *bmp,int ccount,int whitethresh,
                                    double theta_radians);
 static int pixval_dither(int pv,int n,int maxsrc,int maxdst,int x0,int y0);
 static int dither_rec(int bits,int x0,int y0);
+static int pcl_get_resolution(char *pclbuf,int n,int *w,int *h);
+static int pcl_next_raster_row(char *pclbuf,int n,int *index);
 
 
 double bmp_get_dpi(void)
@@ -3074,6 +3076,44 @@ static double resample_single_fixed_point(int *y,int x1_fp,int x2_fp)
     }
 
 
+
+/*
+** Crop all edge pixels of bitmap that match the color of the upper
+** left corner pixel
+*/
+/*
+void bmp_autocrop(WILLUSBITMAP *bmp)
+
+    {
+    unsigned char *p0,*p;
+    int i,j,pbw,imin,imax,jmin,jmax;
+
+    p0=bmp_rowptr_from_top(bmp,0);
+    pbw=bmp->bpp>>3;
+    imin=bmp->height+1;
+    imax=-1;
+    jmax=-1;
+    jmin=bmp->width+1;
+    for (i=0;i<bmp->height;i++)
+        {
+        p=bmp_rowptr_from_top(bmp,i);
+        for (j=0;j<bmp->width;j++,p+=pbw)
+            if (memcmp(p,p0,pbw))
+                {
+                if (i<imin)
+                    imin=i;
+                if (i>imax)
+                    imax=i;
+                if (j<jmin)
+                    jmin=j;
+                if (j>jmax)
+                    jmax=j;
+                }
+        }
+    if (imax>=0)
+        bmp_crop(bmp,imin,jmin,(jmax-jmin+1),(imax-imin+1));
+    }
+*/
         
 
 /*
@@ -4795,4 +4835,114 @@ void bmp_extract(WILLUSBITMAP *dst,WILLUSBITMAP *src,int x0,int y0_from_top,int 
     pdest = dst->data;
     for (i=height;i>0;i--,psrc+=sbw,pdest+=dbw)
         memcpy(pdest,psrc,dbw);
+    }
+
+
+/*
+** Read BMP from simple PCL-formatted data
+** Return 0 for okay.
+** Negative for error.
+**
+** Presently works only for the simplest black/white rasters--no encoding.
+** This is enough to correctly convert HP 8722D VNA raster downloads.
+**
+*/
+int bmp_read_pcl(WILLUSBITMAP *bmp,char *pclbuf,int n)
+
+    {
+    int i,r,status;
+
+    
+    /* Set up bitmap params */
+    status=pcl_get_resolution(pclbuf,n,&bmp->width,&bmp->height);
+    if (status<0)
+        return(status);
+    bmp->bpp=8;
+    bmp->type=WILLUSBITMAP_TYPE_WIN32;
+    for (i=0;i<256;i++)
+        bmp->red[i]=bmp->blue[i]=bmp->green[i]=i;
+    /* Allocate */
+    if (!bmp_alloc(bmp))
+        return(-4);
+    /* Fill */
+    i=0;
+    for (r=0;r<bmp->height;r++)
+        {
+        unsigned char *p;
+        int status,j,k;
+
+        p=bmp_rowptr_from_top(bmp,r);
+        status=pcl_next_raster_row(pclbuf,n,&i);
+        if (status<=0)
+            break;
+        if (status*8!=bmp->width)
+            return(-1);
+        for (i++,k=0;k<status;i++,k++)
+            for (j=128;j;j>>=1,p++)
+                if (pclbuf[i]&j)
+                    (*p)=0;
+                else
+                    (*p)=255;
+        i--;
+        }
+    return(0);
+    }
+
+
+static int pcl_get_resolution(char *pclbuf,int n,int *w,int *h)
+
+    {
+    int i,nr,nc;
+
+    i=nc=nr=0;
+    while (1)
+        {
+        int status;
+
+        status=pcl_next_raster_row(pclbuf,n,&i);
+        if (status<=0)
+            break;
+        if (nc==0)
+            nc=status;
+        else if (nc!=status)
+            return(-2);
+        nr++;
+        }
+    if (nr<=0 || nc<=0)
+        return(-3);
+    (*w)=nc*8;
+    (*h)=nr;
+    return(0);
+    }
+
+
+static int pcl_next_raster_row(char *pclbuf,int n,int *index)
+
+    {        
+    int i;
+    static char *mstr="\x1b\x2a\x62";
+    char numbuf[32];
+
+    while (1)
+        {
+        if (memcmp(mstr,&pclbuf[(*index)],3))
+            {
+            (*index)=(*index)+1;
+            if ((*index)>n-3)
+                break;
+            continue;
+            }
+        (*index)=(*index)+3;
+        for (i=0;(*index)<n && pclbuf[(*index)]>='0' && pclbuf[(*index)]<='9' && i<30;)
+            {
+            numbuf[i++]=pclbuf[(*index)];
+            (*index)=(*index)+1;
+            }
+        numbuf[i]='\0';
+        if ((*index)>=n || i<=0)
+            break;
+        if (is_an_integer(numbuf))
+            return(atoi(numbuf));
+        }
+    return(-1);
     }

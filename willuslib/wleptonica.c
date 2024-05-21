@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -21,6 +21,8 @@
 */
 #include <stdio.h>
 #include "willus.h"
+
+#ifdef HAVE_LEPTONICA_LIB
 #include <leptonica.h>
 
 static void wlept_pix_from_bmp(PIX **pixptr,WILLUSBITMAP *bmp);
@@ -155,3 +157,4 @@ pixWrite("pixb.png",pixb,IFF_PNG);
     dewarpaDestroy(&dewa); /* Includes dewarpDestroy of dew1 */
     pixDestroy(&pix);
     }
+#endif /* HAVE_LEPTONICA_LIB */

@@ -1,7 +1,7 @@
 /*
 ** k2pdfopt.h   Main include file for k2pdfopt source modules.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -53,10 +53,14 @@
 **
 */
 
+#define K2PDFOPT_DEFAULT_DEVICE "kv"
+/* OCR DEBUG */
+/*
+#define WILLUSDEBUGX 0x10020
+*/
 /*
 #define WILLUSDEBUG
 #define WILLUSDEBUGX 0x100000
-#define WILLUSDEBUGX 32
 #define WILLUSDEBUGX 0xfff
 #define WILLUSDEBUG
 */
@@ -257,6 +261,7 @@ typedef struct
 #ifdef HAVE_OCR_LIB
     char ocrout[128];
     int dst_ocr;
+    int ocr_detection_type; /* New in v2.50, 'w', 'l', or 'p' */
 #ifdef HAVE_TESSERACT_LIB
     char dst_ocr_lang[64];
 #endif
@@ -317,7 +322,9 @@ typedef struct
     double dst_marright;
     */
     int autocrop;
+#ifdef HAVE_LEPTONICA_LIB
     int dewarp;
+#endif
     K2CROPBOX dstmargins;
     K2CROPBOX dstmargins_org;
     int pad_left;
@@ -1020,6 +1027,9 @@ void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int
 /* k2ocr.c */
 void k2ocr_init(K2PDFOPT_SETTINGS *k2settings);
 void k2ocr_end(K2PDFOPT_SETTINGS *k2settings);
+#ifdef HAVE_TESSERACT_LIB
+void ocrtess_debug_info(char **buf0,int use_ansi);
+#endif
 #ifdef HAVE_OCR_LIB
 void k2ocr_ocrwords_fill_in_ex(MASTERINFO *masterinfo,OCRWORDS *words,BMPREGION *region,
                                K2PDFOPT_SETTINGS *k2settings);
@@ -1056,7 +1066,9 @@ void   bmp_detect_vertical_lines(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,double dpi
                                       int white_thresh,int erase_vertical_lines,
                                       int debug,int verbose);
 void   k2bmp_erode(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,K2PDFOPT_SETTINGS *k2settings);
+#ifdef HAVE_LEPTONICA_LIB
 void   k2bmp_prep_for_dewarp(WILLUSBITMAP *dst,WILLUSBITMAP *src,int dx,int whitethresh);
+#endif
 void   bmp_adjust_contrast(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,
                            K2PDFOPT_SETTINGS *k2settings,int *white);
 void   bmp_paint_white(WILLUSBITMAP *bmpgray,WILLUSBITMAP *bmp,int white_thresh);

@@ -1,7 +1,7 @@
 /*
 ** k2ocr.c       k2pdfopt OCR functions
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -29,11 +29,11 @@ static int k2ocr_gocr_inited=0;
 typedef struct
     {
     WILLUSBITMAP *bmp;
-    int type,c1,r1,c2,r2,rowbase;
+    int type,c1,r1,c2,r2,rowbase,dpi;
     double lcheight;
     pthread_mutex_t mutex;
     int done;
-    char *word;
+    OCRWORDS ocrwords;
     } OCRRESULT;
 typedef struct
     {
@@ -62,10 +62,11 @@ static void k2ocr_ocrwords_fill_in(MASTERINFO *masterinfo,OCRWORDS *words,BMPREG
 /*
 static void *ocr_process_word_bitmaps_no_mutex(void *data);
 */
+static void ocrresults_make_room(OCRRESULTS *ocrresults);
 static void *ocr_process_word_bitmaps_mutex(void *data);
 static void ocr_proc_bitmap(void *api,OCRRESULT *ocrresult);
 static void ocrword_fillin_mupdf_info(OCRWORD *word,BMPREGION *region);
-#endif
+#endif /* HAVE_OCR_LIB */
 
 /* Functions to support extracting text from PDF using MuPDF lib */
 #ifdef HAVE_MUPDF_LIB
@@ -225,6 +226,45 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
 
 
 #ifdef HAVE_TESSERACT_LIB
+void ocrtess_debug_info(char **buf0,int use_ansi)
+
+    {
+    static char *funcname="ocrtess_debug_info";
+    char *p,*buf;
+    char langdef[16];
+    char datapath[MAXFILENAMELEN];
+
+    ocrtess_datapath(datapath,NULL,MAXFILENAMELEN-1);
+    willus_mem_alloc_warn((void **)buf0,4096,funcname,10);
+    buf=(*buf0);
+    p=getenv("TESSDATA_PREFIX");
+    strcpy(buf,"TESSDATA_PREFIX environment variable:  ");
+    if (use_ansi && p!=NULL)
+        strcat(buf,ANSI_MAGENTA);
+    strcat(buf,p==NULL?"(not set)":p);
+    if (use_ansi && p!=NULL)
+        strcat(buf,ANSI_NORMAL);
+    strcat(buf,"\nTesseract data folder:  ");
+    if (use_ansi)
+        strcat(buf,ANSI_MAGENTA);
+    strcat(buf,datapath);
+    if (use_ansi)
+        strcat(buf,ANSI_NORMAL);
+    strcat(buf,"\n\n");
+    strcat(buf,"Contents of ");
+    if (use_ansi)
+        strcat(buf,ANSI_MAGENTA);
+    strcat(buf,datapath);
+    if (use_ansi)
+        strcat(buf,ANSI_NORMAL);
+    strcat(buf,":\n");
+    ocrtess_lang_default(NULL,NULL,0,langdef,16,buf,3000,use_ansi);
+    strcat(buf,"* - LSTM = \"Long Short-Term Memory\" training data.\n"
+               "    LSTM is the latest, most accurate OCR method used by Tesseract v4.x.\n"
+               "    TESS = Tesseract v3.x compatible (can be used by v4.x).\n");
+    }
+
+    
 static void *otinit(void *data)
 
     {
@@ -245,7 +285,8 @@ static void *otinit(void *data)
             {
             if (ocrtess_api[i]!=NULL)
                 continue;
-            ocrtess_api[i]=ocrtess_init(NULL,lang[0]=='\0'?NULL:lang,NULL,initstr,255,&status);
+            ocrtess_api[i]=ocrtess_init(NULL,NULL,0,
+                                        lang[0]=='\0'?NULL:lang,NULL,initstr,255,&status);
             if (ocrtess_api[i]==NULL)
                 done=0;
             else
@@ -308,11 +349,18 @@ void k2ocr_ocrwords_fill_in_ex(MASTERINFO *masterinfo,OCRWORDS *words,BMPREGION 
     PAGEREGIONS *pageregions,_pageregions;
     int i,maxlevels;
 
-#if (WILLUSDEBUGX & 0x10000)
-bmpregion_write(region,"bmpregion_major.png");
+#if (WILLUSDEBUGX & 32)
+{
+static int ifr=0;
+char filename[256];
+sprintf(filename,"ocrwords_fill_in_%04d.png",++ifr);
+bmpregion_write(region,filename);
+printf("k2ocr_ocrwords_fill_in_ex #%d\n",ifr);
+}
 #endif
 
-    if (k2settings->ocr_max_columns<0 || k2settings->ocr_max_columns <= k2settings->max_columns)
+    if (k2settings->ocr_max_columns<0 || k2settings->ocr_max_columns <= k2settings->max_columns
+           || (k2settings->ocr_detection_type=='p' && k2settings->dst_ocr=='t'))
         {
 #if (WILLUSDEBUGX & 32)
 printf("Call #1. k2ocr_ocrwords_fill_in\n");
@@ -393,7 +441,7 @@ exit(10);
 }
 */
 #if (WILLUSDEBUGX & 32)
-k2printf("@ocrwords_fill_in...\n");
+k2printf("@ocrwords_fill_in... type='%c'\n",type);
 #endif
 /*
 {
@@ -408,7 +456,9 @@ bmp_write(src,filename,stdout,100);
         return;
 
 #if (WILLUSDEBUGX & 32)
-k2printf("    %d row%s of text, dst_ocr='%c'\n",region->textrows.n,region->textrows.n==1?"":"s",k2settings->dst_ocr);
+k2printf("OCR REGION:  @%3d,%3d = %3d x %3d\n",
+region->c1, region->r1, region->c2-region->c1+1, region->r2-region->r1+1);
+k2printf("  %d row%s of text, dst_ocr='%c'\n",region->textrows.n,region->textrows.n==1?"":"s",k2settings->dst_ocr);
 #endif
 #if (defined(HAVE_MUPDF_LIB))
     if (k2settings->dst_ocr=='m')
@@ -424,67 +474,137 @@ k2printf("    %d row%s of text, dst_ocr='%c'\n",region->textrows.n,region->textr
     ocrresults->na=16;
     willus_mem_alloc_warn((void **)&ocrresults->ocrresult,sizeof(OCRRESULT)*ocrresults->na,funcname,10);
 
-    /*
-    ** Go text row by text row--store bitmap for each word into ocrresults
-    ** structure which will then be processed with multiple parallel threads.
-    ** (v2.40)
-    */
-    for (i=0;i<region->textrows.n;i++)
+    if (k2settings->dst_ocr=='t' && 
+          (k2settings->ocr_detection_type=='p' || k2settings->ocr_detection_type=='c'))
         {
-        BMPREGION _newregion,*newregion;
-        int j,rowbase,r1,r2;
-        double lcheight;
-        TEXTWORDS *textwords;
+        OCRRESULT *ocrresult;
 
-        newregion=&_newregion;
-        bmpregion_init(newregion);
-        bmpregion_copy(newregion,region,0);
-        r1=newregion->r1=region->textrows.textrow[i].r1;
-        r2=newregion->r2=region->textrows.textrow[i].r2;
+        /* New in v2.50:  Use Tesseract to parse entire region for OCR */
+        ocrresults_make_room(ocrresults);
+        ocrresult=&ocrresults->ocrresult[ocrresults->n];
+        ocrresult->bmp=region->bmp8;
+        ocrresult->dpi=region->dpi;
+        ocrresult->c1=region->c1;
+        ocrresult->r1=region->r1;
+        ocrresult->c2=region->c2;
+        ocrresult->r2=region->r2;
+        pthread_mutex_init(&ocrresult->mutex,NULL);
+        ocrresult->done=0;
+        ocrwords_init(&ocrresult->ocrwords);
+        ocrresult->rowbase=-1;
+        ocrresult->lcheight=-1;
+        ocrresult->type=type;
+        ocrresults->n++;
+        }
+    else /* Use k2pdfopt engine to parse row by row */
+        {
+        /*
+        ** Go text row by text row--store bitmap for each word into ocrresults
+        ** structure which will then be processed with multiple parallel threads.
+        ** (v2.40)
+        */
+        for (i=0;i<region->textrows.n;i++)
+            {
+            BMPREGION _newregion,*newregion;
+            int j,rowbase,r1,r2;
+            double lcheight;
+            TEXTWORDS *textwords;
+
+            newregion=&_newregion;
+            bmpregion_init(newregion);
+            bmpregion_copy(newregion,region,0);
+            r1=newregion->r1=region->textrows.textrow[i].r1;
+            r2=newregion->r2=region->textrows.textrow[i].r2;
 #if (WILLUSDEBUGX & 32)
-printf("    @%3d,%3d = %3d x %3d\n",
+printf("  Row %2d:  @%3d,%3d = %3d x %3d\n",i+1,
 region->textrows.textrow[i].c1,
 region->textrows.textrow[i].r1,
 region->textrows.textrow[i].c2-region->textrows.textrow[i].c1+1,
 region->textrows.textrow[i].r2-region->textrows.textrow[i].r1+1);
 #endif
-        newregion->bbox.type = REGION_TYPE_TEXTLINE;
-        rowbase=region->textrows.textrow[i].rowbase;
-        lcheight=region->textrows.textrow[i].lcheight;
-        /* Sanity check on rowbase, lcheight */
-        if ((double)(rowbase-r1)/(r2-r1) < .5)
-            rowbase = r1+(r2-r1)*0.7;
-        if (lcheight/(r2-r1) < .33)
-            lcheight = 0.33;
-        /* Break text row into words (also establishes lcheight) */
-        bmpregion_one_row_find_textwords(newregion,k2settings,0);
-        textwords = &newregion->textrows;
-        /* Add each word */
-#if (WILLUSDEBUGX & 32)
-printf("textwords->n=%d\n",textwords->n);
-#endif
-/* printf("textwords->n=%d\n",textwords->n); */
-        for (j=0;j<textwords->n;j++)
-            {
-#if (WILLUSDEBUGX & 32)
-static int counter=1;
-int i;
-char filename[MAXFILENAMELEN];
-#endif
-#if (WILLUSDEBUGX & 32)
-k2printf("j=%d of %d\n",j,textwords->n);
-printf("dst_ocr='%c', ocrtessstatus=%d\n",k2settings->dst_ocr,k2ocr_tess_status);
-#endif
-            /* Don't OCR if "word" height exceeds spec */
-            if ((double)(textwords->textrow[j].r2-textwords->textrow[j].r1+1)/region->dpi
-                     > k2settings->ocr_max_height_inches)
+            newregion->bbox.type = REGION_TYPE_TEXTLINE;
+            rowbase=region->textrows.textrow[i].rowbase;
+            lcheight=region->textrows.textrow[i].lcheight;
+            /* Sanity check on rowbase, lcheight */
+            if ((double)(rowbase-r1)/(r2-r1) < .5)
+                rowbase = r1+(r2-r1)*0.7;
+            if (lcheight/(r2-r1) < .33)
+                lcheight = 0.33;
+            if (k2settings->dst_ocr=='t' && k2settings->ocr_detection_type=='l')
+                {
+                OCRRESULT *ocrresult;
+
+                /* New in v2.50:  Use Tesseract to parse entire line of text */
+                /* Don't OCR if line height exceeds spec */
+                if ((double)(region->textrows.textrow[i].r2-region->textrows.textrow[i].r1+1)
+                              / region->dpi > k2settings->ocr_max_height_inches)
+                    continue;
+                ocrresults_make_room(ocrresults);
+                ocrresult=&ocrresults->ocrresult[ocrresults->n];
+                ocrresult->bmp=region->bmp8;
+                ocrresult->dpi=region->dpi;
+                ocrresult->c1=region->textrows.textrow[i].c1;
+                ocrresult->r1=region->textrows.textrow[i].r1;
+                ocrresult->c2=region->textrows.textrow[i].c2;
+                ocrresult->r2=region->textrows.textrow[i].r2;
+                pthread_mutex_init(&ocrresult->mutex,NULL);
+                ocrresult->done=0;
+                ocrwords_init(&ocrresult->ocrwords);
+                ocrresult->rowbase=rowbase;
+                ocrresult->lcheight=lcheight;
+                ocrresult->type=type;
+                ocrresults->n++;
                 continue;
+                }
+
+            /* Use k2pdfopt engine to break text row into words (also establishes lcheight) */
+            bmpregion_one_row_find_textwords(newregion,k2settings,0);
+            textwords = &newregion->textrows;
+            /* Add each word */
+            for (j=0;j<textwords->n;j++)
+                {
+                OCRRESULT *ocrresult;
+
+                /* Don't OCR if "word" height exceeds spec */
+                if ((double)(textwords->textrow[j].r2-textwords->textrow[j].r1+1)/region->dpi
+                         > k2settings->ocr_max_height_inches)
+                    continue;
+                ocrresults_make_room(ocrresults);
+                ocrresult=&ocrresults->ocrresult[ocrresults->n];
+                ocrresult->bmp=region->bmp8;
+                ocrresult->dpi=region->dpi;
+                ocrresult->c1=textwords->textrow[j].c1;
+                ocrresult->r1=textwords->textrow[j].r1;
+                ocrresult->c2=textwords->textrow[j].c2;
+                ocrresult->r2=textwords->textrow[j].r2;
+                pthread_mutex_init(&ocrresult->mutex,NULL);
+                ocrresult->done=0;
+                ocrwords_init(&ocrresult->ocrwords);
+                ocrresult->rowbase=rowbase;
+                ocrresult->lcheight=lcheight;
+                ocrresult->type=type;
+                ocrresults->n++;
+                } /* text word loop */
+            bmpregion_free(newregion);
+            } /* text row loop */
+        } /* If detection type == 'p' */
+
 #if (WILLUSDEBUGX & 32)
+{
+char filename[256];
+int i,j;
 WILLUSBITMAP *bmp,_bmp;
+static int iregion=0;
+
 bmp=&_bmp;
 bmp_init(bmp);
-bmp->width=textwords->textrow[j].c2-textwords->textrow[j].c1+1;
-bmp->height=textwords->textrow[j].r2-textwords->textrow[j].r1+1;
+for (j=0;j<ocrresults->n;j++)
+{
+OCRRESULT *ocrresult;
+
+ocrresult=&ocrresults->ocrresult[j];
+bmp->width=ocrresult->c2-ocrresult->c1+1;
+bmp->height=ocrresult->r2-ocrresult->r1+1;
 bmp->bpp=8;
 bmp_alloc(bmp);
 for (i=0;i<256;i++)
@@ -492,64 +612,21 @@ bmp->red[i]=bmp->green[i]=bmp->blue[i]=i;
 for (i=0;i<bmp->height;i++)
 {
 unsigned char *s,*d;
-s=bmp_rowptr_from_top(newregion->bmp8,textwords->textrow[j].r1+i)+textwords->textrow[j].c1;
+s=bmp_rowptr_from_top(ocrresult->bmp,ocrresult->r1+i)+ocrresult->c1;
 d=bmp_rowptr_from_top(bmp,i);
 memcpy(d,s,bmp->width);
 }
-sprintf(filename,"word%04d.png",counter);
+sprintf(filename,"ocr_region_%04d.png",iregion+1);
 bmp_write(bmp,filename,stdout,100);
 bmp_free(bmp);
-k2printf("%5d. ",counter);
-fflush(stdout);
-#endif
-            if (ocrresults->n>=ocrresults->na)
-                {
-                willus_mem_realloc_robust_warn((void **)&ocrresults->ocrresult,
-                                               ocrresults->na*2*sizeof(OCRRESULT),
-                                               ocrresults->na*sizeof(OCRRESULT),funcname,10);
-                ocrresults->na*=2;
-                }
-            {
-            OCRRESULT *ocrresult;
-            ocrresult=&ocrresults->ocrresult[ocrresults->n];
-            ocrresult->bmp=region->bmp8;
-            ocrresult->c1=textwords->textrow[j].c1;
-            ocrresult->r1=textwords->textrow[j].r1;
-            ocrresult->c2=textwords->textrow[j].c2;
-            ocrresult->r2=textwords->textrow[j].r2;
-            pthread_mutex_init(&ocrresult->mutex,NULL);
-            ocrresult->done=0;
-            ocrresult->word=NULL;
-            ocrresult->rowbase=rowbase;
-            ocrresult->lcheight=lcheight;
-            ocrresult->type=type;
-            ocrresults->n++;
-            }
-         
-#if (WILLUSDEBUGX & 32)
-/*
-printf("..");
-fflush(stdout);
-if (wordbuf[0]!='\0')
-{
-char filename[MAXFILENAMELEN];
-FILE *f;
-sprintf(filename,"word%04d.txt",counter);
-f=fopen(filename,"wb");
-fprintf(f,"%s\n",wordbuf);
-fclose(f);
-k2printf("%s\n",wordbuf);
+iregion++;
 }
-else
-k2printf("(OCR failed)\n");
-counter++;
-*/
+}
 #endif
-            }
-        bmpregion_free(newregion);
-        }
+
+
     /*
-    ** Process the word bitmaps with multiple threads.
+    ** Process the OCR regions with multiple threads.
     ** If more than 4 threads, don't do mutex blocking--just have each thread
     ** process 1/maxthreads of the words.
     ** (v2.40)
@@ -569,21 +646,35 @@ counter++;
     ocr_cpu_time_secs += (double)stop/CLOCKS_PER_SEC-(double)start/CLOCKS_PER_SEC;
     /* printf("TOT TIME = %.2f seconds.\n",ocr_cpu_time_secs); */
     }
+
+
     /*
     ** Done with multi-threading section.  Store UTF-8 text from OCR results.
     */
     for (i=0;i<ocrresults->n;i++)
         {
         OCRRESULT *ocrresult;
+        int j;
 
         ocrresult=&ocrresults->ocrresult[i];
+/*
+#if (WILLUSDEBUGX & 32)
+printf("ocrresults->ocrresult[%d]=%p, word=%p\n",i,ocrresult,ocrresult->ocrwords.word);
+#endif
+*/
+        for (j=0;j<ocrresult->ocrwords.n;j++)
+/*
         if (ocrresult->word[0]!='\0' && ocrresult->done==1)
+*/
             {
             OCRWORD word;
 
+/*
             ocrword_init(&word);
             word.c=ocrresult->c1;
+*/
             /* Use same rowbase for whole row */
+/*
             word.r=ocrresult->rowbase;
             word.maxheight=ocrresult->rowbase-ocrresult->r1;
             word.w=ocrresult->c2-ocrresult->c1+1;
@@ -591,29 +682,66 @@ counter++;
             word.lcheight=ocrresult->lcheight;
             word.rot=0;
             word.text=ocrresult->word;
+*/
+/*
+#if (WILLUSDEBUGX & 32)
+{
+OCRWORD *word0;
+word0=&ocrresult->ocrwords.word[j];
+printf("%d.%d. '%s', rowbase=%d, w=%d, h=%d, mh=%g\n",i+1,j+1,word0->text,word0->r,word0->w,word0->h,word0->maxheight);
+}
+#endif
+*/
+            word=ocrresult->ocrwords.word[j];
+            word.c += ocrresult->c1;
+            word.r += ocrresult->r1;
             ocrword_fillin_mupdf_info(&word,region);
 #if (WILLUSDEBUGX & 32)
-k2printf("'%s', r1=%d, rowbase=%d, h=%d\n",ocrresult->word,
-                         ocrresult->r1,
-                         ocrresult->rowbase,
-                         ocrresult->r2-ocrresult->r1+1);
-printf("words=%p\n",words);
-printf("words->n=%d\n",words->n);
+if (word.text[0]!='\0')
+{
+char filename[MAXFILENAMELEN];
+FILE *f;
+static int iregion=0;
+sprintf(filename,"words_r%04d.txt",iregion+1);
+iregion++;
+f=fopen(filename,j==0?"wb":"ab");
+fprintf(f,"%s%s\n",j==0?"":" ",word.text);
+fclose(f);
+k2printf("%d.%d. '%s', rowbase=%d, w=%d, h=%d, mh=%g\n",i+1,j+1,word.text,word.r,word.w,word.h,word.maxheight);
+}
+else
+k2printf("%d.%d. (OCR failed)\n",i+1,j+1);
 #endif
             ocrwords_add_word(words,&word);
-#if (WILLUSDEBUGX & 32)
-printf("word added.\n");
-#endif
             }
-        }
+        } /* Loop ocrresults->n */
+/*
     for (i=ocrresults->n-1;i>=0;i--)
         willus_mem_free((double **)&ocrresults->ocrresult[i].word,funcname);
+*/
+    for (i=ocrresults->n-1;i>=0;i--)
+        ocrwords_free(&ocrresults->ocrresult[i].ocrwords);
     willus_mem_free((double**)&ocrresults->ocrresult,funcname);
     willus_mem_free((double**)&thread,funcname);
     willus_mem_free((double**)&ocrr,funcname);
 #if (WILLUSDEBUGX & 32)
 printf("Done k2ocr_ocrwords_fill_in()\n");
 #endif
+    }
+
+
+static void ocrresults_make_room(OCRRESULTS *ocrresults)
+
+    {
+    static char *funcname="ocrresults_make_room";
+
+    if (ocrresults->n>=ocrresults->na)
+        {
+        willus_mem_realloc_robust_warn((void **)&ocrresults->ocrresult,
+                                       ocrresults->na*2*sizeof(OCRRESULT),
+                                       ocrresults->na*sizeof(OCRRESULT),funcname,10);
+        ocrresults->na*=2;
+        }
     }
 
 
@@ -691,34 +819,61 @@ static void *ocr_process_word_bitmaps_mutex(void *data)
     }
 
 
+/*
+** v2.50:  New call type that gets multiple words into OCRWORDS structure
+*/
 static void ocr_proc_bitmap(void *api,OCRRESULT *ocrresult)
 
     {
+    /*
     char wordbuf[256];
+    */
 
     switch (ocrresult->type)
         {
 #ifdef HAVE_TESSERACT_LIB
         case 't':
-            ocrtess_single_word_from_bmp8(api,wordbuf,255,ocrresult->bmp,
-                                  ocrresult->c1,ocrresult->r1,
-                                  ocrresult->c2,ocrresult->r2,3,0,1,NULL);
+            ocrtess_ocrwords_from_bmp8(api,&ocrresult->ocrwords,ocrresult->bmp,
+                              ocrresult->c1,ocrresult->r1,
+                              ocrresult->c2,ocrresult->r2,ocrresult->dpi,
+                              -1,NULL);
+/*
+#if (WILLUSDEBUGX & 32)
+{
+int i;
+printf("      OCR TESS:  (%d,%d)-(%d,%d) -- got %d words.\n",
+ocrresult->c1,ocrresult->r1,ocrresult->c2,ocrresult->r2,ocrresult->ocrwords.n);
+printf("                 ocrresult=%p, ocrresult->ocrwords.word=%p\n",ocrresult,ocrresult->ocrwords.word);
+for (i=0;i<ocrresult->ocrwords.n;i++)
+{
+OCRWORD *word;
+word=&ocrresult->ocrwords.word[i];
+printf("        %2d. '%s' (%d,%d) w=%d, h=%d\n",i+1,word->text,word->c,word->r,word->w,word->h);
+}
+}
+#endif
+*/
             break;
 #endif
 #ifdef HAVE_GOCR_LIB
         case 'g':
-            gocr_single_word_from_bmp8(wordbuf,255,ocrresult->bmp,
-                                   ocrresult->c1,ocrresult->r1,
-                                   ocrresult->c2,ocrresult->r2,0,1);
+            gocr_ocrwords_from_bmp8(&ocrresult->ocrwords,ocrresult->bmp,
+                                       ocrresult->c1,ocrresult->r1,
+                                       ocrresult->c2,ocrresult->r2,0,1);
             break;
 #endif
         default:
+            /*
             wordbuf[0]='m';
             wordbuf[1]='\0';
+            */
             break;
         }
+
+    /*
     willus_mem_alloc_warn((void **)&ocrresult->word,strlen(wordbuf)+1,"ocr_proc_bitmap",10);
     strcpy(ocrresult->word,wordbuf);
+    */
     }
     
 
@@ -926,16 +1081,6 @@ printf("truncated word (%d-%d) = '%s'!\n",i2+1,word->n-1,word->text);
                 }
 #if (WILLUSDEBUGX & 0x10000)
 printf("i2 = %d (dn=%d, n=%d); word='%s' (len=%d)\n",i2,dn,n,word->text,word->n);
-#endif
-            ocrwords_add_word(dwords,word);
-            ocrword_free(word);
-            if (i2>=n-1)
-                break;
-#if (WILLUSDEBUGX & 0x10000)
-printf("continuing\n");
-#endif
-            i2+=dn;
-#if (WILLUSDEBUGX & 0x10000)
 fprintf(f,"/sa m 2 2\n");
 fprintf(f,"/sa l \"'%s'\" 2\n",word->text);
 fprintf(f,"%d %d\n",word->c,y0-word->r);
@@ -945,6 +1090,14 @@ fprintf(f,"%d %d\n",word->c,y0-(word->r-word->h));
 fprintf(f,"%d %d\n",word->c,y0-word->r);
 fprintf(f,"//nc\n");
 #endif
+            ocrwords_add_word(dwords,word);
+            ocrword_free(word);
+            if (i2>=n-1)
+                break;
+#if (WILLUSDEBUGX & 0x10000)
+printf("continuing\n");
+#endif
+            i2+=dn;
             }
         }
     /* These are static--keep them around for the next call in case it's on the same page */
@@ -1003,6 +1156,25 @@ printf("wrectmaps->n = %d\n",wrectmaps->n);
             }
     return(0);
     }
+
+
+#if (WILLUSDEBUGX & 0x10000)
+static void wrectmaps_echo(WRECTMAPS *wrectmaps)
+
+    {
+    int i;
+    for (i=0;i<wrectmaps->n;i++)
+        {
+        printf("wrectmap %d of %d\n",i+1,wrectmaps->n);
+        printf("    source bm top left = (%g,%g)\n",wrectmaps->wrectmap[i].coords[0].x,
+                                                    wrectmaps->wrectmap[i].coords[0].y);
+        printf("    wrapbmp top left = (%g,%g)\n",wrectmaps->wrectmap[i].coords[1].x,
+                                                  wrectmaps->wrectmap[i].coords[1].y);
+        printf("    w/h of region = (%g,%g)\n",wrectmaps->wrectmap[i].coords[2].x,
+                                               wrectmaps->wrectmap[i].coords[2].y);
+        }
+    }
+#endif
 
 
 /*

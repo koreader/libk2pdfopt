@@ -1,7 +1,7 @@
 /*
 ** devprofile.c    Handle device profiles.
 **
-** Copyright (C) 2015  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -23,8 +23,9 @@
 /*
 ** v2.32:  Added new device dims from screen shots on mobileread.com
 ** v2.42:  Added Kobo Aura One
+** v2.50:  Added Kindle Oasis 2nd-gen; Combined Voyager/PW3+/Oasis
 */
-static DEVPROFILE devprof[20] =
+static DEVPROFILE devprof[21] =
     {
     {"Kindle 1-5","k2",560,735,167,0,1,{0,0,3,4}},
     {"Kindle DX","dx",800,1180,167,0,1,{0,0,0,0}},
@@ -37,12 +38,14 @@ static DEVPROFILE devprof[20] =
     {"Kindle Paperwhite 2","kp2",718,965,212,0,1,{0,0,3,4}},
     /* PW3 (released Summer 2015) = 1016 x 1364 = Kindle Voyage (7-5-15 on MR.com) */
     {"Kindle Paperwhite 3","kp3",1016,1364,300,0,1,{0,0,3,4}},
-    /* Pocketbook Basic 2 = 600 x 800 (6-20-15 on MR.com) */
-    {"Pocketbook Basic 2","pb2",600,800,167,0,1,{0,0,3,4}},
     /* Voyage dims = 1016 x 1364 */
     /* http://www.mobileread.com/forums/showthread.php?p=3012815#post3012815 */
     /* http://www.mobileread.com/forums/showthread.php?p=3018484#post3018484 */
-    {"Kindle Voyage","kv",1016,1364,300,0,1,{0,0,3,4}},
+    {"Kindle Voyage/PW3+/Oasis","kv",1016,1364,300,0,1,{0,0,3,4}},
+    /* Kindle Oasis 2nd-gen released Oct 2017--4-6-18 on MR.com */ 
+    {"Kindle Oasis 2","ko2",1200,1583,300,0,1,{0,0,3,4}},
+    /* Pocketbook Basic 2 = 600 x 800 (6-20-15 on MR.com) */
+    {"Pocketbook Basic 2","pb2",600,800,167,0,1,{0,0,3,4}},
     {"Nook Simple Touch","nookst",552,725,167,0,1,{0,0,0,0}},
     /* Kobo:  http://www.mobileread.com/forums/showthread.php?p=3012925#post3012925 */
     {"Kobo Touch","kbt",600,730,167,0,1,{0,0,3,4}},

@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -17,15 +17,6 @@
 **
 ** You should have received a copy of the GNU Affero General Public License
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
-**
-*/
-
-/*
-** IMPORTANT!!
-**
-** NEEDS SPECIAL VERSION OF ZLIB WITH CUSTOM MODES--SEE gzflags BELOW!
-** SEE gzwrite.c and gzlib.c in zlib_mod FOLDER.
-** (SEARCH FOR "WILLUS MOD" IN FILES.)
 **
 */
 
@@ -578,10 +569,6 @@ void pdffile_add_bitmap(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,int quality,in
 
 /*
 ** Use quality=-1 for PNG
-**
-** NEEDS SPECIAL VERSION OF ZLIB WITH CUSTOM MOD--SEE gzflags BELOW!
-** SEE gzwrite.c and gzlib.c in zlib_mod FOLDER.
-** (SEARCH FOR "WILLUS MOD" IN FILES.)
 **
 ** If quality < 0, the deflate (PNG-style) method is used.
 **

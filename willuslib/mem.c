@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -361,6 +361,7 @@ int willus_mem_realloc_robust(double **ptr,long newsize,long oldsize,char *name)
     size_t  memsize;
     void *newptr;
 #endif
+
 #ifndef NOMEMDEBUG
 #ifdef DEBUG
     int ra=0;

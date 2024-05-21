@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -938,6 +938,10 @@ int structtm_from_datetime(struct tm *date,char *datetime)
 **     YYYY-MM-DD
 **     MM-DD-YYYY|YY [Default]
 **
+** Treats the following as white space:  / - \ . : ,
+**
+** 18 Sept 2018:  Treat comma a white space.
+**
 ** CAUTION!  This function zeros the time fields!
 */
 int structtm_from_date(struct tm *date,char *datestr)
@@ -958,7 +962,7 @@ int structtm_from_date(struct tm *date,char *datestr)
     date->tm_mday=1;
     for (i=0;buf[i]!='\0';i++)
         if (buf[i]=='/' || buf[i]=='-' || buf[i]=='\\' 
-                        || buf[i]=='.' || buf[i]==':')
+                        || buf[i]=='.' || buf[i]==':' || buf[i]==',')
             buf[i]=' ';
     n=sscanf(buf,"%s %s %s",tok[0],tok[1],tok[2]);
     yr = -1;

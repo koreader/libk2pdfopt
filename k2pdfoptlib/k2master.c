@@ -1,7 +1,7 @@
 /*
 ** k2master.c    Functions to handle the main (master) k2pdfopt output bitmap.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -219,11 +219,16 @@ printf("masterinfo->landscape=%d\n",masterinfo->landscape);
         double rot;
         rot=bmp_autostraighten(src,srcgrey,white,k2settings->src_autostraighten,0.1,
                                k2settings->debug,out);
+#ifdef HAVE_K2GUI
+        if (k2gui_active() && fabs(rot)>1e-4)
+            k2printf("\n(Page straightened--rotated cc by %.2f deg.)\n",rot);
+#endif
         if (k2settings->use_crop_boxes)
             masterinfo->pageinfo.srcpage_fine_rot_deg = rot;
         }
     if (k2settings->autocrop)
         bmp_autocrop2(srcgrey,masterinfo->autocrop_margins,(double)k2settings->autocrop/1000.);
+#ifdef HAVE_LEPTONICA_LIB
     if (k2settings->dewarp && !k2settings->use_crop_boxes)
         {
         WILLUSBITMAP _dwbmp,*dwbmp;
@@ -261,6 +266,7 @@ printf("masterinfo->landscape=%d\n",masterinfo->landscape);
         if (k2settings->autocrop)
             bmp_autocrop2(srcgrey,masterinfo->autocrop_margins,(double)k2settings->autocrop/1000.);
         }
+#endif /* HAVE_LEPTONICA_LIB */
 #if (WILLUSDEBUGX & 0x20000)
 printf("k2settings->srccropmargins->units[0]=%d\n",k2settings->srccropmargins.units[0]);
 #endif
@@ -511,6 +517,11 @@ k2printf("    destwidth=%d, src->width=%d\n",destwidth,src->width);
     region.dpi=dpi;
     region.wrectmaps=wrectmaps;
     region.bbox=(*textrow0);
+    /* v2.50--reset bounding box */
+    region.bbox.c1=region.c1;
+    region.bbox.r1=region.r1;
+    region.bbox.c2=region.c2;
+    region.bbox.r2=region.r2;
 #if (WILLUSDEBUGX & 512)
 printf("Add bitmap to master, scanning region for vertical breaks...\n");
 printf("    Region = (%d,%d) - (%d,%d)\n",region.c1,region.r1,region.c2,region.r2);
@@ -792,7 +803,6 @@ bmp_write(tmp,filename,stdout,100);
         masterinfo->rows += gap_start;
         }
 #if (WILLUSDEBUGX & 32)
-printf("JJ\n");
 printf("tmp=%dx%dx%d, masterinfo->rows=%d, bmp=%dx%dx%d, dw=%d\n",tmp->width,tmp->height,tmp->bpp,masterinfo->rows,masterinfo->bmp.width,masterinfo->bmp.height,masterinfo->bmp.bpp,dw);
 printf("dw=%d, srcbytewidth=%d, dw2=%d\n",dw,srcbytewidth,dw2);
 #endif
@@ -808,9 +818,6 @@ printf("dw=%d, srcbytewidth=%d, dw2=%d\n",dw,srcbytewidth,dw2);
         pdst += srcbytewidth;
         memset(pdst,255,dw2);
         }
-#if (WILLUSDEBUGX & 32)
-printf("KK\n");
-#endif
 #if (WILLUSDEBUGX & 512)
 /*
 ht=masterinfo->bmp.height;
@@ -2681,7 +2688,11 @@ printf("@k2master_rows_color:  %d x %d\n",srcbmp->width,srcbmp->height);
     /* Parse region into columns */
     pageregions=&_pageregions;
     pageregions_init(pageregions);
+#ifdef HAVE_OCR_LIB
     if (k2settings->ocr_max_columns==2 || k2settings->max_columns>1)
+#else
+    if (k2settings->max_columns>1)
+#endif
         maxlevels = 2;
     else
         maxlevels = 3;
