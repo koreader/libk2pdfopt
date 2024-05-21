@@ -1462,7 +1462,7 @@ void ocrtesswords_add_ocrtessword(OCRTESSWORDS *ocrtesswords,int left,int top,
 */
 void ocrtess_ocrwords_from_bmp8(void *api,OCRWORDS *words,WILLUSBITMAP *bmp8,
                                    int x1,int y1,int x2,int y2,int dpi,
-                                   int segmode,FILE *out);
+                                   int segmode,double downsample,FILE *out);
 void ocrtess_from_bmp8(void *api,char *text,int maxlen,WILLUSBITMAP *bmp8,
                                    int x1,int y1,int x2,int y2,int dpi,
                                    int segmode,int allow_spaces,

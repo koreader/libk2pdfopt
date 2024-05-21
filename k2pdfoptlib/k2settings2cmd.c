@@ -399,6 +399,10 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
         {
         strbuf_dsprintf(cmdline,nongui,"-ocrd %c",dst->ocr_detection_type);
         }
+    if (src->ocr_dpi!=dst->ocr_dpi)
+        {
+        strbuf_dsprintf(cmdline,nongui,"-ocrdpi %d",dst->ocr_dpi);
+        }
     if ((src->dst_ocr_visibility_flags&7) != (dst->dst_ocr_visibility_flags&7))
         {
         strbuf_dsprintf(cmdline,nongui,"-ocrvis %s%s%s",

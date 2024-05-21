@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -48,6 +48,8 @@ static HINSTANCE willusgs_lib = NULL;
 static int willusgs_inited=0;
 static char willusgs_name[512];
 static int willusgs_isdll=0;
+static int willusgs_device_width_pts=-1;
+static int willusgs_device_height_pts=-1;
 
 /*
 ** Pointers which will get pointed to the DLL functions
@@ -86,13 +88,22 @@ int main(int argc,char *argv[])
     willusgs_close();
     }
 */
+/* Use -1 to ignore or use default */
+void willusgs_set_device_width_and_height_pts(int w,int h)
 
+    {
+    willusgs_device_width_pts=w;
+    willusgs_device_height_pts=h;
+    }
+
+
+#define NARGSMAX 18
 
 int willusgs_read_pdf_or_ps_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double dpi,FILE *out)
 
     {
-    char argdata[16][48];
-    char *argv[16];
+    char argdata[NARGSMAX][48];
+    char *argv[NARGSMAX];
     int i,status;
     char tempfile[256];
     char argtemp[280];
@@ -100,7 +111,7 @@ int willusgs_read_pdf_or_ps_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,doub
 
     willusgs_init(out);
     wfile_abstmpnam(tempfile);
-    for (i=0;i<16;i++)
+    for (i=0;i<NARGSMAX;i++)
         argv[i]=&argdata[i][0];
     i=0;
     strcpy(argv[i++],"-q");
@@ -109,6 +120,15 @@ int willusgs_read_pdf_or_ps_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,doub
     strcpy(argv[i++],"-dBATCH");
     strcpy(argv[i++],"-dNOPAUSE");
     strcpy(argv[i++],"-sDEVICE=png16m");
+/*
+printf("Setting dev to %d x %d pts (%g dpi)\n",willusgs_device_width_pts,willusgs_device_height_pts,dpi);
+printf("==> bitmap should be %d x %d\n",(int)(willusgs_device_width_pts*dpi/72.+.5),
+                                        (int)(willusgs_device_height_pts*dpi/72.+.5));
+*/
+    if (willusgs_device_width_pts>0)
+        sprintf(argv[i++],"-dDEVICEWIDTHPOINTS=%d",willusgs_device_width_pts);
+    if (willusgs_device_height_pts>0)
+        sprintf(argv[i++],"-dDEVICEHEIGHTPOINTS=%d",willusgs_device_height_pts);
     strcpy(argv[i++],"-dGraphicsAlphaBits=4");
     strcpy(argv[i++],"-dTextAlphaBits=4");
     sprintf(argv[i++],"-r%g",dpi);
@@ -127,6 +147,9 @@ int willusgs_read_pdf_or_ps_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,doub
         nprintf(out,"BMP read failed.  GS output in file %s (not deleted).\n",tempfile);
         return(status-100);
         }
+/*
+printf("bitmap is %d x %d x %d\n",bmp->width,bmp->height,bmp->bpp);
+*/
     remove(tempfile);
     return(0);
     }
@@ -156,6 +179,10 @@ int willusgs_ps_to_pdf(char *dstfile,char *srcfile,FILE *out)
     strcpy(argv[i++],"-dBATCH");
     strcpy(argv[i++],"-dNOPAUSE");
     strcpy(argv[i++],"-sDEVICE=pdfwrite");
+    if (willusgs_device_width_pts>0)
+        sprintf(argv[i++],"-dDEVICEWIDTHPOINTS=%d",willusgs_device_width_pts);
+    if (willusgs_device_height_pts>0)
+        sprintf(argv[i++],"-dDEVICEHEIGHTPOINTS=%d",willusgs_device_height_pts);
     strcpy(argv[i++],"-dPDFSETTINGS=/prepress");
     /*
     if (firstpage>0)
@@ -287,6 +314,7 @@ int willusgs_init(FILE *out)
         }
 #endif
     willusgs_inited=1;
+    willusgs_device_width_pts=willusgs_device_height_pts=-1;
     return(0);
     }
 

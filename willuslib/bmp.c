@@ -2443,8 +2443,8 @@ void bmp_resize(WILLUSBITMAP *bmp,double scalefactor)
     copy=&_copy;
     bmp_init(copy);
     bmp_copy(copy,bmp);
-    bmp->width *= scalefactor;
-    bmp->height *= scalefactor;
+    bmp->width = bmp->width*scalefactor+0.5;
+    bmp->height = bmp->height*scalefactor+0.5;
     bmp_resample(bmp,copy,0.,0.,(double)copy->width,(double)copy->height,
                              bmp->width,bmp->height);
     bmp_free(copy);

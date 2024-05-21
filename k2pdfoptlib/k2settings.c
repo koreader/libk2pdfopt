@@ -52,6 +52,9 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
 #ifdef HAVE_OCR_LIB
     k2settings->ocrout[0]='\0';
     k2settings->ocr_detection_type='l';
+    /* v2.51 */
+    /* Tesseract v4.0.0 English "Tessbest" seems to do best with 300 dpi for ~8 - 15 pt fonts */
+    k2settings->ocr_dpi=300;
 #ifdef HAVE_TESSERACT_LIB
     k2settings->dst_ocr_lang[0]='\0';
 #endif
