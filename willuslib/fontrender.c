@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2019  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -201,7 +201,9 @@ void fontrender_render(WILLUSBITMAP *bmp,double x,double y_from_bottom,
                        char *string,int rot,FILE *out)
 
     {
+#ifdef HAVE_PNG_LIB
     fontrender_render_ex(bmp,x,y_from_bottom,string,rot,0,0,0,out);
+#endif
     }
 
 

@@ -1,7 +1,7 @@
 /*
 ** k2sys.c     K2pdfopt system functions
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2019  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -20,6 +20,10 @@
 
 #include "k2pdfopt.h"
 #include <stdarg.h>
+
+#ifdef __ANDROID__
+#include <android/log.h>
+#endif
 
 
 void k2sys_init(void)
@@ -175,8 +179,16 @@ int k2printf(char *fmt,...)
         }
     else
 #endif
+#ifdef __ANDROID__
+    {
+    char buf[1024];
+    status=vsnprintf(buf,sizeof(buf),fmt,args);
+    __android_log_write(ANDROID_LOG_DEBUG,"k2pdfopt",buf);
+    }
+#else
     status=avprintf(stdout,fmt,args);
     fflush(stdout);
+#endif
     va_end(args);
     willusgui_semaphore_release(k2printf_semaphore);
     return(status);

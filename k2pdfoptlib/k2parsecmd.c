@@ -765,6 +765,16 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
 #endif
             continue;
             }
+        if (!stricmp(cl->cmdarg,"-ocrdpi"))
+            {
+            if (cmdlineinput_next(cl)==NULL)
+                break;
+#ifdef HAVE_OCR_LIB
+            if (setvals==1)
+                k2settings->ocr_dpi=atoi(cl->cmdarg);
+#endif
+            continue;
+            }
         if (!stricmp(cl->cmdarg,"-ocrd"))
             {
             if (cmdlineinput_next(cl)==NULL)

@@ -48,6 +48,7 @@
 ** 0x800000 = page break marks
 ** 0x1000000 = font size debug
 ** 0x2000000 = font size debug
+** 0x4000000 = wrapbmp.c android viewer debug
 **
 ** 0x80000000 = Fake Mupdf
 **
@@ -262,6 +263,11 @@ typedef struct
     char ocrout[128];
     int dst_ocr;
     int ocr_detection_type; /* New in v2.50, 'w', 'l', or 'p' */
+    int ocr_dpi;            /* New in v2.51--desired dpi for OCR bitmaps */
+                            /* If zero, ignored--use default input dpi */
+                            /* If positive, downsamples to the specified DPI if necessary */
+                            /* If negative, absolute value is treated as the desired height */
+                            /* of a lower case letter in pixels. */
 #ifdef HAVE_TESSERACT_LIB
     char dst_ocr_lang[64];
 #endif

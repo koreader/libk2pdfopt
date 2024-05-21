@@ -1,8 +1,8 @@
-char *k2pdfopt_version = "v2.50";
+char *k2pdfopt_version = "v2.51";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2019  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -19,6 +19,11 @@ char *k2pdfopt_version = "v2.50";
 **
 **
 ** VERSION HISTORY
+**
+** V2.51 4 JAN 2019
+**           - Fixed issue with Tesseract and SSE/AVX support
+**           - Added -ocrdpi option to optimize Tesseract v4.0.0 performance
+**           - Added code modes from:  https://gitlab.com/axet/android-k2pdfopt/commit/163d9c9248f9ac00068ecb60af33f1ae7ec17540
 **
 ** V2.50 27 DEC 2018
 **           ENHANCEMENTS
@@ -37,7 +42,7 @@ char *k2pdfopt_version = "v2.50";
 **           - Added Kindle Oasis 2 device (7-inch 300 dpi screen)
 **           - Page straightening feedback added to MS WINDOWS GUI log
 **           - Fixed Android source code issues pointed out in this post:
-**             https://www.mobileread.com/forums/showthread.php?p=3655291#post3655291
+*              https://www.mobileread.com/forums/showthread.php?p=3655291#post3655291
 **           MS WINDOWS
 **           - Compiled with gcc 7.3.
 **           LINUX

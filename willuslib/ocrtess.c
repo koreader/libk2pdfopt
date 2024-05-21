@@ -383,10 +383,11 @@ void ocrtesswords_add_ocrtessword(OCRTESSWORDS *ocrtesswords,int left,int top,
 */
 void ocrtess_ocrwords_from_bmp8(void *api,OCRWORDS *ocrwords,WILLUSBITMAP *bmp8,
                        int x1,int y1,int x2,int y2,int dpi,
-                       int segmode,FILE *out)
+                       int segmode,double downsample,FILE *out)
 
     {
     PIX *pix;
+    WILLUSBITMAP *bmp,_bmp;
     int nw,i,it,w,h,dw,dh,bw;
     unsigned char *src,*dst;
     int *top,*left,*bottom,*right,*ybase;
@@ -399,6 +400,7 @@ void ocrtess_ocrwords_from_bmp8(void *api,OCRWORDS *ocrwords,WILLUSBITMAP *bmp8,
         x2=w;
         }
     w=x2-x1+1;
+
     /* Add a border */
     bw=w/40;
     if (bw<6)
@@ -413,15 +415,53 @@ void ocrtess_ocrwords_from_bmp8(void *api,OCRWORDS *ocrwords,WILLUSBITMAP *bmp8,
         }
     h=y2-y1+1;
     dh=h+bw*2;
-    pix=pixCreate(dw,dh,8);
-    src=bmp_rowptr_from_top(bmp8,y1)+x1;
-    dst=(unsigned char *)pixGetData(pix);
+
+    /* Store in new bitmap */
+    bmp=&_bmp;
+    bmp_init(bmp);
+    bmp->width=dw;
+    bmp->height=dh;
+    bmp->bpp=8;
+    bmp_alloc(bmp);
+    for (i=0;i<256;i++)
+        bmp->red[i]=bmp->blue[i]=bmp->green[i]=i;
+    dst=bmp_rowptr_from_top(bmp,0);
     memset(dst,255,dw*dh);
-    dst=(unsigned char *)pixGetData(pix);
-    dst += bw + dw*bw;
+    src=bmp_rowptr_from_top(bmp8,y1)+x1;
+    dst=bmp_rowptr_from_top(bmp,bw)+bw;
     for (i=y1;i<=y2;i++,dst+=dw,src+=bmp8->width) 
         memcpy(dst,src,w);
-    endian_flip((char *)pixGetData(pix),pixGetWpl(pix)*pixGetHeight(pix));
+    bmp_set_dpi((double)dpi);
+
+    /* Apply downsample */
+    if (downsample > 0. && downsample < 0.9)
+        {
+        int wnew;
+
+        /* Make sure new width is even multiple of 4 */
+        wnew=downsample*bmp->width+0.5;
+        wnew=(wnew+3)&(~3);
+        downsample = (double)wnew/bmp->width;
+        bmp_resize(bmp,downsample);
+        dpi=dpi*downsample+0.5;
+        bmp_set_dpi((double)dpi);
+        }
+    else
+        downsample=1.0;
+/*
+{
+static int counter=0;
+char filename[256];
+sprintf(filename,"ocrtext%04d.png",++counter);
+bmp_write(bmp,filename,stdout,100);
+}
+*/
+    pix=pixCreate(bmp->width,bmp->height,8);
+    src=bmp_rowptr_from_top(bmp,0);
+    dst=(unsigned char *)pixGetData(pix);
+    memcpy(dst,src,bmp->width*bmp->height);
+    bmp_free(bmp);
+    endian_flip((char *)dst,pixGetWpl(pix)*pixGetHeight(pix));
     pix->xres = pix->yres = dpi;
     tess_capi_get_ocr_multiword(api,pix,segmode<0 || segmode>10 ? 6 : segmode,
                                 &left,&top,&right,&bottom,&ybase,&text,&nw,out);
@@ -432,11 +472,22 @@ void ocrtess_ocrwords_from_bmp8(void *api,OCRWORDS *ocrwords,WILLUSBITMAP *bmp8,
         OCRWORD word;
 
         ocrword_init(&word);
-        word.c=left[i]-bw;
-        word.r=ybase[i]-bw;
-        word.maxheight=ybase[i]-top[i];
-        word.w=right[i]-left[i]+1;
-        word.h=bottom[i]-top[i]+1;
+        if (downsample < .99)
+            {
+            word.c=left[i]/downsample-bw+0.5;
+            word.r=ybase[i]/downsample-bw+0.5;
+            word.maxheight=(ybase[i]-top[i])/downsample+0.5;
+            word.w=(right[i]-left[i]+1)/downsample+0.5;
+            word.h=(bottom[i]-top[i]+1)/downsample+0.5;
+            }
+        else
+            {
+            word.c=(left[i]-bw);
+            word.r=(ybase[i]-bw);
+            word.maxheight=(ybase[i]-top[i]);
+            word.w=(right[i]-left[i]+1);
+            word.h=(bottom[i]-top[i]+1);
+            }
         word.lcheight=word.maxheight;
         word.rot=0;
         word.text=&text[it];
@@ -495,6 +546,21 @@ void ocrtess_from_bmp8(void *api,char *text,int maxlen,WILLUSBITMAP *bmp8,
     endian_flip((char *)pixGetData(pix),pixGetWpl(pix)*pixGetHeight(pix));
     /* Tesseract 3.05.00 -- need to set a resolution */
     pix->xres = pix->yres = dpi;
+/*
+{
+static int counter=0;
+WILLUSBITMAP *bmp,_bmp;
+char filename[256];
+sprintf(filename,"ocrt_%04d.png",++counter);
+bmp=&_bmp;
+bmp_init(bmp);
+bmp_copy(bmp,bmp8);
+bmp_promote_to_24(bmp);
+bmp_set_dpi((double)dpi);
+bmp_write(bmp,filename,stdout,100);
+bmp_free(bmp);
+}
+*/
     status=tess_capi_get_ocr(api,pix,text,maxlen,segmode<0 || segmode>10 ? 6 : segmode,out);
     pixDestroy(&pix);
     if (status<0)

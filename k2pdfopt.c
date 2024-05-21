@@ -8,7 +8,7 @@
 **               downloads for MS Windows, Mac OSX, and Linux. The MS Windows
 **               version has an integrated GUI. K2pdfopt is open source.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2017  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as

@@ -31,6 +31,7 @@ typedef struct
     WILLUSBITMAP *bmp;
     int type,c1,r1,c2,r2,rowbase,dpi;
     double lcheight;
+    int    target_dpi;      /* Desired OCR bitmap DPI */
     pthread_mutex_t mutex;
     int done;
     OCRWORDS ocrwords;
@@ -493,6 +494,7 @@ k2printf("  %d row%s of text, dst_ocr='%c'\n",region->textrows.n,region->textrow
         ocrwords_init(&ocrresult->ocrwords);
         ocrresult->rowbase=-1;
         ocrresult->lcheight=-1;
+        ocrresult->target_dpi=k2settings->ocr_dpi;
         ocrresult->type=type;
         ocrresults->n++;
         }
@@ -529,7 +531,7 @@ region->textrows.textrow[i].r2-region->textrows.textrow[i].r1+1);
             if ((double)(rowbase-r1)/(r2-r1) < .5)
                 rowbase = r1+(r2-r1)*0.7;
             if (lcheight/(r2-r1) < .33)
-                lcheight = 0.33;
+                lcheight = 0.33*(r2-r1);
             if (k2settings->dst_ocr=='t' && k2settings->ocr_detection_type=='l')
                 {
                 OCRRESULT *ocrresult;
@@ -552,6 +554,7 @@ region->textrows.textrow[i].r2-region->textrows.textrow[i].r1+1);
                 ocrwords_init(&ocrresult->ocrwords);
                 ocrresult->rowbase=rowbase;
                 ocrresult->lcheight=lcheight;
+                ocrresult->target_dpi=k2settings->ocr_dpi;
                 ocrresult->type=type;
                 ocrresults->n++;
                 continue;
@@ -582,6 +585,7 @@ region->textrows.textrow[i].r2-region->textrows.textrow[i].r1+1);
                 ocrwords_init(&ocrresult->ocrwords);
                 ocrresult->rowbase=rowbase;
                 ocrresult->lcheight=lcheight;
+                ocrresult->target_dpi=k2settings->ocr_dpi;
                 ocrresult->type=type;
                 ocrresults->n++;
                 } /* text word loop */
@@ -833,10 +837,21 @@ static void ocr_proc_bitmap(void *api,OCRRESULT *ocrresult)
         {
 #ifdef HAVE_TESSERACT_LIB
         case 't':
+            {
+            double downsample;
+
+            if (ocrresult->lcheight > 0. && ocrresult->target_dpi < 0
+                      && ocrresult->lcheight > -ocrresult->target_dpi)
+                downsample = (double)-ocrresult->target_dpi / ocrresult->lcheight;
+            else if (ocrresult->dpi > 0 && ocrresult->target_dpi > 0
+                      && ocrresult->dpi > ocrresult->target_dpi)
+                downsample = (double)ocrresult->target_dpi / ocrresult->dpi;
+            else
+                downsample = 1.;
             ocrtess_ocrwords_from_bmp8(api,&ocrresult->ocrwords,ocrresult->bmp,
                               ocrresult->c1,ocrresult->r1,
                               ocrresult->c2,ocrresult->r2,ocrresult->dpi,
-                              -1,NULL);
+                              -1,downsample,NULL);
 /*
 #if (WILLUSDEBUGX & 32)
 {
@@ -854,6 +869,7 @@ printf("        %2d. '%s' (%d,%d) w=%d, h=%d\n",i+1,word->text,word->c,word->r,w
 #endif
 */
             break;
+            }
 #endif
 #ifdef HAVE_GOCR_LIB
         case 'g':
