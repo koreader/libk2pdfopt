@@ -7,7 +7,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2023  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -760,4 +760,34 @@ WZFILE *wzuncompressed(FILE *out)
     wz.type=0;
     wz.f=(void *)out;
     return(&wz);
+    }
+
+
+/*
+** Not the most efficient of ways--needs 1 MB buffer.  But s/b fast.
+*/
+size_t wzsize(char *filename)
+
+    {
+    WZFILE *f;
+    char *buf;
+    int nbuf;
+    size_t size;
+
+    nbuf=1024*1024;
+    buf=malloc(nbuf);
+    if (buf==NULL)
+        return(-1);
+    f=wzopen(filename,"rbz");
+    size=0;
+    while (1)
+        {
+        int n;
+        n=wzread(f,buf,nbuf);
+        size+=n;
+        if (n<nbuf)
+            break;
+        }
+    wzclose(f);
+    return(size);
     }

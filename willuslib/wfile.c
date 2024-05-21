@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2022  http://willus.com
+** Copyright (C) 2023  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -134,6 +134,9 @@ void *__crt0_glob_function(void)
     {
     return(NULL);
     }
+#endif
+#ifdef WIN32
+static double ularge_to_double(ULARGE_INTEGER *x);
 #endif
 
 
@@ -1050,7 +1053,7 @@ double wfile_freespace(char *volume,double *totalspace)
 
     {
 #ifdef WIN32
-    long    spc,bps,fc,tc;
+    // long    spc,bps,fc,tc;
     char    vol[256];
 
     if (volume[1]==':' || volume[1]=='\0')
@@ -1067,12 +1070,18 @@ double wfile_freespace(char *volume,double *totalspace)
         if (strlen(vol)>0 && vol[strlen(vol)-1]!='\\')
             strcat(vol,"\\");
         }
-    GetDiskFreeSpace(vol,(void *)&spc,(void *)&bps,(void *)&fc,(void *)&tc);
+    {
+    ULARGE_INTEGER freebytestocaller,totalbytes,freebytes;
+
+    GetDiskFreeSpaceEx(vol,&freebytestocaller,&totalbytes,&freebytes);
+//    GetDiskFreeSpace(vol,(void *)&spc,(void *)&bps,(void *)&fc,(void *)&tc);
     /* fc = free clusters, spc = sectors/cluster, bps = bytes/sector */
     if (totalspace!=NULL)
-        (*totalspace) = (double)tc*(double)spc*bps;
-    return((double)fc*(double)spc*bps);
-#else
+        (*totalspace) = ularge_to_double(&totalbytes);
+//        (*totalspace) = (double)tc*(double)spc*bps;
+    return(ularge_to_double(&freebytestocaller));
+    }
+#else /* !WIN32 */
     static char tempname[MAXFILENAMELEN];
     static char cmd[MAXFILENAMELEN];
     double v[4],freebytes,totbytes;
@@ -1122,7 +1131,7 @@ double wfile_freespace(char *volume,double *totalspace)
     if (totalspace!=NULL)
         (*totalspace) = totbytes;
     return(freebytes);
-#endif
+#endif /* WIN32 */
     }
 
 
@@ -2125,6 +2134,7 @@ void wfile_abstmpnam(char *filename)
 
     {
     strcpy(filename,wfile_tempname(NULL,NULL));
+    wfile_make_absolute(filename);
     }
 
 
@@ -3604,3 +3614,24 @@ int wfile_file_contains(char *filename,unsigned char *buf,int n)
     fclose(f);
     return(0);
     }
+
+
+int wfile_filename_is_wild(char *filename)
+
+    {
+    int i;
+
+    for (i=0;filename[i]!='\0';i++)
+        if (filename[i]=='*' || filename[i]=='?')
+            return(1);
+    return(0);
+    }
+
+
+#ifdef WIN32
+static double ularge_to_double(ULARGE_INTEGER *x)
+
+    {
+    return((double)x->u.HighPart*4294967296.+(double)x->u.LowPart);
+    }
+#endif

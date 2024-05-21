@@ -103,7 +103,7 @@ static STRING_VAR(document_title, "", "Title of output document (used for hOCR a
 static INT_VAR(curl_timeout, 0, "Timeout for curl in seconds");
 #endif
 
-/** Minimum sensible image size to be worth running tesseract. */
+/** Minimum sensible image size to be worth running Tesseract. */
 const int kMinRectSize = 10;
 /** Character returned when Tesseract couldn't recognize as anything. */
 const char kTesseractReject = '~';
@@ -412,7 +412,7 @@ int TessBaseAPI::Init(const char *data, int data_size, const char *language, Ocr
     if (data_size != 0) {
       mgr.LoadMemBuffer(language, data, data_size);
     }
-    if (tesseract_->init_tesseract(datapath.c_str(), output_file_.c_str(), language, oem, configs,
+    if (tesseract_->init_tesseract(datapath, output_file_, language, oem, configs,
                                    configs_size, vars_vec, vars_values, set_only_non_debug_params,
                                    &mgr) != 0) {
       return -1;
@@ -613,7 +613,7 @@ void TessBaseAPI::SetImage(Pix *pix) {
 
 /**
  * Restrict recognition to a sub-rectangle of the image. Call after SetImage.
- * Each SetRectangle clears the recogntion results so multiple rectangles
+ * Each SetRectangle clears the recognition results so multiple rectangles
  * can be recognized with the same image.
  */
 void TessBaseAPI::SetRectangle(int left, int top, int width, int height) {
@@ -1584,6 +1584,7 @@ char *TessBaseAPI::GetBoxText(int page_number) {
   return result;
 }
 
+
 /* willus mod */
 int TessBaseAPI::GetOCRWords(int **x00,int **y00,int **x11,int **y11,int **ybaseline0,
                              char **utf8words)
@@ -2242,7 +2243,7 @@ int TessBaseAPI::FindLines() {
             " but data path is undefined\n");
         delete osd_tesseract_;
         osd_tesseract_ = nullptr;
-      } else if (osd_tesseract_->init_tesseract(datapath_.c_str(), "", "osd", OEM_TESSERACT_ONLY,
+      } else if (osd_tesseract_->init_tesseract(datapath_, "", "osd", OEM_TESSERACT_ONLY,
                                                 nullptr, 0, nullptr, nullptr, false, &mgr) == 0) {
         osd_tess = osd_tesseract_;
         osd_tesseract_->set_source_resolution(thresholder_->GetSourceYResolution());
@@ -2440,7 +2441,7 @@ int TessBaseAPI::NumDawgs() const {
   return tesseract_ == nullptr ? 0 : tesseract_->getDict().NumDawgs();
 }
 
-/** Escape a char string - remove <>&"' with HTML codes. */
+/** Escape a char string - replace <>&"' with HTML codes. */
 std::string HOcrEscape(const char *text) {
   std::string ret;
   const char *ptr;

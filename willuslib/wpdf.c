@@ -1,12 +1,10 @@
 /*
 ** wpdf.c      PDF support routines to process WPDFBOX, WPDFPAGEINFO, and WTEXTCHAR
-**             structures.  The functions in this file are divorced from MuPDF.
-**             Any functions that work with these structures and also
-**             depend on MuPDF are in wmupdf.c.
+**             structures.
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2020  http://willus.com
+** Copyright (C) 2023  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as

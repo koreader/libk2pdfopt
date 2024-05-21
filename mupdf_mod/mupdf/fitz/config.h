@@ -17,8 +17,8 @@
 //
 // Alternative licensing terms are available from the licensor.
 // For commercial licensing, see <https://www.artifex.com/> or contact
-// Artifex Software, Inc., 1305 Grant Avenue - Suite 200, Novato,
-// CA 94945, U.S.A., +1(415)492-9861, for further information.
+// Artifex Software, Inc., 39 Mesa Street, Suite 108A, San Francisco,
+// CA 94129, USA, for further information.
 
 #ifndef FZ_CONFIG_H
 
@@ -53,20 +53,20 @@
 */
 /* #define FZ_ENABLE_PDF 1 */
 /* #define FZ_ENABLE_XPS 1 */
-#define FZ_ENABLE_SVG 0
+/* #define FZ_ENABLE_SVG 1 */
 /* #define FZ_ENABLE_CBZ 1 */
 /* #define FZ_ENABLE_IMG 1 */
-#define FZ_ENABLE_HTML 0
-#define FZ_ENABLE_EPUB 0
+/* #define FZ_ENABLE_HTML 1 */
+/* #define FZ_ENABLE_EPUB 1 */
 
 /**
 	Choose which document writers to include.
 	By default all are enabled. To avoid building unwanted
 	ones, define FZ_ENABLE_..._OUTPUT to 0.
 */
-#define FZ_ENABLE_OCR_OUTPUT 0
-#define FZ_ENABLE_DOCX_OUTPUT 0
-#define FZ_ENABLE_ODT_OUTPUT 0
+/* #define FZ_ENABLE_OCR_OUTPUT 1 */
+/* #define FZ_ENABLE_DOCX_OUTPUT 1 */
+/* #define FZ_ENABLE_ODT_OUTPUT 1 */
 
 /**
 	Choose whether to enable ICC color profiles.
@@ -86,7 +86,7 @@
 	By default JavaScript is enabled both for mutool and PDF
 	interactivity.
 */
-#define FZ_ENABLE_JS 0
+/* #define FZ_ENABLE_JS 1 */
 
 /**
 	Choose which fonts to include.
@@ -169,7 +169,7 @@
 #endif /* FZ_ENABLE_XPS */
 
 #ifndef FZ_ENABLE_SVG
-#define FZ_ENABLE_SVG 1
+#define FZ_ENABLE_SVG 0
 #endif /* FZ_ENABLE_SVG */
 
 #ifndef FZ_ENABLE_CBZ
@@ -181,23 +181,23 @@
 #endif /* FZ_ENABLE_IMG */
 
 #ifndef FZ_ENABLE_HTML
-#define FZ_ENABLE_HTML 1
+#define FZ_ENABLE_HTML 0
 #endif /* FZ_ENABLE_HTML */
 
 #ifndef FZ_ENABLE_EPUB
-#define FZ_ENABLE_EPUB 1
+#define FZ_ENABLE_EPUB 0
 #endif /* FZ_ENABLE_EPUB */
 
 #ifndef FZ_ENABLE_OCR_OUTPUT
-#define FZ_ENABLE_OCR_OUTPUT 1
+#define FZ_ENABLE_OCR_OUTPUT 0
 #endif /* FZ_ENABLE_OCR_OUTPUT */
 
 #ifndef FZ_ENABLE_ODT_OUTPUT
-#define FZ_ENABLE_ODT_OUTPUT 1
+#define FZ_ENABLE_ODT_OUTPUT 0
 #endif /* FZ_ENABLE_ODT_OUTPUT */
 
 #ifndef FZ_ENABLE_DOCX_OUTPUT
-#define FZ_ENABLE_DOCX_OUTPUT 1
+#define FZ_ENABLE_DOCX_OUTPUT 0
 #endif /* FZ_ENABLE_DOCX_OUTPUT */
 
 #ifndef FZ_ENABLE_JPX
@@ -205,7 +205,7 @@
 #endif /* FZ_ENABLE_JPX */
 
 #ifndef FZ_ENABLE_JS
-#define FZ_ENABLE_JS 1
+#define FZ_ENABLE_JS 0
 #endif /* FZ_ENABLE_JS */
 
 #ifndef FZ_ENABLE_ICC

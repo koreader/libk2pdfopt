@@ -13,7 +13,7 @@ set(WILLUSLIB_SRC
     render.c strbuf.c string.c token.c wfile.c wgs.c wgui.c
     willusversion.c win.c winbmp.c wincomdlg.c wininet.c winmbox.c
     winshell.c winshellwapi.c wleptonica.c wmupdf.c wmupdfinfo.c wpdf.c
-    wsys.c wzfile.c
+    wpdfoutline.c wpdfutil.c wsys.c wzfile.c
 )
 # ocr.c  
 # win.c  winbmp.c winmbox.c wincomdlg.c wgui.c winshell.c

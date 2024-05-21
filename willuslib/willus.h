@@ -416,6 +416,7 @@ int     wzerror(WZFILE *wz);
 int     wzprintf(WZFILE *wz,char *fmt,...);
 int     wzcompressed(WZFILE *wz);
 WZFILE *wzuncompressed(FILE *out);
+size_t  wzsize(char *filename);
 
 /* strbuf.c */
 typedef struct
@@ -443,6 +444,7 @@ void strbuf_sprintf_no_space(STRBUF *sbuf,char *fmt,...);
 void strbuf_dsprintf_no_space(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
 
 /* array.c */
+int array_mean_xy(double *x,double *y,int n,double x1,double x2,double *mean,double *stdev);
 double array_mean(double *a,int n,double *mean,double *stddev);
 double arrayi_mean(int *a,int n,double *mean,double *stddev);
 double array_weighted_mean(double *a,double *w,int n);
@@ -906,6 +908,8 @@ void pdffile_add_bitmap_with_ocrwords(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,
 void pdffile_finish(PDFFILE *pdf,char *title,char *author,char *producer,char *cdate);
 int  pdf_numpages(char *filename);
 void ocrwords_box(OCRWORDS *ocrwords,WILLUSBITMAP *bmp);
+
+/* wpdfoutline.c */
 void wpdfoutline_init(WPDFOUTLINE *wpdfoutline);
 void wpdfoutline_free(WPDFOUTLINE *wpdfoutline);
 void wpdfoutline_append(WPDFOUTLINE *outline1,WPDFOUTLINE *outline2);
@@ -916,9 +920,8 @@ void wpdfoutline_echo(WPDFOUTLINE *outline,int level,int count,FILE *out);
 void wpdfoutline_echo2(WPDFOUTLINE *outline,int level,FILE *out);
 int  wpdfoutline_fill_in_blank_dstpages(WPDFOUTLINE *outline,int pageno);
 WPDFOUTLINE *wpdfoutline_read_from_text_file(char *filename);
-int  wpdf_docenc_from_utf8(char *dst,char *src_utf8,int maxlen);
 /*
-** For pslib.c
+** These functions support pslib.c
 */
 int wpdfoutline_num_anchors_recursive(WPDFOUTLINE *outline);
 int wpdfoutline_num_anchors_on_level(WPDFOUTLINE *outline,int *rcount);
@@ -926,8 +929,6 @@ int wpdfoutline_index(WPDFOUTLINE *outline,WPDFOUTLINE *local);
 WPDFOUTLINE *wpdfoutline_by_index(WPDFOUTLINE *outline,int index);
 WPDFOUTLINE *wpdfoutline_previous(WPDFOUTLINE *outline,WPDFOUTLINE *local);
 WPDFOUTLINE *wpdfoutline_parent(WPDFOUTLINE *outline,WPDFOUTLINE *local);
-void pdf_utf8_out(FILE *f,char *text);
-void strbuf_cat_pdf_utf8(STRBUF *s,char *utf8);
 
 /* wfile.c */
 #define DIR_STRUCT_SIZE 4096
@@ -1097,6 +1098,7 @@ int wfile_rename_utf8(char *filename1,char *filename2);
 int wfile_read_ascii_to_buf(char **buf,char *filename);
 int wfile_files_match(char *file1,char *file2);
 int wfile_file_contains(char *filename,unsigned char *buf,int n);
+int wfile_filename_is_wild(char *filename);
 
 /* dtcompress.c */
 /* From Dirk Thierbach, 31-Dec-2013, avoids custom mod to Z-lib */
@@ -1806,6 +1808,11 @@ void wtextchar_array_sort_horizontally_by_position(WTEXTCHAR *x,int n);
 void wtextchars_to_strbuf_formatted(WTEXTCHARS *wtcs,STRBUF *sbuf);
 void wtextchars_scale_page(WTEXTCHARS *wtextchars,double scale_factor);
 void wtextchars_to_easyplot(WTEXTCHARS *wtcs,char *filename);
+
+/* wpdfutil.c */
+void pdf_utf8_out(FILE *f,char *text);
+void strbuf_cat_pdf_utf8(STRBUF *s,char *utf8);
+int  wpdf_docenc_from_utf8(char *dst,char *src_utf8,int maxlen);
 
 /* bmpmupdf.c */
 /* Mupdf / bitmap functions */

@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2023  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -34,6 +34,37 @@ static double findminfitd1(double *x,double *y,int n,double x0,double dx,
 static int array_recfft(double *xr,double *xi,int length);
 static int arrayf_recfft(float *xr,float *xi,int length);
 static double digit_reverse(int x,int base);
+
+
+/*
+** mean/stdev of y[] from x1 to x2
+**
+** x[] must be sorted
+*/
+int array_mean_xy(double *x,double *y,int n,double x1,double x2,double *mean,double *stdev)
+
+    {
+    int i1,i2;
+
+    if (mean!=NULL)
+        (*mean)=0.;
+    if (stdev!=NULL)
+        (*stdev)=0.;
+    for (i1=0;i1<n;i1++)
+        if (x[i1] >= x1)
+            break;
+    if (i1>=n)
+        return(0);
+    for (i2=n-1;i2>=0;i2--)
+        if (x[i2] <= x2)
+            break;
+    if (i2<i1)
+        return(0);
+    array_mean(&y[i1],i2-i1+1,mean,stdev);
+    return(i2-i1+1);
+    }
+
+
 
 /*
 **
