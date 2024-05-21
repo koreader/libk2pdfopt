@@ -1,17 +1,23 @@
+#include "mupdf/fitz.h"
+#include "mupdf/ucdn.h"
 #include "fitz-imp.h"
-
 #include "font-imp.h"
+#include "draw-imp.h"
 
 #include <ft2build.h>
-/* willus mod */
+/* willus mod -- remove hb includes */
 /*
 #include "hb.h"
 #include "hb-ft.h"
 */
 
+#include <assert.h>
+
 #include FT_FREETYPE_H
 #include FT_ADVANCES_H
+#include FT_MODULE_H
 #include FT_STROKER_H
+#include FT_SYSTEM_H
 #include FT_TRUETYPE_TABLES_H
 #include FT_TRUETYPE_TAGS_H
 
@@ -45,7 +51,6 @@ fz_new_font(fz_context *ctx, const char *name, int use_glyph_bbox, int glyph_cou
 	font->flags.ft_substitute = 0;
 	font->flags.fake_bold = 0;
 	font->flags.fake_italic = 0;
-	font->flags.force_hinting = 0;
 	font->flags.has_opentype = 0;
 
 	font->t3matrix = fz_identity;
@@ -64,7 +69,6 @@ fz_new_font(fz_context *ctx, const char *name, int use_glyph_bbox, int glyph_cou
 
 	font->glyph_count = glyph_count;
 
-	font->flags.use_glyph_bbox = !!use_glyph_bbox;
 	if (use_glyph_bbox && glyph_count <= MAX_BBOX_TABLE_SIZE)
 	{
 		font->bbox_table = fz_malloc_array(ctx, glyph_count, sizeof(fz_rect));
@@ -73,11 +77,6 @@ fz_new_font(fz_context *ctx, const char *name, int use_glyph_bbox, int glyph_cou
 	}
 	else
 	{
-/* willus.com mod -- no warning */
-/*
-		if (use_glyph_bbox)
-			fz_warn(ctx, "not building glyph bbox table for font '%s' with %d glyphs", font->name, glyph_count);
-*/
 		font->bbox_table = NULL;
 	}
 
@@ -174,12 +173,17 @@ fz_set_font_bbox(fz_context *ctx, fz_font *font, float xmin, float ymin, float x
 {
 	if (xmin >= xmax || ymin >= ymax)
 	{
-		/* Invalid bbox supplied. It would be prohibitively slow to
-		 * measure the true one, so make one up. */
-		font->bbox.x0 = -1;
-		font->bbox.y0 = -1;
-		font->bbox.x1 = 2;
-		font->bbox.y1 = 2;
+		/* Invalid bbox supplied. */
+		if (font->t3procs)
+		{
+			/* For type3 fonts we use the union of all the glyphs' bboxes. */
+			font->bbox = fz_empty_rect;
+		}
+		else
+		{
+			/* For other fonts it would be prohibitively slow to measure the true one, so make one up. */
+			font->bbox = fz_unit_rect;
+		}
 		font->flags.invalid_bbox = 1;
 	}
 	else
@@ -191,6 +195,28 @@ fz_set_font_bbox(fz_context *ctx, fz_font *font, float xmin, float ymin, float x
 	}
 }
 
+float fz_font_ascender(fz_context *ctx, fz_font *font)
+{
+	if (font->t3procs)
+		return font->bbox.y1;
+	else
+	{
+		FT_Face face = font->ft_face;
+		return (float)face->ascender / face->units_per_EM;
+	}
+}
+
+float fz_font_descender(fz_context *ctx, fz_font *font)
+{
+	if (font->t3procs)
+		return font->bbox.y0;
+	else
+	{
+		FT_Face face = font->ft_face;
+		return (float)face->descender / face->units_per_EM;
+	}
+}
+
 /*
  * Freetype hooks
  */
@@ -199,13 +225,17 @@ struct fz_font_context_s
 {
 	int ctx_refs;
 	FT_Library ftlib;
+	struct FT_MemoryRec_ ftmemory;
 	int ftlib_refs;
-	fz_load_system_font_func load_font;
-	fz_load_system_cjk_font_func load_cjk_font;
+	fz_load_system_font_fn *load_font;
+	fz_load_system_cjk_font_fn *load_cjk_font;
+	fz_load_system_fallback_font_fn *load_fallback_font;
 
 	/* Cached fallback fonts */
+	fz_font *base14[14];
+	fz_font *cjk[4];
 	struct { fz_font *serif, *sans; } fallback[256];
-	fz_font *symbol;
+	fz_font *symbol1, *symbol2;
 	fz_font *emoji;
 };
 
@@ -220,6 +250,33 @@ struct ft_error
 	char *str;
 };
 
+static void *ft_alloc(FT_Memory memory, long size)
+{
+	fz_context *ctx = (fz_context *) memory->user;
+	return fz_malloc_no_throw(ctx, size);
+}
+
+static void ft_free(FT_Memory memory, void *block)
+{
+	fz_context *ctx = (fz_context *) memory->user;
+	fz_free(ctx, block);
+}
+
+static void *ft_realloc(FT_Memory memory, long cur_size, long new_size, void *block)
+{
+	fz_context *ctx = (fz_context *) memory->user;
+	void *newblock = NULL;
+	if (new_size == 0)
+	{
+		fz_free(ctx, block);
+		return newblock;
+	}
+	if (block == NULL)
+		return ft_alloc(memory, new_size);
+	return fz_resize_array_no_throw(ctx, block, 1, new_size);
+}
+
+
 void fz_new_font_context(fz_context *ctx)
 {
 	ctx->font = fz_malloc_struct(ctx, fz_font_context);
@@ -227,6 +284,10 @@ void fz_new_font_context(fz_context *ctx)
 	ctx->font->ftlib = NULL;
 	ctx->font->ftlib_refs = 0;
 	ctx->font->load_font = NULL;
+	ctx->font->ftmemory.user = ctx;
+	ctx->font->ftmemory.alloc = ft_alloc;
+	ctx->font->ftmemory.free = ft_free;
+	ctx->font->ftmemory.realloc = ft_realloc;
 }
 
 fz_font_context *
@@ -246,22 +307,31 @@ void fz_drop_font_context(fz_context *ctx)
 	{
 		int i;
 
+		for (i = 0; i < nelem(ctx->font->base14); ++i)
+			fz_drop_font(ctx, ctx->font->base14[i]);
+		for (i = 0; i < nelem(ctx->font->cjk); ++i)
+			fz_drop_font(ctx, ctx->font->cjk[i]);
 		for (i = 0; i < nelem(ctx->font->fallback); ++i)
 		{
 			fz_drop_font(ctx, ctx->font->fallback[i].serif);
 			fz_drop_font(ctx, ctx->font->fallback[i].sans);
 		}
-		fz_drop_font(ctx, ctx->font->symbol);
+		fz_drop_font(ctx, ctx->font->symbol1);
+		fz_drop_font(ctx, ctx->font->symbol2);
 		fz_drop_font(ctx, ctx->font->emoji);
 		fz_free(ctx, ctx->font);
 		ctx->font = NULL;
 	}
 }
 
-void fz_install_load_system_font_funcs(fz_context *ctx, fz_load_system_font_func f, fz_load_system_cjk_font_func f_cjk)
+void fz_install_load_system_font_funcs(fz_context *ctx,
+		fz_load_system_font_fn *f,
+		fz_load_system_cjk_font_fn *f_cjk,
+		fz_load_system_fallback_font_fn *f_back)
 {
 	ctx->font->load_font = f;
 	ctx->font->load_cjk_font = f_cjk;
+	ctx->font->load_fallback_font = f_back;
 }
 
 fz_font *fz_load_system_font(fz_context *ctx, const char *name, int bold, int italic, int needs_exact_metrics)
@@ -271,13 +341,9 @@ fz_font *fz_load_system_font(fz_context *ctx, const char *name, int bold, int it
 	if (ctx->font->load_font)
 	{
 		fz_try(ctx)
-		{
 			font = ctx->font->load_font(ctx, name, bold, italic, needs_exact_metrics);
-		}
 		fz_catch(ctx)
-		{
 			font = NULL;
-		}
 	}
 
 	return font;
@@ -290,13 +356,24 @@ fz_font *fz_load_system_cjk_font(fz_context *ctx, const char *name, int ros, int
 	if (ctx->font->load_cjk_font)
 	{
 		fz_try(ctx)
-		{
 			font = ctx->font->load_cjk_font(ctx, name, ros, serif);
-		}
 		fz_catch(ctx)
-		{
 			font = NULL;
-		}
+	}
+
+	return font;
+}
+
+fz_font *fz_load_system_fallback_font(fz_context *ctx, int script, int language, int serif, int bold, int italic)
+{
+	fz_font *font = NULL;
+
+	if (ctx->font->load_fallback_font)
+	{
+		fz_try(ctx)
+			font = ctx->font->load_fallback_font(ctx, script, language, serif, bold, italic);
+		fz_catch(ctx)
+			font = NULL;
 	}
 
 	return font;
@@ -304,8 +381,10 @@ fz_font *fz_load_system_cjk_font(fz_context *ctx, const char *name, int ros, int
 
 fz_font *fz_load_fallback_font(fz_context *ctx, int script, int language, int serif, int bold, int italic)
 {
-	const char *data;
+	fz_font **fontp;
+	const unsigned char *data;
 	int index;
+	int subfont;
 	int size;
 
 	if (script < 0 || script > nelem(ctx->font->fallback))
@@ -320,8 +399,8 @@ fz_font *fz_load_fallback_font(fz_context *ctx, int script, int language, int se
 		{
 		case FZ_LANG_ja: index = UCDN_LAST_SCRIPT + 1; break;
 		case FZ_LANG_ko: index = UCDN_LAST_SCRIPT + 2; break;
-		case FZ_LANG_zh_Hant: index = UCDN_LAST_SCRIPT + 3; break;
-		case FZ_LANG_zh_Hans: index = UCDN_LAST_SCRIPT + 4; break;
+		case FZ_LANG_zh_Hans: index = UCDN_LAST_SCRIPT + 3; break;
+		case FZ_LANG_zh_Hant: index = UCDN_LAST_SCRIPT + 4; break;
 		}
 	}
 	if (script == UCDN_SCRIPT_ARABIC)
@@ -331,45 +410,53 @@ fz_font *fz_load_fallback_font(fz_context *ctx, int script, int language, int se
 	}
 
 	if (serif)
+		fontp = &ctx->font->fallback[index].serif;
+	else
+		fontp = &ctx->font->fallback[index].sans;
+
+	if (!*fontp)
 	{
-		if (ctx->font->fallback[index].serif)
-			return ctx->font->fallback[index].serif;
-		data = fz_lookup_noto_font(ctx, script, language, 1, &size);
-		if (data)
+		*fontp = fz_load_system_fallback_font(ctx, script, language, serif, bold, italic);
+		if (!*fontp)
 		{
-			ctx->font->fallback[index].serif = fz_new_font_from_memory(ctx, NULL, data, size, 0, 0);
-			return ctx->font->fallback[index].serif;
+			data = fz_lookup_noto_font(ctx, script, language, &size, &subfont);
+			if (data)
+				*fontp = fz_new_font_from_memory(ctx, NULL, data, size, subfont, 0);
 		}
 	}
 
-	if (ctx->font->fallback[index].sans)
-		return ctx->font->fallback[index].sans;
-	data = fz_lookup_noto_font(ctx, script, language, 0, &size);
-	if (data)
-	{
-		ctx->font->fallback[index].sans = fz_new_font_from_memory(ctx, NULL, data, size, 0, 0);
-		return ctx->font->fallback[index].sans;
-	}
-
-	return NULL;
+	return *fontp;
 }
 
-fz_font *fz_load_fallback_symbol_font(fz_context *ctx)
+static fz_font *fz_load_fallback_symbol1_font(fz_context *ctx)
 {
-	const char *data;
+	const unsigned char *data;
 	int size;
-	if (!ctx->font->symbol)
+	if (!ctx->font->symbol1)
 	{
-		data = fz_lookup_noto_symbol_font(ctx, &size);
+		data = fz_lookup_noto_symbol1_font(ctx, &size);
 		if (data)
-			ctx->font->symbol = fz_new_font_from_memory(ctx, NULL, data, size, 0, 0);
+			ctx->font->symbol1 = fz_new_font_from_memory(ctx, NULL, data, size, 0, 0);
 	}
-	return ctx->font->symbol;
+	return ctx->font->symbol1;
 }
 
-fz_font *fz_load_fallback_emoji_font(fz_context *ctx)
+static fz_font *fz_load_fallback_symbol2_font(fz_context *ctx)
 {
-	const char *data;
+	const unsigned char *data;
+	int size;
+	if (!ctx->font->symbol2)
+	{
+		data = fz_lookup_noto_symbol2_font(ctx, &size);
+		if (data)
+			ctx->font->symbol2 = fz_new_font_from_memory(ctx, NULL, data, size, 0, 0);
+	}
+	return ctx->font->symbol2;
+}
+
+static fz_font *fz_load_fallback_emoji_font(fz_context *ctx)
+{
+	const unsigned char *data;
 	int size;
 	if (!ctx->font->emoji)
 	{
@@ -411,7 +498,7 @@ fz_keep_freetype(fz_context *ctx)
 		return;
 	}
 
-	fterr = FT_Init_FreeType(&fct->ftlib);
+	fterr = FT_New_Library(&fct->ftmemory, &fct->ftlib);
 	if (fterr)
 	{
 		const char *mess = ft_error_string(fterr);
@@ -419,10 +506,12 @@ fz_keep_freetype(fz_context *ctx)
 		fz_throw(ctx, FZ_ERROR_GENERIC, "cannot init freetype: %s", mess);
 	}
 
+	FT_Add_Default_Modules(fct->ftlib);
+
 	FT_Library_Version(fct->ftlib, &maj, &min, &pat);
 	if (maj == 2 && min == 1 && pat < 7)
 	{
-		fterr = FT_Done_FreeType(fct->ftlib);
+		fterr = FT_Done_Library(fct->ftlib);
 		if (fterr)
 			fz_warn(ctx, "freetype finalizing: %s", ft_error_string(fterr));
 		fz_unlock(ctx, FZ_LOCK_FREETYPE);
@@ -442,7 +531,7 @@ fz_drop_freetype(fz_context *ctx)
 	fz_lock(ctx, FZ_LOCK_FREETYPE);
 	if (--fct->ftlib_refs == 0)
 	{
-		fterr = FT_Done_FreeType(fct->ftlib);
+		fterr = FT_Done_Library(fct->ftlib);
 		if (fterr)
 			fz_warn(ctx, "freetype finalizing: %s", ft_error_string(fterr));
 		fct->ftlib = NULL;
@@ -458,6 +547,7 @@ fz_new_font_from_buffer(fz_context *ctx, const char *name, fz_buffer *buffer, in
 	fz_font *font;
 	int fterr;
 	FT_ULong tag, size, i, n;
+	char namebuf[sizeof(font->name)];
 
 	fz_keep_freetype(ctx);
 
@@ -471,7 +561,27 @@ fz_new_font_from_buffer(fz_context *ctx, const char *name, fz_buffer *buffer, in
 	}
 
 	if (!name)
-		name = face->family_name;
+	{
+		if (!face->family_name)
+		{
+			name = face->style_name;
+		}
+		else if (!face->style_name)
+		{
+			name = face->family_name;
+		}
+		else if (strstr(face->style_name, face->family_name) == face->style_name)
+		{
+			name = face->style_name;
+		}
+		else
+		{
+			fz_strlcpy(namebuf, face->family_name, sizeof(namebuf));
+			fz_strlcat(namebuf, " ", sizeof(namebuf));
+			fz_strlcat(namebuf, face->style_name, sizeof(namebuf));
+			name = namebuf;
+		}
+	}
 
 	font = fz_new_font(ctx, name, use_glyph_bbox, face->num_glyphs);
 	font->ft_face = face;
@@ -501,16 +611,30 @@ fz_new_font_from_buffer(fz_context *ctx, const char *name, fz_buffer *buffer, in
 		}
 	}
 
+	if (name)
+	{
+		if (!font->flags.is_bold)
+		{
+			if (strstr(name, "Semibold")) font->flags.is_bold = 1;
+			if (strstr(name, "Bold")) font->flags.is_bold = 1;
+		}
+		if (!font->flags.is_italic)
+		{
+			if (strstr(name, "Italic")) font->flags.is_italic = 1;
+			if (strstr(name, "Oblique")) font->flags.is_italic = 1;
+		}
+	}
+
 	font->buffer = fz_keep_buffer(ctx, buffer);
 
 	return font;
 }
 
 fz_font *
-fz_new_font_from_memory(fz_context *ctx, const char *name, const char *data, int len, int index, int use_glyph_bbox)
+fz_new_font_from_memory(fz_context *ctx, const char *name, const unsigned char *data, int len, int index, int use_glyph_bbox)
 {
 	fz_buffer *buffer = fz_new_buffer_from_shared_data(ctx, data, len);
-	fz_font *font;
+	fz_font *font = NULL;
 	fz_try(ctx)
 		font = fz_new_font_from_buffer(ctx, name, buffer, index, use_glyph_bbox);
 	fz_always(ctx)
@@ -524,7 +648,7 @@ fz_font *
 fz_new_font_from_file(fz_context *ctx, const char *name, const char *path, int index, int use_glyph_bbox)
 {
 	fz_buffer *buffer = fz_read_file(ctx, path);
-	fz_font *font;
+	fz_font *font = NULL;
 	fz_try(ctx)
 		font = fz_new_font_from_buffer(ctx, name, buffer, index, use_glyph_bbox);
 	fz_always(ctx)
@@ -534,21 +658,95 @@ fz_new_font_from_file(fz_context *ctx, const char *name, const char *path, int i
 	return font;
 }
 
+static int
+find_base14_index(const char *name)
+{
+	if (!strcmp(name, "Courier")) return 0;
+	if (!strcmp(name, "Courier-Oblique")) return 1;
+	if (!strcmp(name, "Courier-Bold")) return 2;
+	if (!strcmp(name, "Courier-BoldOblique")) return 3;
+	if (!strcmp(name, "Helvetica")) return 4;
+	if (!strcmp(name, "Helvetica-Oblique")) return 5;
+	if (!strcmp(name, "Helvetica-Bold")) return 6;
+	if (!strcmp(name, "Helvetica-BoldOblique")) return 7;
+	if (!strcmp(name, "Times-Roman")) return 8;
+	if (!strcmp(name, "Times-Italic")) return 9;
+	if (!strcmp(name, "Times-Bold")) return 10;
+	if (!strcmp(name, "Times-BoldItalic")) return 11;
+	if (!strcmp(name, "Symbol")) return 12;
+	if (!strcmp(name, "ZapfDingbats")) return 13;
+	return -1;
+}
+
+fz_font *
+fz_new_base14_font(fz_context *ctx, const char *name)
+{
+	const unsigned char *data;
+	int size;
+	int x = find_base14_index(name);
+	if (x >= 0)
+	{
+		if (ctx->font->base14[x])
+			return fz_keep_font(ctx, ctx->font->base14[x]);
+		data = fz_lookup_base14_font(ctx, name, &size);
+		if (data)
+		{
+			ctx->font->base14[x] = fz_new_font_from_memory(ctx, name, data, size, 0, 1);
+			ctx->font->base14[x]->flags.is_serif = (name[0] == 'T'); /* Times-Roman */
+			return fz_keep_font(ctx, ctx->font->base14[x]);
+		}
+	}
+	fz_throw(ctx, FZ_ERROR_GENERIC, "cannot find builtin font with name '%s'", name);
+}
+
+fz_font *
+fz_new_cjk_font(fz_context *ctx, int ordering)
+{
+	const unsigned char *data;
+	int size, index;
+	if (ordering >= 0 && ordering < nelem(ctx->font->cjk))
+	{
+		if (ctx->font->cjk[ordering])
+			return fz_keep_font(ctx, ctx->font->cjk[ordering]);
+		data = fz_lookup_cjk_font(ctx, ordering, &size, &index);
+		if (data)
+		{
+			ctx->font->cjk[ordering] = fz_new_font_from_memory(ctx, NULL, data, size, index, 0);
+			return fz_keep_font(ctx, ctx->font->cjk[ordering]);
+		}
+	}
+	fz_throw(ctx, FZ_ERROR_GENERIC, "cannot find builtin CJK font");
+}
+
+fz_font *
+fz_new_builtin_font(fz_context *ctx, const char *name, int is_bold, int is_italic)
+{
+	const unsigned char *data;
+	int size;
+	data = fz_lookup_builtin_font(ctx, name, is_bold, is_italic, &size);
+	if (!data)
+		fz_throw(ctx, FZ_ERROR_GENERIC, "cannot find builtin font with name '%s'", name);
+	return fz_new_font_from_memory(ctx, NULL, data, size, 0, 0);
+}
+
 static fz_matrix *
 fz_adjust_ft_glyph_width(fz_context *ctx, fz_font *font, int gid, fz_matrix *trm)
 {
 	/* Fudge the font matrix to stretch the glyph if we've substituted the font. */
 	if (font->flags.ft_stretch && font->width_table /* && font->wmode == 0 */)
 	{
-		FT_Fixed adv;
+		FT_Error fterr;
+		FT_Fixed adv = 0;
 		float subw;
 		float realw;
 
 		fz_lock(ctx, FZ_LOCK_FREETYPE);
-		FT_Get_Advance(font->ft_face, gid, FT_LOAD_NO_SCALE | FT_LOAD_NO_HINTING | FT_LOAD_IGNORE_TRANSFORM, &adv);
+		fterr = FT_Get_Advance(font->ft_face, gid, FT_LOAD_NO_SCALE | FT_LOAD_NO_HINTING | FT_LOAD_IGNORE_TRANSFORM, &adv);
 		fz_unlock(ctx, FZ_LOCK_FREETYPE);
+		if (fterr)
+			fz_warn(ctx, "freetype getting character advance: %s", ft_error_string(fterr));
 
-		realw = (float)adv * 1000 / ((FT_Face)font->ft_face)->units_per_EM;
+		realw = adv * 1000.0f / ((FT_Face)font->ft_face)->units_per_EM;
 		if (gid < font->width_count)
 			subw = font->width_table[gid];
 		else
@@ -556,7 +754,7 @@ fz_adjust_ft_glyph_width(fz_context *ctx, fz_font *font, int gid, fz_matrix *trm
 
 		/* Sanity check scaling in case of broken metrics. */
 		if (realw > 0 && subw > 0)
-			fz_pre_scale(trm, subw / realw, 1);
+			*trm = fz_pre_scale(*trm, subw / realw, 1);
 	}
 
 	return trm;
@@ -582,20 +780,19 @@ pixmap_from_ft_bitmap(fz_context *ctx, int left, int top, FT_Bitmap *bitmap)
 
 /* Takes the freetype lock, and returns with it held */
 static FT_GlyphSlot
-do_ft_render_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, int aa)
+do_ft_render_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix trm, int aa)
 {
 	FT_Face face = font->ft_face;
 	FT_Matrix m;
 	FT_Vector v;
 	FT_Error fterr;
-	fz_matrix local_trm = *trm;
 
 	float strength = fz_matrix_expansion(trm) * 0.02f;
 
-	fz_adjust_ft_glyph_width(ctx, font, gid, &local_trm);
+	fz_adjust_ft_glyph_width(ctx, font, gid, &trm);
 
 	if (font->flags.fake_italic)
-		fz_pre_shear(&local_trm, SHEAR, 0);
+		trm = fz_pre_shear(trm, SHEAR, 0);
 
 	/*
 	Freetype mutilates complex glyphs if they are loaded
@@ -605,12 +802,12 @@ do_ft_render_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm
 	into FT_Set_Char_Size instead
 	*/
 
-	m.xx = local_trm.a * 64; /* should be 65536 */
-	m.yx = local_trm.b * 64;
-	m.xy = local_trm.c * 64;
-	m.yy = local_trm.d * 64;
-	v.x = local_trm.e * 64;
-	v.y = local_trm.f * 64;
+	m.xx = trm.a * 64; /* should be 65536 */
+	m.yx = trm.b * 64;
+	m.xy = trm.c * 64;
+	m.yy = trm.d * 64;
+	v.x = trm.e * 64;
+	v.y = trm.f * 64;
 
 	fz_lock(ctx, FZ_LOCK_FREETYPE);
 	fterr = FT_Set_Char_Size(face, 65536, 65536, 72, 72); /* should be 64, 64 */
@@ -621,11 +818,11 @@ do_ft_render_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm
 	if (aa == 0)
 	{
 		/* enable grid fitting for non-antialiased rendering */
-		float scale = fz_matrix_expansion(&local_trm);
-		m.xx = local_trm.a * 65536 / scale;
-		m.yx = local_trm.b * 65536 / scale;
-		m.xy = local_trm.c * 65536 / scale;
-		m.yy = local_trm.d * 65536 / scale;
+		float scale = fz_matrix_expansion(trm);
+		m.xx = trm.a * 65536 / scale;
+		m.yx = trm.b * 65536 / scale;
+		m.xy = trm.c * 65536 / scale;
+		m.yy = trm.d * 65536 / scale;
 		v.x = 0;
 		v.y = 0;
 
@@ -634,21 +831,6 @@ do_ft_render_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm
 			fz_warn(ctx, "freetype setting character size: %s", ft_error_string(fterr));
 		FT_Set_Transform(face, &m, &v);
 		fterr = FT_Load_Glyph(face, gid, FT_LOAD_NO_BITMAP | FT_LOAD_TARGET_MONO);
-		if (fterr) {
-			fz_warn(ctx, "freetype load hinted glyph (gid %d): %s", gid, ft_error_string(fterr));
-			goto retry_unhinted;
-		}
-	}
-	else if (font->flags.force_hinting)
-	{
-		/*
-		Enable hinting, but keep the huge char size so that
-		it is hinted for a character. This will in effect nullify
-		the effect of grid fitting. This form of hinting should
-		only be used for DynaLab and similar tricky TrueType fonts,
-		so that we get the correct outline shape.
-		*/
-		fterr = FT_Load_Glyph(face, gid, FT_LOAD_NO_BITMAP);
 		if (fterr) {
 			fz_warn(ctx, "freetype load hinted glyph (gid %d): %s", gid, ft_error_string(fterr));
 			goto retry_unhinted;
@@ -671,7 +853,7 @@ retry_unhinted:
 		FT_Outline_Translate(&face->glyph->outline, -strength * 32, -strength * 32);
 	}
 
-	fterr = FT_Render_Glyph(face->glyph, fz_text_aa_level(ctx) > 0 ? FT_RENDER_MODE_NORMAL : FT_RENDER_MODE_MONO);
+	fterr = FT_Render_Glyph(face->glyph, aa > 0 ? FT_RENDER_MODE_NORMAL : FT_RENDER_MODE_MONO);
 	if (fterr)
 	{
 		fz_warn(ctx, "freetype render glyph (gid %d): %s", gid, ft_error_string(fterr));
@@ -681,10 +863,10 @@ retry_unhinted:
 }
 
 fz_pixmap *
-fz_render_ft_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, int aa)
+fz_render_ft_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, fz_matrix trm, int aa)
 {
 	FT_GlyphSlot slot = do_ft_render_glyph(ctx, font, gid, trm, aa);
-	fz_pixmap *pixmap;
+	fz_pixmap *pixmap = NULL;
 
 	if (slot == NULL)
 	{
@@ -710,10 +892,10 @@ fz_render_ft_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, const fz_matr
 
 /* The glyph cache lock is always taken when this is called. */
 fz_glyph *
-fz_render_ft_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, int aa)
+fz_render_ft_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix trm, int aa)
 {
 	FT_GlyphSlot slot = do_ft_render_glyph(ctx, font, gid, trm, aa);
-	fz_glyph *glyph;
+	fz_glyph *glyph = NULL;
 
 	if (slot == NULL)
 	{
@@ -739,7 +921,7 @@ fz_render_ft_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm
 
 /* Takes the freetype lock, and returns with it held */
 static FT_Glyph
-do_render_ft_stroked_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, const fz_matrix *ctm, const fz_stroke_state *state)
+do_render_ft_stroked_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix trm, fz_matrix ctm, const fz_stroke_state *state, int aa)
 {
 	FT_Face face = font->ft_face;
 	float expansion = fz_matrix_expansion(ctm);
@@ -751,19 +933,18 @@ do_render_ft_stroked_glyph(fz_context *ctx, fz_font *font, int gid, const fz_mat
 	FT_Glyph glyph;
 	FT_Stroker_LineJoin line_join;
 	FT_Stroker_LineCap line_cap;
-	fz_matrix local_trm = *trm;
 
-	fz_adjust_ft_glyph_width(ctx, font, gid, &local_trm);
+	fz_adjust_ft_glyph_width(ctx, font, gid, &trm);
 
 	if (font->flags.fake_italic)
-		fz_pre_shear(&local_trm, SHEAR, 0);
+		trm = fz_pre_shear(trm, SHEAR, 0);
 
-	m.xx = local_trm.a * 64; /* should be 65536 */
-	m.yx = local_trm.b * 64;
-	m.xy = local_trm.c * 64;
-	m.yy = local_trm.d * 64;
-	v.x = local_trm.e * 64;
-	v.y = local_trm.f * 64;
+	m.xx = trm.a * 64; /* should be 65536 */
+	m.yx = trm.b * 64;
+	m.xy = trm.c * 64;
+	m.yy = trm.d * 64;
+	v.x = trm.e * 64;
+	v.y = trm.f * 64;
 
 	fz_lock(ctx, FZ_LOCK_FREETYPE);
 	fterr = FT_Set_Char_Size(face, 65536, 65536, 72, 72); /* should be 64, 64 */
@@ -822,7 +1003,7 @@ do_render_ft_stroked_glyph(fz_context *ctx, fz_font *font, int gid, const fz_mat
 
 	FT_Stroker_Done(stroker);
 
-	fterr = FT_Glyph_To_Bitmap(&glyph, fz_text_aa_level(ctx) > 0 ? FT_RENDER_MODE_NORMAL : FT_RENDER_MODE_MONO, 0, 1);
+	fterr = FT_Glyph_To_Bitmap(&glyph, aa > 0 ? FT_RENDER_MODE_NORMAL : FT_RENDER_MODE_MONO, 0, 1);
 	if (fterr)
 	{
 		fz_warn(ctx, "FT_Glyph_To_Bitmap: %s", ft_error_string(fterr));
@@ -833,11 +1014,11 @@ do_render_ft_stroked_glyph(fz_context *ctx, fz_font *font, int gid, const fz_mat
 }
 
 fz_pixmap *
-fz_render_ft_stroked_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, const fz_matrix *ctm, const fz_stroke_state *state)
+fz_render_ft_stroked_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, fz_matrix trm, fz_matrix ctm, const fz_stroke_state *state, int aa)
 {
-	FT_Glyph glyph = do_render_ft_stroked_glyph(ctx, font, gid, trm, ctm, state);
+	FT_Glyph glyph = do_render_ft_stroked_glyph(ctx, font, gid, trm, ctm, state, aa);
 	FT_BitmapGlyph bitmap = (FT_BitmapGlyph)glyph;
-	fz_pixmap *pixmap;
+	fz_pixmap *pixmap = NULL;
 
 	if (bitmap == NULL)
 	{
@@ -863,11 +1044,11 @@ fz_render_ft_stroked_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, const
 }
 
 fz_glyph *
-fz_render_ft_stroked_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, const fz_matrix *ctm, const fz_stroke_state *state)
+fz_render_ft_stroked_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix trm, fz_matrix ctm, const fz_stroke_state *state, int aa)
 {
-	FT_Glyph glyph = do_render_ft_stroked_glyph(ctx, font, gid, trm, ctm, state);
+	FT_Glyph glyph = do_render_ft_stroked_glyph(ctx, font, gid, trm, ctm, state, aa);
 	FT_BitmapGlyph bitmap = (FT_BitmapGlyph)glyph;
-	fz_glyph *result;
+	fz_glyph *result = NULL;
 
 	if (bitmap == NULL)
 	{
@@ -900,37 +1081,27 @@ fz_bound_ft_glyph(fz_context *ctx, fz_font *font, int gid)
 	FT_BBox cbox;
 	FT_Matrix m;
 	FT_Vector v;
-	int ft_flags;
 	fz_rect *bounds = &font->bbox_table[gid];
 
 	// TODO: refactor loading into fz_load_ft_glyph
 	// TODO: cache results
 
 	const int scale = face->units_per_EM;
-	const float recip = 1 / (float)scale;
+	const float recip = 1.0f / scale;
 	const float strength = 0.02f;
-	fz_matrix local_trm = fz_identity;
+	fz_matrix trm = fz_identity;
 
-	fz_adjust_ft_glyph_width(ctx, font, gid, &local_trm);
+	fz_adjust_ft_glyph_width(ctx, font, gid, &trm);
 
 	if (font->flags.fake_italic)
-		fz_pre_shear(&local_trm, SHEAR, 0);
+		trm = fz_pre_shear(trm, SHEAR, 0);
 
-	m.xx = local_trm.a * 65536;
-	m.yx = local_trm.b * 65536;
-	m.xy = local_trm.c * 65536;
-	m.yy = local_trm.d * 65536;
-	v.x = local_trm.e * 65536;
-	v.y = local_trm.f * 65536;
-
-	if (font->flags.force_hinting)
-	{
-		ft_flags = FT_LOAD_NO_BITMAP;
-	}
-	else
-	{
-		ft_flags = FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING;
-	}
+	m.xx = trm.a * 65536;
+	m.yx = trm.b * 65536;
+	m.xy = trm.c * 65536;
+	m.yy = trm.d * 65536;
+	v.x = trm.e * 65536;
+	v.y = trm.f * 65536;
 
 	fz_lock(ctx, FZ_LOCK_FREETYPE);
 	/* Set the char size to scale=face->units_per_EM to effectively give
@@ -941,20 +1112,20 @@ fz_bound_ft_glyph(fz_context *ctx, fz_font *font, int gid)
 		fz_warn(ctx, "freetype setting character size: %s", ft_error_string(fterr));
 	FT_Set_Transform(face, &m, &v);
 
-	fterr = FT_Load_Glyph(face, gid, ft_flags);
+	fterr = FT_Load_Glyph(face, gid, FT_LOAD_NO_BITMAP | FT_LOAD_NO_HINTING);
 	if (fterr)
 	{
 		fz_warn(ctx, "freetype load glyph (gid %d): %s", gid, ft_error_string(fterr));
 		fz_unlock(ctx, FZ_LOCK_FREETYPE);
-		bounds->x0 = bounds->x1 = local_trm.e;
-		bounds->y0 = bounds->y1 = local_trm.f;
+		bounds->x0 = bounds->x1 = trm.e;
+		bounds->y0 = bounds->y1 = trm.f;
 		return bounds;
 	}
 
 	if (font->flags.fake_bold)
 	{
 		FT_Outline_Embolden(&face->glyph->outline, strength * scale);
-		FT_Outline_Translate(&face->glyph->outline, -strength * 0.5 * scale, -strength * 0.5 * scale);
+		FT_Outline_Translate(&face->glyph->outline, -strength * 0.5f * scale, -strength * 0.5f * scale);
 	}
 
 	FT_Outline_Get_CBox(&face->glyph->outline, &cbox);
@@ -964,10 +1135,10 @@ fz_bound_ft_glyph(fz_context *ctx, fz_font *font, int gid)
 	bounds->x1 = cbox.xMax * recip;
 	bounds->y1 = cbox.yMax * recip;
 
-	if (fz_is_empty_rect(bounds))
+	if (fz_is_empty_rect(*bounds))
 	{
-		bounds->x0 = bounds->x1 = local_trm.e;
-		bounds->y0 = bounds->y1 = local_trm.f;
+		bounds->x0 = bounds->x1 = trm.e;
+		bounds->y0 = bounds->y1 = trm.f;
 	}
 
 	return bounds;
@@ -988,7 +1159,7 @@ static int move_to(const FT_Vector *p, void *cc_)
 	fz_path *path = cc->path;
 	fz_point pt;
 
-	fz_transform_point_xy(&pt, &cc->trm, p->x, p->y);
+	pt = fz_transform_point_xy(p->x, p->y, cc->trm);
 	fz_moveto(ctx, path, pt.x, pt.y);
 	return 0;
 }
@@ -1000,7 +1171,7 @@ static int line_to(const FT_Vector *p, void *cc_)
 	fz_path *path = cc->path;
 	fz_point pt;
 
-	fz_transform_point_xy(&pt, &cc->trm, p->x, p->y);
+	pt = fz_transform_point_xy(p->x, p->y, cc->trm);
 	fz_lineto(ctx, path, pt.x, pt.y);
 	return 0;
 }
@@ -1012,8 +1183,8 @@ static int conic_to(const FT_Vector *c, const FT_Vector *p, void *cc_)
 	fz_path *path = cc->path;
 	fz_point ct, pt;
 
-	fz_transform_point_xy(&ct, &cc->trm, c->x, c->y);
-	fz_transform_point_xy(&pt, &cc->trm, p->x, p->y);
+	ct = fz_transform_point_xy(c->x, c->y, cc->trm);
+	pt = fz_transform_point_xy(p->x, p->y, cc->trm);
 
 	fz_quadto(ctx, path, ct.x, ct.y, pt.x, pt.y);
 	return 0;
@@ -1026,9 +1197,9 @@ static int cubic_to(const FT_Vector *c1, const FT_Vector *c2, const FT_Vector *p
 	fz_path *path = cc->path;
 	fz_point c1t, c2t, pt;
 
-	fz_transform_point_xy(&c1t, &cc->trm, c1->x, c1->y);
-	fz_transform_point_xy(&c2t, &cc->trm, c2->x, c2->y);
-	fz_transform_point_xy(&pt, &cc->trm, p->x, p->y);
+	c1t = fz_transform_point_xy(c1->x, c1->y, cc->trm);
+	c2t = fz_transform_point_xy(c2->x, c2->y, cc->trm);
+	pt = fz_transform_point_xy(p->x, p->y, cc->trm);
 
 	fz_curveto(ctx, path, c1t.x, c1t.y, c2t.x, c2t.y, pt.x, pt.y);
 	return 0;
@@ -1039,38 +1210,24 @@ static const FT_Outline_Funcs outline_funcs = {
 };
 
 fz_path *
-fz_outline_ft_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm)
+fz_outline_ft_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix trm)
 {
 	struct closure cc;
 	FT_Face face = font->ft_face;
 	int fterr;
-	fz_matrix local_trm = *trm;
-	int ft_flags;
 
 	const int scale = face->units_per_EM;
-	const float recip = 1 / (float)scale;
+	const float recip = 1.0f / scale;
 	const float strength = 0.02f;
 
-	fz_adjust_ft_glyph_width(ctx, font, gid, &local_trm);
+	fz_adjust_ft_glyph_width(ctx, font, gid, &trm);
 
 	if (font->flags.fake_italic)
-		fz_pre_shear(&local_trm, SHEAR, 0);
+		trm = fz_pre_shear(trm, SHEAR, 0);
 
 	fz_lock(ctx, FZ_LOCK_FREETYPE);
 
-	if (font->flags.force_hinting)
-	{
-		ft_flags = FT_LOAD_NO_BITMAP | FT_LOAD_IGNORE_TRANSFORM;
-		fterr = FT_Set_Char_Size(face, scale, scale, 72, 72);
-		if (fterr)
-			fz_warn(ctx, "freetype setting character size: %s", ft_error_string(fterr));
-	}
-	else
-	{
-		ft_flags = FT_LOAD_NO_SCALE | FT_LOAD_IGNORE_TRANSFORM;
-	}
-
-	fterr = FT_Load_Glyph(face, gid, ft_flags);
+	fterr = FT_Load_Glyph(face, gid, FT_LOAD_NO_SCALE | FT_LOAD_IGNORE_TRANSFORM);
 	if (fterr)
 	{
 		fz_warn(ctx, "freetype load glyph (gid %d): %s", gid, ft_error_string(fterr));
@@ -1081,7 +1238,7 @@ fz_outline_ft_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *tr
 	if (font->flags.fake_bold)
 	{
 		FT_Outline_Embolden(&face->glyph->outline, strength * scale);
-		FT_Outline_Translate(&face->glyph->outline, -strength * 0.5 * scale, -strength * 0.5 * scale);
+		FT_Outline_Translate(&face->glyph->outline, -strength * 0.5f * scale, -strength * 0.5f * scale);
 	}
 
 	cc.path = NULL;
@@ -1089,7 +1246,7 @@ fz_outline_ft_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *tr
 	{
 		cc.ctx = ctx;
 		cc.path = fz_new_path(ctx);
-		fz_concat(&cc.trm, fz_scale(&cc.trm, recip, recip), &local_trm);
+		cc.trm = fz_concat(fz_scale(recip, recip), trm);
 		fz_moveto(ctx, cc.path, cc.trm.e, cc.trm.f);
 		FT_Outline_Decompose(&face->glyph->outline, &outline_funcs, &cc);
 		fz_closepath(ctx, cc.path);
@@ -1113,7 +1270,7 @@ fz_outline_ft_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *tr
  */
 
 fz_font *
-fz_new_type3_font(fz_context *ctx, const char *name, const fz_matrix *matrix)
+fz_new_type3_font(fz_context *ctx, const char *name, fz_matrix matrix)
 {
 	fz_font *font;
 
@@ -1131,7 +1288,7 @@ fz_new_type3_font(fz_context *ctx, const char *name, const fz_matrix *matrix)
 		fz_rethrow(ctx);
 	}
 
-	font->t3matrix = *matrix;
+	font->t3matrix = matrix;
 
 	return font;
 }
@@ -1152,7 +1309,7 @@ fz_bound_t3_glyph(fz_context *ctx, fz_font *font, int gid)
 	dev = fz_new_bbox_device(ctx, &font->bbox_table[gid]);
 	fz_try(ctx)
 	{
-		fz_run_display_list(ctx, list, dev, &font->t3matrix, &fz_infinite_rect, NULL);
+		fz_run_display_list(ctx, list, dev, font->t3matrix, fz_infinite_rect, NULL);
 		fz_close_device(ctx, dev);
 	}
 	fz_always(ctx)
@@ -1163,10 +1320,14 @@ fz_bound_t3_glyph(fz_context *ctx, fz_font *font, int gid)
 	{
 		fz_rethrow(ctx);
 	}
+
+	/* Update font bbox with glyph's computed bbox if the font bbox is invalid */
+	if (font->flags.invalid_bbox)
+		font->bbox = fz_union_rect(font->bbox, font->bbox_table[gid]);
 }
 
 void
-fz_prepare_t3_glyph(fz_context *ctx, fz_font *font, int gid, int nested_depth)
+fz_prepare_t3_glyph(fz_context *ctx, fz_font *font, int gid)
 {
 	fz_buffer *contents;
 	fz_device *dev;
@@ -1179,7 +1340,7 @@ fz_prepare_t3_glyph(fz_context *ctx, fz_font *font, int gid, int nested_depth)
 	/* We've not already loaded this one! */
 	assert(font->t3lists[gid] == NULL);
 
-	font->t3lists[gid] = fz_new_display_list(ctx, &font->bbox);
+	font->t3lists[gid] = fz_new_display_list(ctx, font->bbox);
 
 	dev = fz_new_list_device(ctx, font->t3lists[gid]);
 	dev->flags = FZ_DEVFLAG_FILLCOLOR_UNDEFINED |
@@ -1190,29 +1351,33 @@ fz_prepare_t3_glyph(fz_context *ctx, fz_font *font, int gid, int nested_depth)
 			FZ_DEVFLAG_LINEJOIN_UNDEFINED |
 			FZ_DEVFLAG_MITERLIMIT_UNDEFINED |
 			FZ_DEVFLAG_LINEWIDTH_UNDEFINED;
-	font->t3run(ctx, font->t3doc, font->t3resources, contents, dev, &fz_identity, NULL, 0);
-	fz_close_device(ctx, dev);
-	font->t3flags[gid] = dev->flags;
-	d1_rect = dev->d1_rect;
-	fz_drop_device(ctx, dev);
-	dev = NULL;
+	fz_try(ctx)
+	{
+		font->t3run(ctx, font->t3doc, font->t3resources, contents, dev, fz_identity, NULL, NULL);
+		fz_close_device(ctx, dev);
+		font->t3flags[gid] = dev->flags;
+		d1_rect = dev->d1_rect;
+	}
+	fz_always(ctx)
+		fz_drop_device(ctx, dev);
+	fz_catch(ctx)
+		fz_rethrow(ctx);
 	if (fz_display_list_is_empty(ctx, font->t3lists[gid]))
 	{
 		/* If empty, no need for a huge bbox, especially as the logic
 		 * in the 'else if' can make it huge. */
 		font->bbox_table[gid].x0 = font->bbox.x0;
 		font->bbox_table[gid].y0 = font->bbox.y0;
-		font->bbox_table[gid].x1 = font->bbox.x0 + .00001;
-		font->bbox_table[gid].y1 = font->bbox.y0 + .00001;
+		font->bbox_table[gid].x1 = font->bbox.x0 + .00001f;
+		font->bbox_table[gid].y1 = font->bbox.y0 + .00001f;
 	}
 	else if (font->t3flags[gid] & FZ_DEVFLAG_BBOX_DEFINED)
 	{
 		assert(font->bbox_table != NULL);
 		assert(font->glyph_count > gid);
-		font->bbox_table[gid] = d1_rect;
-		fz_transform_rect(&font->bbox_table[gid], &font->t3matrix);
+		font->bbox_table[gid] = fz_transform_rect(d1_rect, font->t3matrix);
 
-		if (font->flags.invalid_bbox || !fz_contains_rect(&font->bbox, &d1_rect))
+		if (font->flags.invalid_bbox || !fz_contains_rect(font->bbox, d1_rect))
 		{
 			/* Either the font bbox is invalid, or the d1_rect returned is
 			 * incompatible with it. Either way, don't trust the d1 rect
@@ -1220,10 +1385,15 @@ fz_prepare_t3_glyph(fz_context *ctx, fz_font *font, int gid, int nested_depth)
 			fz_bound_t3_glyph(ctx, font, gid);
 		}
 	}
+	else
+	{
+		/* No bbox has been defined for this glyph, so compute it. */
+		fz_bound_t3_glyph(ctx, font, gid);
+	}
 }
 
 void
-fz_run_t3_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, fz_device *dev)
+fz_run_t3_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix trm, fz_device *dev)
 {
 	fz_display_list *list;
 	fz_matrix ctm;
@@ -1232,19 +1402,19 @@ fz_run_t3_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, f
 	if (!list)
 		return;
 
-	fz_concat(&ctm, &font->t3matrix, trm);
-	fz_run_display_list(ctx, list, dev, &ctm, &fz_infinite_rect, NULL);
+	ctm = fz_concat(font->t3matrix, trm);
+	fz_run_display_list(ctx, list, dev, ctm, fz_infinite_rect, NULL);
 }
 
 fz_pixmap *
-fz_render_t3_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, fz_colorspace *model, const fz_irect *scissor)
+fz_render_t3_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, fz_matrix trm, fz_colorspace *model, const fz_irect *scissor, int aa)
 {
 	fz_display_list *list;
 	fz_rect bounds;
 	fz_irect bbox;
-	fz_device *dev;
+	fz_device *dev = NULL;
 	fz_pixmap *glyph;
-	fz_pixmap *result;
+	fz_pixmap *result = NULL;
 
 	if (gid < 0 || gid > 255)
 		return NULL;
@@ -1270,17 +1440,18 @@ fz_render_t3_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, const fz_matr
 		model = NULL; /* Treat as masked */
 	}
 
-	fz_expand_rect(fz_bound_glyph(ctx, font, gid, trm, &bounds), 1);
-	fz_irect_from_rect(&bbox, &bounds);
-	fz_intersect_irect(&bbox, scissor);
+	bounds = fz_expand_rect(fz_bound_glyph(ctx, font, gid, trm), 1);
+	bbox = fz_irect_from_rect(bounds);
+	bbox = fz_intersect_irect(bbox, *scissor);
 
 	/* Glyphs must always have alpha */
-	glyph = fz_new_pixmap_with_bbox(ctx, model, &bbox, 1);
-	fz_clear_pixmap(ctx, glyph);
+	glyph = fz_new_pixmap_with_bbox(ctx, model, bbox, NULL/* FIXME */, 1);
 
-	dev = fz_new_draw_device_type3(ctx, NULL, glyph);
+	fz_var(dev);
 	fz_try(ctx)
 	{
+		fz_clear_pixmap(ctx, glyph);
+		dev = fz_new_draw_device_type3(ctx, fz_identity, glyph);
 		fz_run_t3_glyph(ctx, font, gid, trm, dev);
 		fz_close_device(ctx, dev);
 	}
@@ -1290,6 +1461,7 @@ fz_render_t3_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, const fz_matr
 	}
 	fz_catch(ctx)
 	{
+		fz_drop_pixmap(ctx, glyph);
 		fz_rethrow(ctx);
 	}
 
@@ -1315,14 +1487,14 @@ fz_render_t3_glyph_pixmap(fz_context *ctx, fz_font *font, int gid, const fz_matr
 }
 
 fz_glyph *
-fz_render_t3_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, fz_colorspace *model, const fz_irect *scissor)
+fz_render_t3_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix trm, fz_colorspace *model, const fz_irect *scissor, int aa)
 {
-	fz_pixmap *pixmap = fz_render_t3_glyph_pixmap(ctx, font, gid, trm, model, scissor);
+	fz_pixmap *pixmap = fz_render_t3_glyph_pixmap(ctx, font, gid, trm, model, scissor, aa);
 	return fz_new_glyph_from_pixmap(ctx, pixmap);
 }
 
 void
-fz_render_t3_glyph_direct(fz_context *ctx, fz_device *dev, fz_font *font, int gid, const fz_matrix *trm, void *gstate, int nested_depth)
+fz_render_t3_glyph_direct(fz_context *ctx, fz_device *dev, fz_font *font, int gid, fz_matrix trm, void *gstate, fz_default_colorspaces *def_cs)
 {
 	fz_matrix ctm;
 	void *contents;
@@ -1347,42 +1519,17 @@ fz_render_t3_glyph_direct(fz_context *ctx, fz_device *dev, fz_font *font, int gi
 		fz_warn(ctx, "type3 glyph doesn't specify masked or colored");
 	}
 
-	fz_concat(&ctm, &font->t3matrix, trm);
-	font->t3run(ctx, font->t3doc, font->t3resources, contents, dev, &ctm, gstate, nested_depth);
+	ctm = fz_concat(font->t3matrix, trm);
+	font->t3run(ctx, font->t3doc, font->t3resources, contents, dev, ctm, gstate, def_cs);
 }
 
-void
-fz_print_font(fz_context *ctx, fz_output *out, fz_font *font)
+fz_rect
+fz_bound_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix trm)
 {
-	fz_printf(ctx, out, "font '%s' {\n", font->name);
-
-	if (font->ft_face)
-	{
-		fz_printf(ctx, out, "\tfreetype face %p\n", font->ft_face);
-		if (font->flags.ft_substitute)
-			fz_printf(ctx, out, "\tsubstitute font\n");
-	}
-
-	if (font->t3procs)
-	{
-		fz_printf(ctx, out, "\ttype3 matrix [%g %g %g %g]\n",
-			font->t3matrix.a, font->t3matrix.b,
-			font->t3matrix.c, font->t3matrix.d);
-
-		fz_printf(ctx, out, "\ttype3 bbox [%g %g %g %g]\n",
-			font->bbox.x0, font->bbox.y0,
-			font->bbox.x1, font->bbox.y1);
-	}
-
-	fz_printf(ctx, out, "}\n");
-}
-
-fz_rect *
-fz_bound_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, fz_rect *rect)
-{
+	fz_rect rect;
 	if (font->bbox_table && gid < font->glyph_count)
 	{
-		if (fz_is_infinite_rect(&font->bbox_table[gid]))
+		if (fz_is_infinite_rect(font->bbox_table[gid]))
 		{
 			if (font->ft_face)
 				fz_bound_ft_glyph(ctx, font, gid);
@@ -1391,21 +1538,20 @@ fz_bound_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *trm, fz
 			else
 				font->bbox_table[gid] = fz_empty_rect;
 		}
-		*rect = font->bbox_table[gid];
+		rect = font->bbox_table[gid];
 		if (fz_is_empty_rect(rect))
-			*rect = font->bbox;
+			rect = font->bbox;
 	}
 	else
 	{
 		/* fall back to font bbox */
-		*rect = font->bbox;
+		rect = font->bbox;
 	}
-
 	return fz_transform_rect(rect, trm);
 }
 
 fz_path *
-fz_outline_glyph(fz_context *ctx, fz_font *font, int gid, const fz_matrix *ctm)
+fz_outline_glyph(fz_context *ctx, fz_font *font, int gid, fz_matrix ctm)
 {
 	if (!font->ft_face)
 		return NULL;
@@ -1422,7 +1568,8 @@ int fz_glyph_cacheable(fz_context *ctx, fz_font *font, int gid)
 static float
 fz_advance_ft_glyph(fz_context *ctx, fz_font *font, int gid, int wmode)
 {
-	FT_Fixed adv;
+	FT_Error fterr;
+	FT_Fixed adv = 0;
 	int mask;
 
 	/* Substitute font widths. */
@@ -1437,8 +1584,10 @@ fz_advance_ft_glyph(fz_context *ctx, fz_font *font, int gid, int wmode)
 	if (wmode)
 		mask |= FT_LOAD_VERTICAL_LAYOUT;
 	fz_lock(ctx, FZ_LOCK_FREETYPE);
-	FT_Get_Advance(font->ft_face, gid, mask, &adv);
+	fterr = FT_Get_Advance(font->ft_face, gid, mask, &adv);
 	fz_unlock(ctx, FZ_LOCK_FREETYPE);
+	if (fterr)
+		fz_warn(ctx, "freetype getting character advance: %s", ft_error_string(fterr));
 	return (float) adv / ((FT_Face)font->ft_face)->units_per_EM;
 }
 
@@ -1457,7 +1606,11 @@ fz_get_glyph_name(fz_context *ctx, fz_font *font, int glyph, char *buf, int size
 	if (face)
 	{
 		if (FT_HAS_GLYPH_NAMES(face))
-			FT_Get_Glyph_Name(face, glyph, buf, size);
+		{
+			int fterr = FT_Get_Glyph_Name(face, glyph, buf, size);
+			if (fterr)
+				fz_warn(ctx, "freetype get glyph name (gid %d): %s", glyph, ft_error_string(fterr));
+		}
 		else
 			fz_snprintf(buf, size, "%d", glyph);
 	}
@@ -1549,7 +1702,49 @@ fz_encode_character_with_fallback(fz_context *ctx, fz_font *user_font, int unico
 			return *out_font = font, gid;
 	}
 
-	font = fz_load_fallback_symbol_font(ctx);
+#ifndef TOFU_CJK_LANG
+	if (script == UCDN_SCRIPT_HAN)
+	{
+		font = fz_load_fallback_font(ctx, script, FZ_LANG_zh_Hant, user_font->flags.is_serif, user_font->flags.is_bold, user_font->flags.is_italic);
+		if (font)
+		{
+			gid = fz_encode_character(ctx, font, unicode);
+			if (gid > 0)
+				return *out_font = font, gid;
+		}
+		font = fz_load_fallback_font(ctx, script, FZ_LANG_ja, user_font->flags.is_serif, user_font->flags.is_bold, user_font->flags.is_italic);
+		if (font)
+		{
+			gid = fz_encode_character(ctx, font, unicode);
+			if (gid > 0)
+				return *out_font = font, gid;
+		}
+		font = fz_load_fallback_font(ctx, script, FZ_LANG_ko, user_font->flags.is_serif, user_font->flags.is_bold, user_font->flags.is_italic);
+		if (font)
+		{
+			gid = fz_encode_character(ctx, font, unicode);
+			if (gid > 0)
+				return *out_font = font, gid;
+		}
+		font = fz_load_fallback_font(ctx, script, FZ_LANG_zh_Hans, user_font->flags.is_serif, user_font->flags.is_bold, user_font->flags.is_italic);
+		if (font)
+		{
+			gid = fz_encode_character(ctx, font, unicode);
+			if (gid > 0)
+				return *out_font = font, gid;
+		}
+	}
+#endif
+
+	font = fz_load_fallback_symbol1_font(ctx);
+	if (font)
+	{
+		gid = fz_encode_character(ctx, font, unicode);
+		if (gid > 0)
+			return *out_font = font, gid;
+	}
+
+	font = fz_load_fallback_symbol2_font(ctx);
 	if (font)
 	{
 		gid = fz_encode_character(ctx, font, unicode);
@@ -1568,6 +1763,26 @@ fz_encode_character_with_fallback(fz_context *ctx, fz_font *user_font, int unico
 	return *out_font = user_font, 0;
 }
 
+int fz_font_is_bold(fz_context *ctx, fz_font *font)
+{
+	return font ? font->flags.is_bold : 0;
+}
+
+int fz_font_is_italic(fz_context *ctx, fz_font *font)
+{
+	return font ? font->flags.is_italic : 0;
+}
+
+int fz_font_is_serif(fz_context *ctx, fz_font *font)
+{
+	return font ? font->flags.is_serif : 0;
+}
+
+int fz_font_is_monospaced(fz_context *ctx, fz_font *font)
+{
+	return font ? font->flags.is_mono : 0;
+}
+
 const char *fz_font_name(fz_context *ctx, fz_font *font)
 {
 	return font ? font->name : "";
@@ -1578,9 +1793,9 @@ fz_buffer **fz_font_t3_procs(fz_context *ctx, fz_font *font)
 	return font ? font->t3procs : NULL;
 }
 
-fz_rect *fz_font_bbox(fz_context *ctx, fz_font *font)
+fz_rect fz_font_bbox(fz_context *ctx, fz_font *font)
 {
-	return font ? &font->bbox : NULL;
+	return font->bbox;
 }
 
 void *fz_font_ft_face(fz_context *ctx, fz_font *font)
@@ -1596,4 +1811,16 @@ fz_font_flags_t *fz_font_flags(fz_font *font)
 fz_shaper_data_t *fz_font_shaper_data(fz_context *ctx, fz_font *font)
 {
 	return font ? &font->shaper_data : NULL;
+}
+
+void fz_font_digest(fz_context *ctx, fz_font *font, unsigned char digest[16])
+{
+	if (!font->buffer)
+		fz_throw(ctx, FZ_ERROR_GENERIC, "no font file for digest");
+	if (!font->has_digest)
+	{
+		fz_md5_buffer(ctx, font->buffer, font->digest);
+		font->has_digest = 1;
+	}
+	memcpy(digest, font->digest, 16);
 }

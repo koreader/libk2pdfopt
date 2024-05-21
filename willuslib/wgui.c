@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -208,7 +208,8 @@ int willusgui_open_file(char *filename)
     char pwd[512];
     int procnum;
 
-    if (strnicmp(filename,"http://",7) && wfile_status(filename)==0)
+    if (strnicmp(filename,"http://",7) && strnicmp(filename,"https://",8) 
+            && wfile_status(filename)==0)
         {
         char *message;
         int len;

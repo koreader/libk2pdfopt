@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -37,14 +37,19 @@ typedef struct
     HWND hwnd;
     HWND parent;
     HWND edit_hwnd;
+    HWND pass_hwnd;
     HWND b1_hwnd;
     HWND b2_hwnd;
     HWND b3_hwnd;
     char b1[256];
     char b2[256];
     char b3[256];
+    char inbuflabel[64];
     char *inbuf;
     int  maxlen;
+    char passlabel[64];
+    char *passbuf;
+    int  passmaxlen;
     char msg[1024];
     int  maxwidth;
     int  width;
@@ -60,7 +65,9 @@ typedef struct
     RECT aboutbox;
     RECT messagebox;
     WNDPROC eclassproc;
+    void *myproc;
     int modal;
+    char *title;
     } WINMBOX;
 
 static unsigned int n_magplus = 2903;
@@ -392,6 +399,7 @@ static int wmb_inuse=-1;
 static WINMBOX _wmb,*wmb;
 
 static void winmbox_init(void);
+static int  winmbox_message_box_create(void);
 static void winmbox_message_box_calc_size(WINMBOX *wmb);
 static void winmbox_message_box_add_children(void);
 static LRESULT CALLBACK winmbox_edit_proc(HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam);
@@ -470,6 +478,7 @@ int winmbox_message_box_ex(void *parent,char *title,char *message,
                                    0));
     }
 
+
 /*
 ** Present a Windows Dialog Box w/up to three buttons and a text entry box if desired.
 **
@@ -507,12 +516,7 @@ int winmbox_message_box_ex2(void *parent,char *title,char *message,
                         int modal)
 
     {
-    WNDCLASSEX wndclass;
-    int x0,y0,brgcolor;
-    RECT rect;
-    HWND pwin;
-    MSG msg;
-    static char *classname="message_box";
+    int status;
 
 /*
 ansi_dprintf(NULL,"@winmbox_message_box_ex(%s,...) wmb_inuse=%d\n",message,wmb_inuse);
@@ -531,8 +535,6 @@ ansi_dprintf(NULL,"@winmbox_message_box_ex(%s,...) wmb_inuse=%d\n",message,wmb_i
         r=(RECT *)aboutbox;
         wmb->aboutbox = (*r);
         }
-    strcpy(wmb->class,classname);
-    pwin = parent==NULL ? GetDesktopWindow() : (HWND)parent;
     if (wmb->hwnd!=NULL)
         return(-1);
     wmb->hinstance=(HINSTANCE)GetModuleHandle(0);
@@ -540,25 +542,18 @@ ansi_dprintf(NULL,"@winmbox_message_box_ex(%s,...) wmb_inuse=%d\n",message,wmb_i
     wmb->maxwidth = maxwidth_pixels;
     wmb->parent = parent;
     wmb->modal = modal;
+    wmb->title = title;
+    {
+    int brgcolor;
     brgcolor=((rgbcolor&0xff0000)>>16)|(rgbcolor&0xff00)|((rgbcolor&0xff)<<16);
     wmb->brush=CreateSolidBrush(brgcolor);
-    wndclass.cbSize        = sizeof (wndclass) ;
-    wndclass.style         = CS_HREDRAW | CS_VREDRAW ;
-    wndclass.lpfnWndProc   = myproc==NULL ? (WNDPROC)winmbox_def_proc : (WNDPROC)myproc;
-    wndclass.cbClsExtra    = 0;
-    wndclass.cbWndExtra    = 0;
-    wndclass.hInstance     = wmb->hinstance;
-    wndclass.hIcon         = NULL;
-    wndclass.hCursor       = NULL;
-    wndclass.hbrBackground = wmb->brush;
-    wndclass.lpszMenuName  = NULL;
-    wndclass.lpszClassName = classname;
-    wndclass.hIconSm       = NULL;
-    
-    RegisterClassEx(&wndclass) ;
-
+    }
     wmb->inbuf=inbuf;
     wmb->maxlen=maxlen;
+    wmb->inbuflabel[0]='\0';
+    wmb->passbuf=NULL;
+    wmb->passmaxlen=0;
+    wmb->passlabel[0]='\0';
     strncpy(wmb->b1,button1==NULL ? "" : button1,255);
     wmb->b1[255]='\0';
     strncpy(wmb->b2,button2==NULL ? "" : button2,255);
@@ -578,15 +573,141 @@ ansi_dprintf(NULL,"@winmbox_message_box_ex(%s,...) wmb_inuse=%d\n",message,wmb_i
         if (button3!=NULL)
             wmb->buttoncolor[2]=button_colors[2];
         }
+    wmb->myproc=myproc;
+    status = winmbox_message_box_create();
+    if (window!=NULL)
+        (*window)=(void *)wmb->hwnd;
+    return(status);
+    }
+
+
+/*
+** Present a Windows Dialog Box w/up to three buttons and a text entry box if desired.
+**
+** Inputs:
+**    parent = parent window (HWND).  Can be NULL in which case the Desktop window is used.
+**    title = window title
+**    username = receives user name, max len umaxlen
+**    password = receives password, max len pmaxlen
+**    fontsize_pixels = font size to be used in dialog box.
+**    maxwidth_pixels = max width of dialog box (min width is 400)
+**    rgbcolor = background color of dialog box.
+**
+** Return values:
+**   inbuf[] gets text entry
+**    0 = could not open dialog window
+**   -1 = Escape key press
+**    1 = Button 1 pressed
+**    2 = Button 2 pressed
+**    3 = Button 3 pressed
+**    4 = <Enter> pressed (if no default button)
+**
+*/ 
+int winmbox_login_box(void *parent,char *title,
+                      char *message,
+                      char *username,int umaxlen,
+                      char *password,int pmaxlen,
+                      int fontsize_pixels,int maxwidth_pixels,
+                      int rgbcolor,int *button_colors)
+
+    {
+/*
+ansi_dprintf(NULL,"@winmbox_message_box_ex(%s,...) wmb_inuse=%d\n",message,wmb_inuse);
+*/
+    winmbox_init();
+    if (wmb_inuse)
+        return(0);
+    wmb_inuse=1;
+    wmb=&_wmb;
+    wmb->messagebox.left = wmb->messagebox.right=0;
+    wmb->aboutbox.left=wmb->aboutbox.right=0;
+    if (wmb->hwnd!=NULL)
+        return(-1);
+    wmb->hinstance=(HINSTANCE)GetModuleHandle(0);
+    wmb->mfsize = fontsize_pixels;
+    wmb->maxwidth = maxwidth_pixels;
+    wmb->parent = parent;
+    wmb->modal = 1;
+    wmb->title = title;
+    {
+    int brgcolor;
+    brgcolor=((rgbcolor&0xff0000)>>16)|(rgbcolor&0xff00)|((rgbcolor&0xff)<<16);
+    wmb->brush=CreateSolidBrush(brgcolor);
+    }
+    wmb->inbuf=username;
+    wmb->maxlen=umaxlen;
+    strcpy(wmb->inbuflabel,"User name: ");
+    wmb->passbuf=password;
+    wmb->passbuf[0]='\0';
+    wmb->passmaxlen=pmaxlen;
+    strcpy(wmb->passlabel,"Password: ");
+    strcpy(wmb->b1,"*&Login");
+    strcpy(wmb->b2,"&Cancel");
+    wmb->b3[0]='\0';
+    strncpy(wmb->msg,message==NULL ? "" : message,1023);
+    wmb->msg[1023]='\0';
+    if (button_colors==NULL)
+        wmb->buttoncolor[0]=wmb->buttoncolor[1]=wmb->buttoncolor[2]=0xf0f0f0;
+    else
+        {
+        wmb->buttoncolor[0]=button_colors[0];
+        wmb->buttoncolor[1]=button_colors[1];
+        wmb->buttoncolor[2]=0xf0f0f0;
+        }
+    wmb->myproc=NULL;
+    return(winmbox_message_box_create());
+    }
+
+
+/*
+**
+** Global variable wmb must be completely populated before calling
+** this function.
+**
+** Return values:
+**   inbuf[] gets text entry
+**    0 = could not open dialog window
+**   -1 = Escape key press
+**    1 = Button 1 pressed
+**    2 = Button 2 pressed
+**    3 = Button 3 pressed
+**    4 = <Enter> pressed (if no default button)
+**
+*/ 
+static int winmbox_message_box_create(void)
+
+    {
+    WNDCLASSEX wndclass;
+    static char *classname="message_box";
+
+    strcpy(wmb->class,classname);
+    wndclass.cbSize        = sizeof (wndclass) ;
+    wndclass.style         = CS_HREDRAW | CS_VREDRAW ;
+    wndclass.lpfnWndProc   = wmb->myproc==NULL ? (WNDPROC)winmbox_def_proc : (WNDPROC)wmb->myproc;
+    wndclass.cbClsExtra    = 0;
+    wndclass.cbWndExtra    = 0;
+    wndclass.hInstance     = wmb->hinstance;
+    wndclass.hIcon         = NULL;
+    wndclass.hCursor       = NULL;
+    wndclass.hbrBackground = wmb->brush;
+    wndclass.lpszMenuName  = NULL;
+    wndclass.lpszClassName = classname;
+    wndclass.hIconSm       = NULL;
+    RegisterClassEx(&wndclass) ;
+    {
+    HWND pwin;
+    RECT rect;
+    int x0,y0;
+
+    pwin = wmb->parent==NULL ? GetDesktopWindow() : (HWND)wmb->parent;
     GetWindowRect(pwin,&rect);
     winmbox_message_box_calc_size(wmb);
     x0 = rect.left + ((rect.right-rect.left)-wmb->width)/2;
     y0 = rect.top + ((rect.bottom-rect.top)-wmb->height)/2;
-    wmb->hwnd=CreateWindowEx(WS_EX_TOPMOST,classname,title,WS_OVERLAPPED,
+    wmb->hwnd=CreateWindowEx(WS_EX_TOPMOST,classname,wmb->title,WS_OVERLAPPED,
                              x0,y0,wmb->width,wmb->height,
                              NULL,NULL,0,NULL);
-    if (window!=NULL)
-        (*window)=(void *)wmb->hwnd;
+    }
     if (wmb->hwnd==NULL)
         {
         wmb_inuse=0;
@@ -604,10 +725,12 @@ ansi_dprintf(NULL,"@winmbox_message_box_ex(%s,...) wmb_inuse=%d\n",message,wmb_i
         SetFocus(wmb->b2_hwnd);
     else if (wmb->b1_hwnd!=NULL)
         SetFocus(wmb->b1_hwnd);
-    if (myproc!=NULL)
+    if (wmb->myproc!=NULL)
         return(1);
-    if (modal && parent!=NULL)
-        EnableWindow(parent,0);
+    if (wmb->modal && wmb->parent!=NULL)
+        EnableWindow(wmb->parent,0);
+    {
+    MSG msg;
     while (wmb->hwnd!=NULL && GetMessage(&msg,NULL,0,0))
         {
         if (!IsDialogMessage(wmb->hwnd,&msg))
@@ -616,7 +739,15 @@ ansi_dprintf(NULL,"@winmbox_message_box_ex(%s,...) wmb_inuse=%d\n",message,wmb_i
             DispatchMessage(&msg);
             }
         }
+    }
     return(wmb->status);
+    }
+
+
+void winmbox_terminate(void)
+
+    {
+    SendMessage((HWND)wmb->hwnd,WM_CLOSE,0,0);
     }
 
 
@@ -624,7 +755,7 @@ static void winmbox_message_box_calc_size(WINMBOX *wmb)
 
     {
     SIZE b1,b2,b3,m;
-    int w;
+    int button_width;
 
     wmb->bfsize=wmb->mfsize;
     if (wmb->b1[0]!='\0' || wmb->b2[0]!='\0' || wmb->b3[0]!='\0')
@@ -635,27 +766,27 @@ static void winmbox_message_box_calc_size(WINMBOX *wmb)
             winmbox_text_extents(wmb->bf,wmb->b1,&b1,-1);
             winmbox_text_extents(wmb->bf,wmb->b2,&b2,-1);
             winmbox_text_extents(wmb->bf,wmb->b3,&b3,-1);
-            w=b1.cx+b2.cx+b3.cx+wmb->bfsize*5;
-            if (w<=wmb->maxwidth)
+            button_width=b1.cx+b2.cx+b3.cx+wmb->bfsize*5;
+            if (button_width<=wmb->maxwidth)
                 break;
-            wmb->bfsize *= (wmb->maxwidth*.98)/w;
+            wmb->bfsize *= (wmb->maxwidth*.98)/button_width;
             DeleteObject(wmb->bf);
             }
         wmb->height=wmb->bfsize*2.;
-        if (w < 400)
-            w=400;
+        if (button_width < 400)
+            button_width=400;
         }
     else
         {
         wmb->height=0.;
-        w=wmb->maxwidth;
+        button_width=0;
         }
     wmb->mf=winmbox_get_font(wmb->mfsize);
-    winmbox_text_extents(wmb->mf,wmb->msg,&m,w);
-    /* wmb->width=w; */
-    wmb->width=m.cx+10 > wmb->maxwidth ? wmb->maxwidth: m.cx+10;
-    if (wmb->width<w)
-        wmb->width=w;
+    winmbox_text_extents(wmb->mf,wmb->msg,&m,wmb->maxwidth);
+    wmb->width=m.cx+50 > wmb->maxwidth ? wmb->maxwidth: m.cx+50;
+    /* Make sure the buttons fit */
+    if (wmb->width<button_width)
+        wmb->width=button_width;
     wmb->height += wmb->mfsize*2.+m.cy;
     if (wmb->aboutbox.right-wmb->aboutbox.left>0)
         {
@@ -664,8 +795,12 @@ static void winmbox_message_box_calc_size(WINMBOX *wmb)
         wmb->height += (wmb->aboutbox.bottom-wmb->aboutbox.top)*0.9;
         }
     else
+        {
         if (wmb->inbuf!=NULL)
             wmb->height += wmb->mfsize*5.;
+        if (wmb->passbuf!=NULL)
+            wmb->height += wmb->mfsize*2.;
+        }
     if (wmb->height < 200)
         wmb->height=200;
     }
@@ -681,7 +816,7 @@ void winmbox_message_box_display_message(char *message,int *ypos)
 
     if (!wmb_inuse || wmb==NULL)
         return;
-    vcenter = (wmb->aboutbox.right-wmb->aboutbox.left==0 && wmb->inbuf==NULL 
+    vcenter = (wmb->aboutbox.right-wmb->aboutbox.left==0 && wmb->inbuf==NULL  && wmb->passbuf==NULL
                   && wmb->b1[0]=='\0' && wmb->b2[0]=='\0' && wmb->b3[0]=='\0');
     winmbox_text_extents(wmb->mf,message,&m,wmb->width);
     x1=(wmb->width-6-m.cx)/2;
@@ -701,10 +836,18 @@ void winmbox_message_box_display_message(char *message,int *ypos)
             y1 -= (wmb->aboutbox.bottom-wmb->aboutbox.top)*0.9;
             n++;
             }
-        else if (wmb->inbuf!=NULL)
+        else
             {
-            y1-=(wmb->mfsize*1.2);
-            n++;
+            if (wmb->inbuf!=NULL)
+                {
+                y1-=(wmb->mfsize*1.2);
+                n++;
+                }
+            if (wmb->passbuf!=NULL)
+                {
+                y1-=(wmb->mfsize*1.2);
+                n++;
+                }
             }
         y1 = y1/n-wmb->mfsize/2.;
         }
@@ -769,30 +912,81 @@ wmb->msg,wmb->inbuf,wmb->aboutbox.right-wmb->aboutbox.left);
             {
             dx=(int)((wmb->aboutbox.right-wmb->aboutbox.left)*0.9);
             dy=(int)((wmb->aboutbox.bottom-wmb->aboutbox.top)*0.88);
+            x1=(wmb->width - dx)/2;
             flags=WS_CHILD|WS_VISIBLE|WS_BORDER|WS_HSCROLL|WS_VSCROLL
                   |ES_MULTILINE|ES_READONLY|WS_TABSTOP;
             }
         else
             {
-            dx=(int)(wmb->width*.9);
-            dy=(int)(wmb->mfsize*1.25);
+            SIZE lsize;
+            int dx1;
+            winmbox_text_extents(wmb->bf,wmb->inbuflabel,&lsize,-1);
+            dy=(int)(wmb->mfsize*1.2);
+            dx1=wmb->inbuflabel[0]=='\0'?0:0;
+            dx=(int)(wmb->width*.9-lsize.cx-dx1);
+            x1=0.05*wmb->width+lsize.cx+dx1;
             flags=WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP;
             }
-        x1=(wmb->width - dx)/2;
         y1 += wmb->mfsize;
         wmb->edit_hwnd=CreateWindow(wmbeditclass,"",flags,
                                    x1,y1,dx,dy,
                                    wmb->hwnd,(HMENU)10,wmb->hinstance,NULL);
         SendMessage(wmb->edit_hwnd,WM_SETFONT,(WPARAM)wmb->mf,1);
-        if (wmb->aboutbox.right - wmb->aboutbox.left > 0)
-            y1 += dy;
-        else
-            y1 += wmb->mfsize;
         if (wmb->inbuf!=NULL)
             {
             SendMessage(wmb->edit_hwnd,WM_SETTEXT,(WPARAM)0,(LPARAM)wmb->inbuf);
             if (wmb->aboutbox.right-wmb->aboutbox.left==0)
                 SendMessage(wmb->edit_hwnd,EM_SETSEL,0,-1);
+            if (wmb->inbuflabel[0]!='\0')
+                {
+                HDC hdc;
+                SIZE size;
+
+                hdc=GetDC(wmb->hwnd);
+                x1=0.05*wmb->width;
+                SetTextColor(hdc,0x000000);
+                SetBkMode(hdc,TRANSPARENT);
+                SetTextAlign(hdc,TA_TOP|TA_LEFT);
+                winmbox_display_text_1(wmb->mf,wmb->inbuflabel,&size,hdc,
+                                       x1,(int)(y1+wmb->mfsize*.2));
+                ReleaseDC(wmb->hwnd,hdc);
+                }
+            }
+        if (wmb->aboutbox.right - wmb->aboutbox.left > 0)
+            y1 += dy;
+        else
+            y1 += wmb->mfsize;
+        if (wmb->passbuf!=NULL)
+            {
+            SIZE lsize;
+            int dx1;
+
+            winmbox_text_extents(wmb->bf,wmb->passlabel,&lsize,-1);
+            dy=(int)(wmb->mfsize*1.2);
+            dx1=wmb->passlabel[0]=='\0'?0:0;
+            dx=(int)(wmb->width*.9-lsize.cx-dx1);
+            x1=0.05*wmb->width+lsize.cx+dx1;
+            y1 += wmb->mfsize*0.5;
+            flags=WS_CHILD|WS_VISIBLE|WS_BORDER|WS_TABSTOP|ES_PASSWORD;
+            wmb->pass_hwnd=CreateWindow(wmbeditclass,"",flags,
+                                       x1,y1,dx,dy,
+                                       wmb->hwnd,(HMENU)10,wmb->hinstance,NULL);
+            SendMessage(wmb->pass_hwnd,WM_SETFONT,(WPARAM)wmb->mf,1);
+            if (wmb->passlabel[0]!='\0')
+                {
+                HDC hdc;
+                SIZE size;
+
+                hdc=GetDC(wmb->hwnd);
+                x1=0.05*wmb->width;
+                SetTextColor(hdc,0x000000);
+                SetBkMode(hdc,TRANSPARENT);
+                SetTextAlign(hdc,TA_TOP|TA_LEFT);
+                winmbox_display_text_1(wmb->mf,wmb->passlabel,&size,hdc,
+                                       x1,(int)(y1+wmb->mfsize*.2));
+                ReleaseDC(wmb->hwnd,hdc);
+                }
+            y1 += wmb->mfsize;
             }
         }
     else
@@ -1736,6 +1930,8 @@ ansi_dprintf(NULL,"WM_COMMAND: iMsg=%d, wParam=%d,%d, lParam=%d\n",(int)iMsg,(in
                 {
                 if (wmb->inbuf!=NULL && wmb->aboutbox.right-wmb->aboutbox.left==0)
                     SendMessage(wmb->edit_hwnd,WM_GETTEXT,(WPARAM)wmb->maxlen-1,(LPARAM)wmb->inbuf);
+                if (wmb->passbuf!=NULL)
+                    SendMessage(wmb->pass_hwnd,WM_GETTEXT,(WPARAM)wmb->passmaxlen-1,(LPARAM)wmb->passbuf);
                 wmb->status=LOWORD(wParam);
                 if (wmb->status==2)
                     wmb->status=-1;
@@ -1944,5 +2140,148 @@ static HFONT winmbox_get_font(double fsize)
                       DEFAULT_QUALITY,DEFAULT_PITCH|FF_DONTCARE,"Arial");
     return(hf);
     }
+
+
+static int winmbox_wait_last_pointer=0;
+static int winmbox_wait_pointer_status=0;
+static int winmbox_wait_allow_cancel=0;
+static int winmbox_wait_cancelled=0;
+static int winmbox_wait_busy_status=0;
+static HWND winmbox_wait_hwnd=NULL;
+static int winmbox_wait_bgcolor=0xffe0a0;
+static int winmbox_wait_callback(HWND hwnd,UINT iMsg,WPARAM wParam,LPARAM lParam);
+
+void winmbox_wait(void *mainwin,char *message,int cancel_option)
+
+    {
+    static int bcolors[3]={0xa00000,0xf0f0f0,0xf0f0f0};
+
+    if (winmbox_wait_hwnd!=NULL)
+        winmbox_wait_end();
+    if (cancel_option)
+        {
+        winmbox_message_box(mainwin,"Please wait...",message,
+                            "*&CANCEL",NULL,NULL,NULL,0,30,600,winmbox_wait_bgcolor,
+                            (void *)winmbox_wait_callback,(void **)&winmbox_wait_hwnd,bcolors);
+        winmbox_wait_normal_pointer();
+        winmbox_wait_allow_cancel=1;
+        }
+    else
+        {
+        winmbox_message_box(mainwin,"Please wait...",message,
+                            NULL,NULL,NULL,NULL,0,30,600,winmbox_wait_bgcolor,
+                            (void *)winmbox_wait_callback,(void **)&winmbox_wait_hwnd,NULL);
+        winmbox_wait_busy_pointer();
+        winmbox_wait_allow_cancel=0;
+        }
+/*
+{
+FILE *f;
+f=fopen("debug.txt","a");
+fprintf(f,"winmbox_wait_hwnd=%p\n",winmbox_wait_hwnd);
+fclose(f);
+}
+*/
+    winmbox_wait_cancelled=0;
+    winmbox_wait_busy_status=1;
+    winmbox_wait_bgcolor=0xffe0a0;
+    }
+
+
+int winmbox_wait_cancel(void)
+
+    {
+    winmbox_wait_proc_messages();
+    return(winmbox_wait_cancelled);
+    }
+
+
+void winmbox_wait_proc_messages(void)
+
+    {
+    MSG msg;
+    int i;
+
+    if (winmbox_wait_hwnd==NULL)
+        return;
+    for (i=0;i<50;i++)
+        {
+        if (!PeekMessage(&msg,winmbox_wait_hwnd,0,0,PM_REMOVE))
+            break;
+        if (!IsDialogMessage(winmbox_wait_hwnd,&msg))
+            {
+            TranslateMessage(&msg);
+            DispatchMessage(&msg);
+            }
+        }
+    }
+
+
+static int winmbox_wait_callback(HWND hwnd,UINT iMsg,WPARAM wParam,LPARAM lParam)
+
+    {
+    if (iMsg==WM_COMMAND)
+        {
+        int child_id;
+
+        child_id = LOWORD(wParam);
+        /* Allow ENTER, ESC, or button press to Cancel */
+        if (winmbox_wait_allow_cancel && (child_id>=1 && child_id<=3))
+            {
+            winmbox_wait_cancelled=1;
+            winmbox_wait_end();
+            }
+        }
+    return(winmbox_def_proc(hwnd,iMsg,wParam,(void *)lParam));
+    }
+
+
+void winmbox_wait_end(void)
+
+    {
+    if (winmbox_wait_hwnd!=NULL)
+        {
+        winmbox_destroy();
+        winmbox_wait_hwnd=NULL;
+        }
+    winmbox_wait_busy_status=0;
+    winmbox_wait_normal_pointer();
+    }
+
+
+int winmbox_wait_busy(void)
+
+    {
+    return(winmbox_wait_busy_status);
+    }
+
+
+void winmbox_wait_busy_pointer(void)
+
+    {
+    winmbox_wait_last_pointer=winmbox_wait_pointer_status;
+    SetCursor(LoadCursor(NULL,IDC_WAIT));
+    winmbox_wait_pointer_status=1;
+    }
+
+
+void winmbox_wait_restore_pointer(void)
+
+    {
+    if (winmbox_wait_last_pointer)
+        winmbox_wait_busy_pointer();
+    else
+        winmbox_wait_normal_pointer();
+    }
+
+
+void winmbox_wait_normal_pointer(void)
+
+    {
+    winmbox_wait_last_pointer=winmbox_wait_pointer_status;
+    SetCursor(LoadCursor(NULL,IDC_ARROW));
+    winmbox_wait_pointer_status=0;
+    }
+
 
 #endif /* HAVE_WIN32_API */

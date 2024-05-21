@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2015  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -42,7 +42,7 @@ static void filelist_conditionally_add_entry(FILELIST *fl,FLENTRY *entry,
                                        int *index,int *count);
 static void filelist_conditionally_add_file(FILELIST *fl,wfile *wf,
                                        char *include_only[],char *exclude[],
-                                       int *index,int *count);
+                                       int *index,int *count,int is_symlink);
 static int parse_exline(char *buf,double *size,int *month,int *day,int *year,
                         int *hour,int *minute,int *second,int *attr,
                         char *filename,int dirstoo);
@@ -1131,6 +1131,9 @@ static int filelist_disk_fill(FILELIST *fl,int index,
 printf("fdf: index=%d, dirname='%s', io[0]='%s', rec=%d, dt=%d\n",
 index,dirname,include_only[0],recursive,dirstoo);
 */
+/*
+printf("fdf(%s)\n",dirname);
+*/
     is_archive = (recursive>1 && wfile_is_archive(dirname));
     if (is_archive)
         {
@@ -1139,22 +1142,25 @@ index,dirname,include_only[0],recursive,dirstoo);
         wfile_unique_part(dir,fl->dir);
         return(filelist_recursive_archive_add(fl,index,dir,dirname,include_only,exclude,recursive,dirstoo));
         }
-    if (recursive || include_only[0]=='\0' || include_only[1]!='\0')
+    if (recursive || include_only[0][0]=='\0' || include_only[1][0]!='\0')
         wfile_fullname(wildspec,dirname,"*");
     else
         wfile_fullname(wildspec,dirname,include_only[0]);
     i=index;
     count=0;
+/*
+printf("    Reg files...\n");
+*/
     for (s=wfile_findfirst(wildspec,&wf);s;s=wfile_findnext(&wf))
         {
-        int fstatus,is_archive,symlink;
-
+        int is_archive,symlink;
         if (!strcmp(wf.basename,".") || !strcmp(wf.basename,".."))
-            continue;
-        fstatus=wfile_status(wf.fullname);
+            continue
+        /* WARNING: wfile_is_symlink() can be a slow call on a network drive! */;
+        /* fstatus=wfile_status(wf.fullname); */ /* 1-24-18--remove this call to go faster */
         is_archive=wfile_is_archive(wf.fullname);
         symlink=(wf.attr&WFILE_SYMLINK);
-        if (fstatus==2 && !symlink && (dirstoo!=1 || recursive))
+        if ((wf.attr&WFILE_DIR) && !symlink && (dirstoo!=1 || recursive))
             continue;
         /* If archive file and we want to look into archives, then skip it. */
         if (is_archive && recursive>1)
@@ -1164,23 +1170,36 @@ index,dirname,include_only[0],recursive,dirstoo);
             continue;
 */
         /* Regular file includes sym link to regular file or broken symlink */
-        if (fstatus!=2 && !wfile_is_regular_file(wf.fullname)
+        if (!(wf.attr&WFILE_DIR) && !wfile_is_regular_file(wf.fullname))
+/* Removed 1-24-18 */
+/*
               && (fstatus!=0 || !symlink))
+*/
             continue;
-        filelist_conditionally_add_file(fl,&wf,include_only,exclude,&i,&count);
+        filelist_conditionally_add_file(fl,&wf,include_only,exclude,&i,&count,
+                                        wf.attr&WFILE_SYMLINK);
         }
     wfile_findclose(&wf);
     if (!recursive)
         return(count);
+/*
+printf("    Dir files...\n");
+*/
     for (s=wfile_findfirst(wildspec,&wf);s;s=wfile_findnext(&wf))
         {
         int     n,archive;
-
+/*
+printf("        %s\n",wf.fullname);
+*/
         if (!strcmp(wf.basename,".") || !strcmp(wf.basename,".."))
             continue;
 
         archive = (recursive>1 && wfile_is_archive(wf.fullname));
+        /* 1-24-18 -- don't call wfile_status */
+        if (!(wf.attr&WFILE_DIR) && !archive)
+/*
         if (wfile_status(wf.fullname)!=2 && !archive)
+*/
             continue;
         /* Do not recurse symbolic links to dirs */
         if (wf.attr & WFILE_SYMLINK)
@@ -1205,11 +1224,11 @@ index,dirname,include_only[0],recursive,dirstoo);
                             || (dirstoo==3 && dir_truly_empty(wf.fullname))))
             {
             filelist_conditionally_add_file(fl,&wf,include_only,exclude,
-                                               &i,&count);
+                                               &i,&count,wf.attr&WFILE_SYMLINK);
             continue;
             }
         if (n>0 && dirstoo==1)
-            filelist_conditionally_add_file(fl,&wf,NULL,NULL,&i,&count);
+            filelist_conditionally_add_file(fl,&wf,NULL,NULL,&i,&count,wf.attr&WFILE_SYMLINK);
         i+=n;
         count+=n;
         }
@@ -1407,7 +1426,7 @@ static void filelist_conditionally_add_entry(FILELIST *fl,FLENTRY *entry,
 
 static void filelist_conditionally_add_file(FILELIST *fl,wfile *wf,
                                        char *include_only[],char *exclude[],
-                                       int *index,int *count)
+                                       int *index,int *count,int is_symlink)
 
     {
     char unique[MAXFILENAMELEN];
@@ -1435,7 +1454,12 @@ static void filelist_conditionally_add_file(FILELIST *fl,wfile *wf,
             entry.size = 0;
             }
 #endif
-        if (wfile_is_symlink(wf->fullname))
+        /* WARNING: wfile_is_symlink() can be a slow call on a network drive! */
+        /*
+        if (is_symlink<0)
+            is_symlink=wfile_is_symlink(wf->fullname); 
+        */
+        if (is_symlink)
             entry.attr |= WFILE_SYMLINK;
         filelist_add_entry(fl,&entry);
         (*index) = (*index) + 1;

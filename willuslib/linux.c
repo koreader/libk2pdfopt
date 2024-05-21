@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -31,7 +31,10 @@
 #include <ctype.h>
 #include <time.h>
 #include <unistd.h>
+/* 12-6-18:  Apparently sys/termios.h no longer needed to compile. */
+/*
 #include <sys/termios.h>
+*/
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <signal.h>

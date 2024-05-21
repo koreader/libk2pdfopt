@@ -1,7 +1,7 @@
 /*
 ** k2settings.c     Handles k2pdfopt settings (K2PDFOPT_SETTINGS structure)
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -51,6 +51,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->src_paintwhite=0;
 #ifdef HAVE_OCR_LIB
     k2settings->ocrout[0]='\0';
+    k2settings->ocr_detection_type='l';
 #ifdef HAVE_TESSERACT_LIB
     k2settings->dst_ocr_lang[0]='\0';
 #endif
@@ -160,7 +161,7 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->gap_override_internal=-1;
     */
 
-    k2pdfopt_settings_set_to_device(k2settings,devprofile_get("k2"));
+    k2pdfopt_settings_set_to_device(k2settings,devprofile_get(K2PDFOPT_DEFAULT_DEVICE));
     k2settings->dst_width = k2settings->dst_userwidth;
     k2settings->dst_height = k2settings->dst_userheight;
 
@@ -222,7 +223,9 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->src_erosion=0; /* No erosion */
 
     /* v2.42 */
+#ifdef HAVE_LEPTONICA_LIB
     k2settings->dewarp=0;
+#endif
     }
 
 
@@ -331,11 +334,13 @@ void k2settings_check_and_warn(K2PDFOPT_SETTINGS *k2settings)
 
     if (k2settings->assume_yes)
         return;
+#ifdef HAVE_LEPTONICA_LIB
     if (k2settings->use_crop_boxes && k2settings->dewarp)
         {
         sprintf(buf,"De-warping (-dw) is disabled by native mode output.");
         k2settings_warn(buf);
         }
+#endif
     if (k2settings->fit_columns && k2settings->user_mag)
         {
         sprintf(buf,"You have specified -odpi, -mag, or -fs.  This may not "

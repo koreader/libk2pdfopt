@@ -1,7 +1,7 @@
 /*
 ** k2gui2.c      K2pdfopt Generic WILLUSGUI functions.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -653,7 +653,11 @@ static void k2gui_window_menus_init(WILLUSGUIWINDOW *win)
     static char *menus[] = {"_File","&Add Source File...","Add &Folder...","&Save Settings...",
                                     "&Restore Settings...","E&xit",
                             "_Help","&Website help page...","&Command-line Options...",
-                                    "&PDF File Info","&About k2pdfopt...",
+                                    "&PDF File Info",
+#ifdef HAVE_TESSERACT_LIB
+                                    "&Tesseract Training File Info",
+#endif
+                                    "&About k2pdfopt...",
                             ""};
 
     willusgui_window_menus_init(win,menus);
@@ -1620,7 +1624,36 @@ printf("K2PDFOPT <-- '%s'\n",buf);
                 case 712:  /* PDF file info */
                     k2gui_display_info();
                     break;
-                case 713:  /* About box */
+#ifdef HAVE_TESSERACT_LIB
+                /* Tesseract Training Files */
+                case 713:
+                    {
+                    char *buf;
+                    int status;
+                    WILLUSGUIRECT rect;
+
+                    winmbox_wait_end();
+                    winmbox_wait(k2gui->mainwin.handle,"Checking files.  Please wait...",0);
+                    ocrtess_debug_info(&buf,0);
+                    winmbox_wait_end();
+                    willusgui_window_get_rect(&k2gui->mainwin,&rect);
+                    winmbox_set_font("Courier New");
+                    status=willusgui_message_box(&k2gui->mainwin,
+                           "Tesseract Training Files",
+                           buf,"*&DISMISS","&TESSERACT FILES SITE",NULL,
+                           NULL,0,
+                           20.,(rect.right-rect.left),
+                           0xb0ffb0,NULL,NULL,1);
+                    willus_mem_free((double **)&buf,funcname);
+                    if (status==2)
+                        willusgui_start_browser("https://github.com/tesseract-ocr/tessdata/");
+                    break;
+                    }
+                case 714:
+#else
+                case 713:
+#endif
+                /* About box */
                     {
                     char buf[256];
                     int status;
@@ -2475,7 +2508,15 @@ printf("@k2gui_add_children(already_drawn=%d)\n",already_drawn);
             willusgui_control_listbox_select_item(control,devprofile_name(j));
         }
     else
-        willusgui_control_listbox_select_item(control,devprofile_name(0));
+        {
+        int j;
+        for (j=0;j<dpc;j++)
+            if (!stricmp(devprofile_alias(j),K2PDFOPT_DEFAULT_DEVICE))
+                break;
+        if (j>=dpc)
+            j=0;
+        willusgui_control_listbox_select_item(control,devprofile_name(j));
+        }
     }
 
     fm = 0.9;

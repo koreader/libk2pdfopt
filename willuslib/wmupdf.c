@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -21,6 +21,7 @@
 **
 */
 #include <stdio.h>
+#include <math.h>
 #include "willus.h"
 
 #ifdef HAVE_Z_LIB
@@ -32,7 +33,7 @@
 void pdf_install_load_system_font_funcs(fz_context *ctx);
 
 static void info_update(fz_context *ctx,pdf_document *xref,char *producer,char *author,char *title);
-static void dict_put_string(fz_context *ctx,pdf_document *doc,pdf_obj *dict,char *key,char *string);
+static void dict_put_string(fz_context *ctx,pdf_obj *dict,char *key,char *string);
 static void wmupdf_object_bbox(fz_context *ctx,pdf_obj *srcpage,double *bbox_array,double *defbbox);
 static int wmupdf_pdfdoc_newpages(pdf_document *xref,fz_context *ctx,WPDFPAGEINFO *pageinfo,
                                   int use_forms,WPDFOUTLINE *wpdfoutline,FILE *out);
@@ -71,7 +72,7 @@ static WPDFOUTLINE *wpdfoutline_convert_from_fitz_outline(fz_outline *fzoutline)
 static void pdf_create_outline(fz_context *ctx,pdf_document *doc,pdf_obj *outline_root,pdf_obj *orref,WPDFOUTLINE *outline);
 static void pdf_create_outline_1(fz_context *ctx,pdf_document *doc,pdf_obj *parent,pdf_obj *parentref,pdf_obj *dict,pdf_obj *dictref,int drefnum,WPDFOUTLINE *outline);
 static pdf_obj *anchor_reference(fz_context *ctx,pdf_document *doc,int pageno);
-static pdf_obj *pdf_new_string_utf8(fz_context *ctx,pdf_document *doc,char *string);
+static pdf_obj *pdf_new_string_utf8(fz_context *ctx,char *string);
 
 
 int wmupdf_numpages(char *filename)
@@ -276,12 +277,12 @@ static void info_update(fz_context *ctx,pdf_document *xref,char *producer,char *
     else
         newinfo=0;
     if (producer!=NULL && producer[0]!='\0')
-        dict_put_string(ctx,xref,info,"Producer",producer);
+        dict_put_string(ctx,info,"Producer",producer);
     if (author!=NULL && author[0]!='\0')
-        dict_put_string(ctx,xref,info,"Author",author);
+        dict_put_string(ctx,info,"Author",author);
     if (title!=NULL && title[0]!='\0')
-        dict_put_string(ctx,xref,info,"Title",title);
-    dict_put_string(ctx,xref,info,"ModDate",moddate);
+        dict_put_string(ctx,info,"Title",title);
+    dict_put_string(ctx,info,"ModDate",moddate);
     if (newinfo)
         {
         pdf_dict_puts(ctx,pdf_trailer(ctx,xref),"Info",info);
@@ -290,12 +291,12 @@ static void info_update(fz_context *ctx,pdf_document *xref,char *producer,char *
     }
 
 
-static void dict_put_string(fz_context *ctx,pdf_document *doc,pdf_obj *dict,char *key,char *string)
+static void dict_put_string(fz_context *ctx,pdf_obj *dict,char *key,char *string)
 
     {
     pdf_obj *value;
 
-    value=pdf_new_string(ctx,doc,string,strlen(string));
+    value=pdf_new_string(ctx,string,strlen(string));
     pdf_dict_puts(ctx,dict,key,value);
     pdf_drop_obj(ctx,value);
     }
@@ -729,7 +730,7 @@ printf("Clip path:\n    %7.2f %7.2f\n    %7.2f,%7.2f\n    %7.2f,%7.2f\n"
 
     /* Update page count and kids array */
     numpages = pdf_array_len(ctx,kids);
-    countobj = pdf_new_int(ctx,xref, numpages);
+    countobj = pdf_new_int(ctx,numpages);
     pdf_dict_puts(ctx,pages, "Count", countobj);
     pdf_drop_obj(ctx,countobj);
     pdf_dict_puts(ctx,pages, "Kids", kids);
@@ -923,19 +924,19 @@ static void wmupdf_convert_single_page_to_form(pdf_document *xref,fz_context *ct
     ** Once we turn the object into an XObject type (and not a Page type)
     ** it can no longer be looked up using pdf_lookup_page_obj() as of MuPDF v1.3
     */
-    pdf_dict_puts(ctx,srcpageobj,"Type",pdf_new_name(ctx,xref,"XObject"));
-    pdf_dict_puts(ctx,srcpageobj,"Subtype",pdf_new_name(ctx,xref,"Form"));
-    pdf_dict_puts(ctx,srcpageobj,"FormType",pdf_new_int(ctx,xref,1));
+    pdf_dict_puts(ctx,srcpageobj,"Type",pdf_new_name(ctx,"XObject"));
+    pdf_dict_puts(ctx,srcpageobj,"Subtype",pdf_new_name(ctx,"Form"));
+    pdf_dict_puts(ctx,srcpageobj,"FormType",pdf_new_int(ctx,1));
     if (compressed)
-        pdf_dict_puts(ctx,srcpageobj,"Filter",pdf_new_name(ctx,xref,"FlateDecode"));
-    pdf_dict_puts(ctx,srcpageobj,"Length",pdf_new_int(ctx,xref,streamlen));
+        pdf_dict_puts(ctx,srcpageobj,"Filter",pdf_new_name(ctx,"FlateDecode"));
+    pdf_dict_puts(ctx,srcpageobj,"Length",pdf_new_int(ctx,streamlen));
     array=pdf_new_array(ctx,xref,4);
     for (i=0;i<4;i++)
-        pdf_array_push(ctx,array,pdf_new_real(ctx,xref,bbox_array[i]));
+        pdf_array_push(ctx,array,pdf_new_real(ctx,bbox_array[i]));
     pdf_dict_puts(ctx,srcpageobj,"BBox",array);
     array=pdf_new_array(ctx,xref,6);
     for (i=0;i<6;i++)
-        pdf_array_push(ctx,array,pdf_new_real(ctx,xref,matrix[i]));
+        pdf_array_push(ctx,array,pdf_new_real(ctx,matrix[i]));
     pdf_dict_puts(ctx,srcpageobj,"Matrix",array);
     }
 
@@ -1051,11 +1052,11 @@ printf("    srcptr = %p\n",srcbuf->data);
 
         whitespace[0]=' ';
         whitespace[1]='\0';
-        fz_write_buffer(ctx,dstbuf,whitespace,1);
+        fz_append_data(ctx,dstbuf,whitespace,1);
         }
     /* mupdf 1.10a--replace write with append */
     /*
-    fz_write_buffer(ctx,dstbuf,srcbuf->data,fz_buffer_storage(ctx,srcbuf,NULL));
+    fz_append_data(ctx,dstbuf,srcbuf->data,fz_buffer_storage(ctx,srcbuf,NULL));
     */
     fz_append_buffer(ctx,dstbuf,srcbuf);
     dstlen=fz_buffer_storage(ctx,dstbuf,NULL);
@@ -1086,12 +1087,12 @@ static pdf_obj *start_new_destpage(fz_context *ctx,pdf_document *doc,double widt
     pdf_obj *mbox;
 
     pageobj=pdf_new_dict(ctx,doc,2);
-    pdf_dict_puts(ctx,pageobj,"Type",pdf_new_name(ctx,doc,"Page"));
+    pdf_dict_puts(ctx,pageobj,"Type",pdf_new_name(ctx,"Page"));
     mbox=pdf_new_array(ctx,doc,4);
-    pdf_array_push(ctx,mbox,pdf_new_real(ctx,doc,0.));
-    pdf_array_push(ctx,mbox,pdf_new_real(ctx,doc,0.));
-    pdf_array_push(ctx,mbox,pdf_new_real(ctx,doc,width_pts));
-    pdf_array_push(ctx,mbox,pdf_new_real(ctx,doc,height_pts));
+    pdf_array_push(ctx,mbox,pdf_new_real(ctx,0.));
+    pdf_array_push(ctx,mbox,pdf_new_real(ctx,0.));
+    pdf_array_push(ctx,mbox,pdf_new_real(ctx,width_pts));
+    pdf_array_push(ctx,mbox,pdf_new_real(ctx,height_pts));
     pdf_dict_puts(ctx,pageobj,"MediaBox",mbox);
     return(pageobj);
     }
@@ -1114,7 +1115,7 @@ static void wmupdf_preserve_old_dests(pdf_obj *olddests,fz_context *ctx,pdf_docu
         {
         pdf_obj *key = pdf_dict_get_key(ctx,olddests,i);
         pdf_obj *val = pdf_dict_get_val(ctx,olddests,i);
-        pdf_obj *key_str = pdf_new_string(ctx,xref,pdf_to_name(ctx,key),strlen(pdf_to_name(ctx,key)));
+        pdf_obj *key_str = pdf_new_string(ctx,pdf_to_name(ctx,key),strlen(pdf_to_name(ctx,key)));
         pdf_obj *dest = pdf_dict_gets(ctx,val,"D");
 
         dest = pdf_array_get(ctx,dest ? dest : val, 0);
@@ -1147,13 +1148,13 @@ static int new_stream_object(pdf_document *xref,fz_context *ctx,char *buf)
 
     ref = pdf_create_object(ctx,xref);
     obj = pdf_new_dict(ctx,xref,1);
-    len=pdf_new_int(ctx,xref,strlen(buf));
+    len=pdf_new_int(ctx,strlen(buf));
     pdf_dict_puts(ctx,obj,"Length",len);
     pdf_drop_obj(ctx,len);
     pdf_update_object(ctx,xref,ref,obj);
     pdf_drop_obj(ctx,obj);
     fzbuf=fz_new_buffer(ctx,strlen(buf));
-    fz_write_buffer(ctx,fzbuf,(unsigned char *)buf,strlen(buf));
+    fz_append_data(ctx,fzbuf,(unsigned char *)buf,strlen(buf));
     wmupdf_update_stream(ctx,xref,ref,fzbuf);
     fz_drop_buffer(ctx,fzbuf);
     return(ref);
@@ -1177,7 +1178,7 @@ static void wmupdf_update_stream(fz_context *ctx,pdf_document *doc,int num,fz_bu
     obj = pdf_load_object(ctx,doc,num);
     if (obj!=NULL)
         {
-        pdf_dict_puts_drop(ctx,obj,"Length",pdf_new_int(ctx,doc,fz_buffer_storage(ctx,newbuf,NULL)));
+        pdf_dict_puts_drop(ctx,obj,"Length",pdf_new_int(ctx,fz_buffer_storage(ctx,newbuf,NULL)));
         /*
         if (!compressed)
             {
@@ -1242,7 +1243,7 @@ static void wmupdf_dict_merge_keyval(fz_context *ctx,pdf_obj *dstdict,pdf_obj *k
         if (okay_to_merge[i][0]!='\0')
             {
             /* Merge source dict into dest dict */
-            wmupdf_dict_merge(ctx,pdf_to_name(ctx,key),dstval,value);
+            wmupdf_dict_merge(ctx,(char *)pdf_to_name(ctx,key),dstval,value);
             pdf_dict_put(ctx,dstdict,key,dstval);
             }
         else
@@ -1253,7 +1254,7 @@ static void wmupdf_dict_merge_keyval(fz_context *ctx,pdf_obj *dstdict,pdf_obj *k
     /* This works for ProcSet array, but maybe not for any array (e.g. rectangle) */
     if (pdf_is_array(ctx,dstval) && pdf_is_array(ctx,value))
         {
-        wmupdf_array_merge(ctx,pdf_to_name(ctx,key),dstval,value);
+        wmupdf_array_merge(ctx,(char *)pdf_to_name(ctx,key),dstval,value);
         return;
         }
     /* Last resort:  overwrite with new value */
@@ -1393,7 +1394,6 @@ int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char 
     fz_document *doc=NULL;
     fz_display_list *list=NULL;
     fz_context *ctx;
-    fz_stext_sheet *textsheet=NULL;
     fz_page *page;
     fz_stext_page *text=NULL;
     fz_device *dev=NULL;
@@ -1429,11 +1429,12 @@ int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char 
             fz_drop_context(ctx);
             return(-3);
             }
+        bounds=fz_bound_page(ctx,page);
         fz_try(ctx)
             {
-            list=fz_new_display_list(ctx,NULL);
+            list=fz_new_display_list(ctx,bounds);
             dev=fz_new_list_device(ctx,list);
-            fz_run_page(ctx,page,dev,&fz_identity,NULL);
+            fz_run_page(ctx,page,dev,fz_identity,NULL);
             }
         fz_always(ctx)
             {
@@ -1450,18 +1451,17 @@ int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char 
             return(-4);
             }
         fz_var(text);
-        fz_bound_page(ctx,page,&bounds);
+        /* Mupdf v1.14:  bounds.y1 > bounds.y0 */
         wtc->width=fabs(bounds.x1-bounds.x0);
         wtc->height=fabs(bounds.y1-bounds.y0);
-        textsheet=fz_new_stext_sheet(ctx);
         fz_try(ctx)
             {
             /* options= FZ_STEXT_PRESERVE_LIGATURES | FZ_STEXT_PRESERVE_WHITESPACE; */
             /* Do not preserve ligatures or white space */
             if (list)
-                text=fz_new_stext_page_from_display_list(ctx,list,textsheet,0);
+                text=fz_new_stext_page_from_display_list(ctx,list,NULL);
             else
-                text=fz_new_stext_page_from_page(ctx,page,textsheet,0);
+                text=fz_new_stext_page_from_page(ctx,page,NULL);
 /*
             dev=fz_new_stext_device(ctx,textsheet,text,options);
             if (list)
@@ -1482,7 +1482,6 @@ int wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char 
             dev=NULL;
 */
             fz_drop_stext_page(ctx,text);
-            fz_drop_stext_sheet(ctx,textsheet);
             fz_drop_display_list(ctx,list);
             fz_drop_page(ctx,page);
             fz_drop_document(ctx,doc);
@@ -1507,179 +1506,157 @@ static void wtextchars_add_fz_chars(WTEXTCHARS *wtc,fz_context *ctx,fz_stext_pag
                                     int boundingbox)
 
     {
-    int iblock,lig;
+    int lig;
+    fz_stext_block *block;
 
     lig=-1;
-    for (iblock=lig=0;iblock<page->len;iblock++)
+    for (lig=0,block=page->first_block;block;block=block->next)
         {
-        fz_stext_block *block;
         fz_stext_line *line;
-        char *s;
 
-        if (page->blocks[iblock].type != FZ_PAGE_BLOCK_TEXT)
+        if (block->type != FZ_STEXT_BLOCK_TEXT)
             continue;
-        block=page->blocks[iblock].u.text;
-        for (line=block->lines;line<block->lines+block->len;line++)
+        for (line=block->u.t.first_line;line;line=line->next)
             {
-            fz_stext_span *span;
+            fz_stext_char *ch;
 
-            for (span=line->first_span;span;span=span->next)
+            for (ch = line->first_char;ch;ch=ch->next)
                 {
-                fz_stext_style *style=NULL;
-                int char_num;
+                fz_quad quad;
+                double dx,dy;
+                WTEXTCHAR textchar;
 /*
-printf("Span:\n");
-printf("    len=%d, cap=%d\n",span->len,span->cap);
-printf("    min=(%d,%d)\n",(int)span->min.x,(int)span->min.y);
-printf("    max=(%d,%d)\n",(int)span->max.x,(int)span->max.y);
-printf("    wmode=%d\n",span->wmode);
-printf("    asmax=%g, dsmin=%g\n",span->ascender_max,span->descender_min);
-printf("    bbox=(%g,%g) - (%g,%g)\n",span->bbox.x0,span->bbox.y0,span->bbox.x1,span->bbox.y1);
-printf("    baseoff=%g\n",span->base_offset);
-printf("    spacing=%g\n",span->spacing);
-printf("    column=%d\n",span->column);
-printf("    colwidth=%g\n",span->column_width);
-printf("    align=%d\n",span->align);
-printf("    indent=%g\n",span->indent);
+printf("Char '%c' (%02Xh):\n",ch->c,ch->c);
+printf("    size=%g\n",ch->size);
+printf("    origin=(%g,%g)\n",ch->origin.x,ch->origin.y);
+printf("    quad.ll=(%g,%g)\n",ch->quad.ll.x,ch->quad.ll.y);
+printf("    quad.ul=(%g,%g)\n",ch->quad.ul.x,ch->quad.ul.y);
+printf("    quad.lr=(%g,%g)\n",ch->quad.lr.x,ch->quad.lr.y);
+printf("    quad.ur=(%g,%g)\n",ch->quad.ur.x,ch->quad.ur.y);
 */
-                for (char_num=0;char_num<span->len;char_num++)
+                quad=ch->quad;
+                if (lig>0)
+                    lig++;
+                /* Ligature char? */
+                if (quad.ll.x==quad.lr.x && ch->c!=' ')
+                    lig=1;
+                /* Skip space after ligature */
+                if (lig==3 && ch->c==' ')
                     {
-                    fz_stext_char *ch;
-                    fz_rect rect;
-                    double dx,dy;
-                    WTEXTCHAR textchar;
-
-                    ch=&span->text[char_num];
-                    if (ch->style != style)
-                        {
-                        char *fname;
-                        /* style change if style!=NULL */
-                        style=ch->style;
-                        fname=(char *)fz_font_name(ctx,style->font);
-                        s=strchr(fname,'+');
-                        s= s ? s+1 : fname;
-                        }
-                    fz_stext_char_bbox(ctx,&rect,span,char_num);
-                    if (lig>0)
-                        lig++;
-                    /* Ligature char? */
-                    if (rect.x0==rect.x1 && ch->c!=' ')
-                        lig=1;
-                    /* Skip space after ligature */
-                    if (lig==3 && ch->c==' ')
-                        {
-                        lig = -1;
-                        continue;
-                        }
+                    lig = -1;
+                    continue;
+                    }
 #if 0
-                    /*
-                    ** Deal correctly with ligatures
-                    */
-                    /* Indicator of second char in ligature, e.g. 'i' in 'fi' */
-                    if (ch->p.x==0. && ch->p.y==0.)
+                /*
+                ** Deal correctly with ligatures
+                */
+                /* Indicator of second char in ligature, e.g. 'i' in 'fi' */
+                if (ch->p.x==0. && ch->p.y==0.)
+                    {
+                    if (char_num>0)
                         {
-                        if (char_num>0)
-                            {
-                            fz_stext_char *ch2;
-                            fz_rect rect2;
-                            ch2=&span->text[char_num-1];
-                            fz_stext_char_bbox(ctx,&rect2,span,char_num-1);
-                            ch->p.y=ch2->p.y;
-                            rect.y0+=ch2->p.y;
-                            rect.y1+=ch2->p.y;
-                            rect.x0=rect.x1=rect2.x0;
-                            }
-                        lig=1;
+                        fz_stext_char *ch2;
+                        fz_rect rect2;
+                        ch2=&ch->text[char_num-1];
+                        rect2=ch2->bbox;
+                        ch->p.y=ch2->p.y;
+                        rect.y0+=ch2->p.y;
+                        rect.y1+=ch2->p.y;
+                        rect.x0=rect.x1=rect2.x0;
                         }
-                    /* Indicator of first char in ligature, e.g. 'f' in 'fi' */
-                    else if (rect.x0==0. && rect.y0<0.)
-                        {
-                        rect.x0 = rect.x1;
-                        rect.y0 += ch->p.y;
-                        }
+                    lig=1;
+                    }
+                /* Indicator of first char in ligature, e.g. 'f' in 'fi' */
+                else if (rect.x0==0. && rect.y0<0.)
+                    {
+                    rect.x0 = rect.x1;
+                    rect.y0 += ch->p.y;
+                    }
 #endif
-                    textchar.x1=rect.x0;
-                    textchar.y1=rect.y0;
-                    textchar.x2=rect.x1;
-                    textchar.y2=rect.y1;
-                    textchar.xp=ch->p.x;
-                    textchar.yp=ch->p.y;
-                    textchar.ucs=ch->c;
-                    /*
-                    ** Strange behavior in one particular PDF (modul1.pdf) file lead to this...
-                    ** MuPDF bugzilla #695362:
-                    ** "Incorrect structured-text character bounding boxes and character values"
-                    ** Filed 13 July 2014
-                    */
-                    dx=textchar.x2-textchar.x1;
-                    if (fabs(dx)>3000.)
-                        {
-                        if (fabs(textchar.x1-textchar.xp) < fabs(textchar.x2-textchar.xp))
-                            textchar.x2 = textchar.x1 + dx/1000.;
-                        else
-                            textchar.x1 = textchar.x2 - dx/1000.;
-                        }
-                    dy=textchar.y2-textchar.y1;
-                    if (fabs(dy)>3000.)
-                        {
-                        if (fabs(textchar.y1-textchar.yp) < fabs(textchar.y2-textchar.yp))
-                            textchar.y2 = textchar.y1 + dy/1000.;
-                        else
-                            textchar.y1 = textchar.y2 - dy/1000.;
-                        }
+                textchar.x1=quad.ll.x < quad.ul.x ? quad.ll.x : quad.ul.x;
+                textchar.y1=quad.ul.y > quad.ur.y ? quad.ul.y : quad.ur.y;
+                textchar.x2=quad.lr.x > quad.ur.x ? quad.lr.x : quad.ur.x;
+                textchar.y2=quad.ll.y < quad.lr.y ? quad.ll.y : quad.lr.y;
+                textchar.xp=ch->origin.x;
+                textchar.yp=ch->origin.y;
+                textchar.ucs=ch->c;
+
+                /*
+                ** Strange behavior in one particular PDF (modul1.pdf) file lead to this...
+                ** MuPDF bugzilla #695362:
+                ** "Incorrect structured-text character bounding boxes and character values"
+                ** Filed 13 July 2014
+                **
+                ** (Not sure if we still need this in MuPDF v1.14)
+                */
+                dx=textchar.x2-textchar.x1;
+                if (fabs(dx)>3000.)
+                    {
+                    if (fabs(textchar.x1-textchar.xp) < fabs(textchar.x2-textchar.xp))
+                        textchar.x2 = textchar.x1 + dx/1000.;
+                    else
+                        textchar.x1 = textchar.x2 - dx/1000.;
+                    }
+                dy=textchar.y2-textchar.y1;
+                if (fabs(dy)>3000.)
+                    {
+                    if (fabs(textchar.y1-textchar.yp) < fabs(textchar.y2-textchar.yp))
+                        textchar.y2 = textchar.y1 + dy/1000.;
+                    else
+                        textchar.y1 = textchar.y2 - dy/1000.;
+                    }
 /*
 printf("Char %4d: (%7.1f,%7.1f) - (%7.1f,%7.1f) (%7.1f,%7.1f)\n",
 ch->c,textchar.x1,textchar.y1,textchar.x2,textchar.y2,textchar.xp,textchar.yp);
 */
 #if 0
-                    /* If just had ligature, adjust x-values */
-                    if (lig==2)
+                /* If just had ligature, adjust x-values */
+                if (lig==2)
+                    {
+                    if (wtc->n>1)
                         {
-                        if (wtc->n>1)
-                            {
-                            double xmid;
-                            WTEXTCHAR *tc1,*tc2;
-                            tc1=&wtc->wtextchar[wtc->n-2];
-                            tc2=&wtc->wtextchar[wtc->n-1];
-                            xmid = (tc1->x1 + textchar.x1)/2.;
-                            tc1->x2 = tc2->x1 = tc2->xp = xmid;
-                            tc2->x2 = textchar.x1;
-                            }
-                        else if (wtc->n>0)
-                            {
-                            WTEXTCHAR *tc1;
-                            tc1=&wtc->wtextchar[wtc->n-1];
-                            tc1->x2=textchar.x1;
-                            }
-                        lig=0;
+                        double xmid;
+                        WTEXTCHAR *tc1,*tc2;
+                        tc1=&wtc->wtextchar[wtc->n-2];
+                        tc2=&wtc->wtextchar[wtc->n-1];
+                        xmid = (tc1->x1 + textchar.x1)/2.;
+                        tc1->x2 = tc2->x1 = tc2->xp = xmid;
+                        tc2->x2 = textchar.x1;
                         }
-                    else if (lig==1)
-                        lig++;
+                    else if (wtc->n>0)
+                        {
+                        WTEXTCHAR *tc1;
+                        tc1=&wtc->wtextchar[wtc->n-1];
+                        tc1->x2=textchar.x1;
+                        }
+                    lig=0;
+                    }
+                else if (lig==1)
+                    lig++;
 #endif
-                    if (boundingbox==0 || wtc->n<=0)
+                if (boundingbox==0 || wtc->n<=0)
+                    {
+                    wtextchars_add_wtextchar(wtc,&textchar);
+                    /* Split difference in char widths for ligature */
+                    if (lig==2 && wtc->n>1)
                         {
-                        wtextchars_add_wtextchar(wtc,&textchar);
-                        /* Split difference in char widths for ligature */
-                        if (lig==2 && wtc->n>1)
-                            {
-                            wtc->wtextchar[wtc->n-1].xp =
-                            wtc->wtextchar[wtc->n-2].x2 = wtc->wtextchar[wtc->n-1].x1
-                               = (wtc->wtextchar[wtc->n-2].x1+wtc->wtextchar[wtc->n-1].x2)/2.;
-                            }
+                        wtc->wtextchar[wtc->n-1].xp =
+                        wtc->wtextchar[wtc->n-2].x2 = wtc->wtextchar[wtc->n-1].x1
+                           = (wtc->wtextchar[wtc->n-2].x1+wtc->wtextchar[wtc->n-1].x2)/2.;
                         }
-                    else
-                        {
-                        WTEXTCHAR *tc0;
-                        tc0 = &wtc->wtextchar[0];
-                        if (textchar.x1 < tc0->x1)
-                            tc0->x1 = textchar.x1;
-                        if (textchar.x2 > tc0->x2)
-                            tc0->x2 = textchar.x2;
-                        if (textchar.y1 < tc0->y1)
-                            tc0->y1 = textchar.y1;
-                        if (textchar.y2 > tc0->y2)
-                            tc0->y2 = textchar.y2;
-                        }
+                    }
+                else
+                    {
+                    WTEXTCHAR *tc0;
+                    tc0 = &wtc->wtextchar[0];
+                    if (textchar.x1 < tc0->x1)
+                        tc0->x1 = textchar.x1;
+                    if (textchar.x2 > tc0->x2)
+                        tc0->x2 = textchar.x2;
+                    if (textchar.y1 < tc0->y1)
+                        tc0->y1 = textchar.y1;
+                    if (textchar.y2 > tc0->y2)
+                        tc0->y2 = textchar.y2;
                     }
                 }
             }
@@ -1803,7 +1780,7 @@ static void pdf_create_outline_1(fz_context *ctx,pdf_document *doc,pdf_obj *pare
         pdf_obj *title,*nextdict,*nextdictref,*aref;
         int nextdictrefnum;
 
-        title=pdf_new_string_utf8(ctx,doc,outline->title);
+        title=pdf_new_string_utf8(ctx,outline->title);
         pdf_dict_puts(ctx,dict,"Title",title);
         pdf_drop_obj(ctx,title);
         aref=anchor_reference(ctx,doc,outline->dstpage);
@@ -1847,7 +1824,7 @@ static void pdf_create_outline_1(fz_context *ctx,pdf_document *doc,pdf_obj *pare
     {
     pdf_obj *countobj;
 
-    countobj=pdf_new_int(ctx,doc,count);
+    countobj=pdf_new_int(ctx,count);
     pdf_dict_puts(ctx,parent,"Count",countobj);
     pdf_drop_obj(ctx,countobj);
     }
@@ -1872,12 +1849,12 @@ static pdf_obj *anchor_reference(fz_context *ctx,pdf_document *doc,int pageno)
     anchorref = pdf_new_indirect(ctx,doc,arefnum,0);
     array = pdf_new_array(ctx,doc,2);
     pdf_array_push(ctx,array,pageref);
-    name = pdf_new_name(ctx,doc,"Fit");
+    name = pdf_new_name(ctx,"Fit");
     pdf_array_push(ctx,array,name);
     pdf_drop_obj(ctx,name);
     pdf_dict_puts(ctx,anchor,"D",array);
     pdf_drop_obj(ctx,array);
-    name = pdf_new_name(ctx,doc,"GoTo");
+    name = pdf_new_name(ctx,"GoTo");
     pdf_dict_puts(ctx,anchor,"S",name);
     pdf_drop_obj(ctx,name);
     pdf_update_object(ctx,doc,arefnum,anchor);
@@ -1886,7 +1863,7 @@ static pdf_obj *anchor_reference(fz_context *ctx,pdf_document *doc,int pageno)
     }
 
 
-static pdf_obj *pdf_new_string_utf8(fz_context *ctx,pdf_document *doc,char *string)
+static pdf_obj *pdf_new_string_utf8(fz_context *ctx,char *string)
 
     {
     int *utf16;
@@ -1909,7 +1886,7 @@ static pdf_obj *pdf_new_string_utf8(fz_context *ctx,pdf_document *doc,char *stri
         }
     utfbuf[j]='\0';
     willus_mem_free((double **)&utf16,funcname);
-    pdfobj=pdf_new_string(ctx,doc,utfbuf,j);
+    pdfobj=pdf_new_string(ctx,utfbuf,j);
     willus_mem_free((double **)&utfbuf,funcname);
     return(pdfobj);
     }

@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -52,6 +52,7 @@ static int get_desktop_directory_1(char *desktop,int maxlen,HKEY key_class,
 static int win_registry_search1(char *value,int maxlen,HKEY key_class,char *keyname,char *searchvalue,int recursive);
 static BOOL CALLBACK find_win_by_procid(HWND hwnd,LPARAM lp);
 static int win_adjust_privilege(void);
+static void cr_filter(char *s);
 
 static int windate_warn=1;
 
@@ -548,12 +549,17 @@ wmetafile *win_emf_clipboard(void)
     }
 
 
+int win_text_file_to_clipboard(char *filename,FILE *out)
+
+    {
+    return(win_text_file_to_clipboard_ex(filename,out,0));
+    }
 /*
 ** Followed example at this link:
 ** http://msdn.microsoft.com/library/default.asp?url=/library/en-us/winui/WinUI/WindowsUserInterface/DataExchange/Clipboard/UsingtheClipboard.asp#_win32_Copying_Information_to_the_Clipboard
 **
 */
-int win_text_file_to_clipboard(char *filename,FILE *out)
+int win_text_file_to_clipboard_ex(char *filename,FILE *out,int nocrs)
 
     {
     FILE *f;
@@ -587,6 +593,8 @@ int win_text_file_to_clipboard(char *filename,FILE *out)
         }
     fclose(f);
     p[size]='\0';
+    if (nocrs)
+        cr_filter(p);
     GlobalUnlock(buf);
     if (!OpenClipboard(GetDesktopWindow()))
         {
@@ -607,6 +615,26 @@ int win_text_file_to_clipboard(char *filename,FILE *out)
     willus_mem_free((double **)&buf,funcname);
     */
     return(0);
+    }
+
+
+static void cr_filter(char *s)
+
+    {
+    int i,j;
+
+    for (i=j=0;s[i]!='\0';i++)
+        {
+        if (s[i]=='\r')
+            continue;
+        if (s[i]=='\t')
+            s[j]=' ';
+        else
+            if (i!=j)
+                s[j]=s[i];
+        j++;
+        }
+    s[j]='\0';
     }
 
 
@@ -1521,6 +1549,7 @@ void win_set_mod_filetime(char *filename,struct tm *date)
     }
 
 
+#ifndef NO_FILELIST
 int win_most_recent_in_path(char *exactname,char *wildcard)
 
     {
@@ -1558,6 +1587,7 @@ int win_most_recent_in_path(char *exactname,char *wildcard)
         }
     return(exactname[0]!='\0');
     }
+#endif
 
 
 int win_which(char *exactname,char *exename)

@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -524,6 +524,7 @@ int wfile_date(const char *filename,struct tm *filedate)
         strcpy(fn2,filename);
         /* If a folder, use a different method since CreateFile doesn't work */
         /* the way I have it set up.                                         */
+#ifndef NO_FILELIST
         if (wfile_status(fn2)==2)
             {
             FILELIST *fl,_fl;
@@ -538,6 +539,7 @@ int wfile_date(const char *filename,struct tm *filedate)
                 }
             filelist_free(fl);
             }
+#endif
         /* Weird bug:  If I don't use the full path, then sometimes */
         /* this returns an incorrect result.                        */
         /* Started using CreateFile instead of OpenFile because OpenFile */
@@ -3102,6 +3104,7 @@ void wfile_touch(char *filename)
 
 
 
+#ifndef NO_FILELIST
 FILE *wfile_open_most_recent(char *wildspec,char *mode,int recursive)
 
     {
@@ -3118,6 +3121,7 @@ FILE *wfile_open_most_recent(char *wildspec,char *mode,int recursive)
     wfile_fullname(wildspec,fl->dir,fl->entry[fl->n-1].name);
     return(wfile_fopen_utf8(wildspec,mode));
     }
+#endif
 
 
 /*
@@ -3127,6 +3131,7 @@ FILE *wfile_open_most_recent(char *wildspec,char *mode,int recursive)
 ** that file name.
 **
 */
+#ifndef NO_FILELIST
 int wfile_extract_in_place(char *filename)
 
     {
@@ -3176,6 +3181,7 @@ int wfile_extract_in_place(char *filename)
     wfile_fullname(filename,relpath,fullname);
     return(0);
     }
+#endif
 
 
 /*
@@ -3194,6 +3200,7 @@ int wfile_extract_in_place(char *filename)
 ** RETURNS 0 FOR SUCCESS
 **
 */
+#ifndef NO_FILELIST
 int wfile_find_file(char *fullname,char *basename,char *folderlist[],char *drives,
                     int checkpath,int cwd,int exedir,char *envdir)
 
@@ -3276,6 +3283,7 @@ int wfile_find_file(char *fullname,char *basename,char *folderlist[],char *drive
         }
     return(-99);
     }
+#endif /* NO_FILELIST */
 
 
 /*
@@ -3286,6 +3294,7 @@ int wfile_find_file(char *fullname,char *basename,char *folderlist[],char *drive
 **
 ** Ret 0 for success, and fullname[] gets the full path name.
 */
+#ifndef NO_FILELIST
 int wfile_smartfind(char *fullname,char *basename,char *folder,int recursive)
 
     {
@@ -3349,6 +3358,7 @@ printf("        (%d results)\n",fl->n);
     filelist_free(fl);
     return(-3);
     }
+#endif
 
 
 static int wfile_correct_exe(char *basename,char *correctname,char *fullname)

@@ -1,7 +1,7 @@
 K2pdfopt build help.
 http://willus.com
 Original: 7 September 2012
-Last updated: 20 May 2017 (v2.42)
+Last updated: 27 Dec 2018 (v2.50)
 
 This "read me" file describes the source code distribution for k2pdfopt.
 
@@ -37,15 +37,15 @@ NOTE 4 below).
     REQUIRED
     --------
     1.  Z-lib 1.2.11 (zlib.net)
-    2.  libpng 1.6.28 (www.libpng.org)
-    3.  Turbo JPEG lib 1.5.1 (sourceforge.net/projects/libjpeg-turbo/)
+    2.  libpng 1.6.35 (www.libpng.org)
+    3.  Turbo JPEG lib 2.0.1 (sourceforge.net/projects/libjpeg-turbo/)
 
     TO INCLUDE MuPDF LIBRARY (search for HAVE_MUPDF in k2pdfopt.c)
     --------------------------------------------------------------
     4.  JBIG2Dec 0.11 (jbig2dec.sourceforge.net)
-    5.  OpenJPEG 2.1.0 (www.openjpeg.org)
-    6.  FreeType 2.7.1 (freetype.sourceforge.net/index2.html)
-    7.  Mupdf 1.10a (mupdf.com) -- SEE NOTE 1.
+    5.  OpenJPEG 2.3.0 (www.openjpeg.org)
+    6.  FreeType 2.9.1 (freetype.sourceforge.net/index2.html)
+    7.  Mupdf 1.14 (mupdf.com) -- SEE NOTE 1.
 
     TO INCLUDE DjVuLibre LIBRARY (search for HAVE_DJVU in k2pdfopt.c)
     -----------------------------------------------------------------
@@ -54,8 +54,8 @@ NOTE 4 below).
     FOR OCR VERSIONS OF K2PDFOPT (search for HAVE_OCR in k2pdfopt.c)
     ----------------------------------------------------------------
     9.  GOCR 0.50 (sourceforge.net/jocr/)
-    10. Leptonica 1.74.1 (leptonica.com)
-    11. Tesseract 3.05.00 (C++) (code.google.com/tesseract-ocr/) -- SEE NOTE 2.
+    10. Leptonica 1.74.4 (leptonica.com)
+    11. Tesseract 4.0.0 (C++) (code.google.com/tesseract-ocr/) -- SEE NOTE 2.
     12. POSIX threads support (pretty standard with gcc implementations)
 
     If you don't include MuPDF, DjVuLibre, or OCR, then k2pdfopt will
@@ -67,7 +67,7 @@ Notes
 1. Mods to the released MuPDF library are in the mupdf_mod folder.
    Search for "willus" or "sumatra" or "bugs" in the files to find the mods.
 
-2. Tesseract requires my small C API file plus three custom-modified source files.
+2. Tesseract requires my small C API file plus some custom-modified source files.
    These are in the tesseract_mod folder.  Search for "willus" in the files to
    find the mods.  To use Tesseract, you'll need to download one of the data
    packages for it from the Tesseract web site and to point the TESSDATA_PREFIX
@@ -98,7 +98,7 @@ Notes
    to build the project without using these files (I do not use them).
    
 
-Build Steps for k2pdfopt on Windows (gcc 6.3.0)
+Build Steps for k2pdfopt on Windows (gcc 7.3.0)
 -----------------------------------------------
 My compile steps with gcc (MinGW) are as follows (assuming all the libraries are built
 to libxxx.a files in d:\3rdparty_lib and headers are in d:\3rdparty_include):
@@ -125,14 +125,14 @@ to libxxx.a files in d:\3rdparty_lib and headers are in d:\3rdparty_include):
     4. g++ -Ofast -m32 -Wall -o k2pdfopt.exe k2pdfopt.o resfile.o -static-libgcc -static-libstdc++ d:\mingw\i386\lib\crt_noglob.o -Ld:\3rdparty_lib -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread -lgdi32 -luuid -lole32 -lcomdlg32 -lshlwapi
 
 
-Build Steps on Linux (64-bit, gcc 4.8.5, compiled on CentOS 7.2)
-----------------------------------------------------------------
+Build Steps on Linux (64-bit, gcc 8.2.0, compiled on Fedora 29)
+---------------------------------------------------------------
 1. gcc -Wall -Ofast -m64 -o k2pdfopt.o -c k2pdfopt.c
 
 2. g++ -Ofast -m64 -o k2pdfopt k2pdfopt.o -static -static-libgcc -static-libstdc++ -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread -lstdc++ -lc -lm
 
 
-Build Steps on OS/X (64-bit, gcc 6.2.0, compiled on OSX 10.12 Sierra)
+Build Steps on OS/X (64-bit, gcc 8.2.0, compiled on OSX 10.12 Sierra)
 ----------------------------------------------------------------------
 1. gcc -Ofast -Wall -m64 -o k2pdfopt.o -c k2pdfopt.c
 

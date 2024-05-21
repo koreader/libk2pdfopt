@@ -1,4 +1,4 @@
-char *k2pdfopt_version = "v2.42";
+char *k2pdfopt_version = "v2.50";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
@@ -17,7 +17,33 @@ char *k2pdfopt_version = "v2.42";
 ** You should have received a copy of the GNU Affero General Public License
 ** along with this program.  If not, see <http://www.gnu.org/licenses/>.
 **
+**
 ** VERSION HISTORY
+**
+** V2.50 27 DEC 2018
+**           ENHANCEMENTS
+**           - Compiled w/Tesseract v4.0.0, MuPDF v1.14, Freetype v2.9.1,
+**                        Leptonica 1.74.4, OpenJPEG 2.3.0, Turbo JPEG 2.0.1,
+**                        and PNG lib v1.6.35.
+**           - New OCR detection methods for Tesseract--can have Tesseract
+**             analyze entire lines (default) or even the entire page of text
+**             rather than just individual words as was done in previous versions.
+**             This should improve OCR accuracy when using Tesseract.
+**             See -ocrd option.
+**           - New debugging diagnostic for Tesseract training files: -lang ?
+**             (Or in MS Windows GUI, select Help -> Tesseract Training File Info)
+**           - The default device is now a 6-inch 300 dpi screen a la the
+**             Kindle Paperwhite 3+
+**           - Added Kindle Oasis 2 device (7-inch 300 dpi screen)
+**           - Page straightening feedback added to MS WINDOWS GUI log
+**           - Fixed Android source code issues pointed out in this post:
+**             https://www.mobileread.com/forums/showthread.php?p=3655291#post3655291
+**           MS WINDOWS
+**           - Compiled with gcc 7.3.
+**           LINUX
+**           - Compiled in Fedora 29 with gcc 8.2.
+**           MAC OSX
+**           - Compiled with gcc 8.2.
 **
 ** V2.42 20 MAY 2017
 **           NEW FEATURES

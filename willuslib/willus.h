@@ -79,6 +79,12 @@
 **     #define unix 1
 **
 */
+#ifndef WILLUSLIB
+/*
+** __x87_inline_math__:   Can use x87 math intrinsics
+** __x87_inline_pow_only__:  Only in-line the pow() function (GCC 4.x)
+*/
+#endif // WILLUSLIB
 
 
 typedef double  real;
@@ -187,6 +193,34 @@ typedef double  real;
 ** As of 2013 and gcc 4.7.x, x87_line_math is turned off entirely.
 ** My x87 in-line routines are no faster than gcc on modern Intel CPUs.
 */
+#ifndef WILLUSLIB
+#if (defined(WILLUS_X863264))
+#if (!defined(__TINYC__) && (__GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ > 4)))
+#define __has_sincos_builtin__
+#if (defined(__gnu_linux__) || (!defined(__GNUC__) || __GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 6)))
+#define __needs_sincos_declaration__
+#endif
+#endif
+#if (!defined(__x87_inline_math__) && defined(__FAST_MATH__) && !defined(__TINYC__))
+#if (defined(__gnu_linux__) || !defined(__GNUC__) || __GNUC__ < 4 || (__GNUC__ == 4 && __GNUC_MINOR__ < 7))
+#define __x87_inline_math__
+#endif
+#endif
+#endif
+
+/*
+** This was the WILLUSLIB sincos as of k2pdfopt v1.62
+*/
+// #ifdef WILLUSLIB
+// /* Check whether sincos built-in */
+// #if (defined(WILLUS_X863264) && !defined(__TINYC__) && __GNUC__ >= 4 && __GNUC_MINOR__ > 4)
+// void sincos(double th,double *s,double *c);
+// #else
+// #define sincos(th,x,y) { (*(x))=sin(th); (*(y))=cos(th); }
+// #endif
+// #endif // WILLUSLIB
+
+#endif // WILLUSLIB
 
 #if (defined(__linux) || defined(linux) || defined(__linux__))
 #define LINUX
@@ -491,7 +525,9 @@ int  bmp_resample(WILLUSBITMAP *dest,WILLUSBITMAP *src,double x1,double y1,
                   double x2,double y2,int newwidth,int newheight);
 int  bmp_resample_fixed_point(WILLUSBITMAP *dest,WILLUSBITMAP *src,double fx1,double fy1,
                               double fx2,double fy2,int newwidth,int newheight);
+/*
 void bmp_crop_edge(WILLUSBITMAP *bmp);
+*/
 void bmp_invert(WILLUSBITMAP *bmp);
 void bmp_overlay(WILLUSBITMAP *dest,WILLUSBITMAP *src,int x0,int y0_from_top,
                  int *dbgc,int *dfgc,int *sbgc,int *sfgc);
@@ -520,6 +556,7 @@ double bmp_autostraighten(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,int white,doub
 void bmp_apply_whitethresh(WILLUSBITMAP *bmp,int whitethresh);
 void bmp_dither_to_bpc(WILLUSBITMAP *bmp,int newbpc);
 void bmp_extract(WILLUSBITMAP *dst,WILLUSBITMAP *src,int x0,int y0_from_top,int width,int height);
+int  bmp_read_pcl(WILLUSBITMAP *bmp,char *pclbuf,int n);
 
 /* fontrender.c */
 void fontrender_set_or(int status);
@@ -915,6 +952,7 @@ void win_sleep(int ms);
 int win_setdir(char *directory);
 wmetafile *win_emf_clipboard(void);
 int win_text_file_to_clipboard(char *filename,FILE *out);
+int win_text_file_to_clipboard_ex(char *filename,FILE *out,int nocrs);
 int win_buf_to_clipboard(char *lbuf,FILE *out);
 char *win_clipboard_to_buf(FILE *out);
 int win_clipboard_has_bitmap(void);
@@ -1016,6 +1054,12 @@ int winmbox_message_box_ex2(void *parent,char *title,char *message,
                         int maxwidth_pixels,int rgbcolor,void *myproc,
                         void **window,int *button_colors,void *aboutbox,
                         int modal);
+int winmbox_login_box(void *parent,char *title,
+                      char *message,
+                      char *username,int umaxlen,
+                      char *password,int pmaxlen,
+                      int fontsize_pixels,int maxwidth_pixels,
+                      int rgbcolor,int *button_colors);
 int winmbox_def_proc(void *hwnd,int iMsg,int wParam,void *lParam);
 void winmbox_destroy(void);
 void winmbox_message_box_display_message(char *message,int *ypos);
@@ -1025,6 +1069,15 @@ void winmbox_checkbox_button_draw(void *hdc0,void *rect0,int state,void *hfont0,
 void winmbox_button_draw(void *hdc0,void *rect0,int state,int basecolorrgb,
                          void *hfont0,char *text,int textcolorrgb);
 void winmbox_set_font(char *fontname);
+void winmbox_terminate(void);
+void winmbox_wait(void *mainwin,char *message,int cancel_option);
+int  winmbox_wait_cancel(void);
+void winmbox_wait_proc_messages(void);
+void winmbox_wait_end(void);
+int  winmbox_wait_busy(void);
+void winmbox_wait_busy_pointer(void);
+void winmbox_wait_restore_pointer(void);
+void winmbox_wait_normal_pointer(void);
 #endif
 
 /* winbmp.c */
@@ -1084,6 +1137,8 @@ void   wsys_enter_to_exit(char *mesg);
 int    wsys_set_decimal_period(int setit);
 int    wsys_set_envvar(char *varname,char *value,int system);
 int    wsys_get_envvar_ex(char *varname,char *value,int maxlen);
+int    wsys_file_lock(char *filename);
+int    wsys_file_unlock(char *filename,int fd);
 
 
 /* token.c */
@@ -1374,15 +1429,43 @@ void ocr_text_proc(char *s,int allow_spaces);
 void gocr_single_word_from_bmp8(char *text,int maxlen,WILLUSBITMAP *bmp8,
                                 int x1,int y1,int x2,int y2,int allow_spaces,
                                 int std_proc);
+void gocr_ocrwords_from_bmp8(OCRWORDS *ocrwords,WILLUSBITMAP *bmp8,
+                             int x1,int y1,int x2,int y2,int allow_spaces,
+                             int std_proc);
 #endif
 
-#ifdef HAVE_TESSERACT_LIB
 /* ocrtess.c */
-void *ocrtess_init(char *datadir,char *lang,FILE *out,char *initstr,int maxlen,int *status);
+/*
+typedef struct
+    {
+    int top,left,bottom,right,baseline;
+    char *utf8;
+    } OCRTESSWORD;
+typedef struct
+    {
+    OCRTESSWORD *word;
+    int na,n;
+    } OCRTESSWORDS;
+*/
+#ifdef HAVE_TESSERACT_LIB
+void *ocrtess_init(char *datadir,char *tesspath,int maxtesspathlen,
+                   char *lang,FILE *out,char *initstr,int maxlen,int *status);
+void ocrtess_lang_default(char *datadir,char *tesspath,int maxtesspathlen,
+                          char *langdef,int maxlen,char *debugstr,int maxdebug,int use_ansi);
+void ocrtess_datapath(char *datapath,char *suggested,int maxlen);
 void ocrtess_end(void *api);
-void ocrtess_single_word_from_bmp8(void *api,char *text,int maxlen,WILLUSBITMAP *bmp8,
-                                   int x1,int y1,int x2,int y2,
-                                   int ocr_type,int allow_spaces,
+/*
+void ocrtesswords_init(OCRTESSWORDS *ocrtesswords);
+void ocrtesswords_free(OCRTESSWORDS *ocrtesswords);
+void ocrtesswords_add_ocrtessword(OCRTESSWORDS *ocrtesswords,int left,int top,
+                                  int right,int bottom,int baseline,char *text);
+*/
+void ocrtess_ocrwords_from_bmp8(void *api,OCRWORDS *words,WILLUSBITMAP *bmp8,
+                                   int x1,int y1,int x2,int y2,int dpi,
+                                   int segmode,FILE *out);
+void ocrtess_from_bmp8(void *api,char *text,int maxlen,WILLUSBITMAP *bmp8,
+                                   int x1,int y1,int x2,int y2,int dpi,
+                                   int segmode,int allow_spaces,
                                    int std_proc,FILE *out);
 #endif
 
@@ -1796,8 +1879,10 @@ int  willusgui_folder_select(char *foldername,int maxlen);
 
 /* Generic (cross-platform) message box functions */
 /* wleptonica.c */
+#ifdef HAVE_LEPTONICA_LIB
 void wlept_bmp_dewarp(WILLUSBITMAP *src,WILLUSBITMAP *bmp1,WILLUSBITMAP *bmp2,int wthresh,int fit_order,
                       char *debugfile);
+#endif
 
 
 #ifdef PI

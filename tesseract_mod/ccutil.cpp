@@ -1,4 +1,3 @@
-#include "config_auto.h"
 // Copyright 2008 Google Inc. All Rights Reserved.
 // Author: scharron@google.com (Samuel Charron)
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -16,11 +15,12 @@
 namespace tesseract {
 CCUtil::CCUtil() :
   params_(),
-  STRING_INIT_MEMBER(m_data_sub_dir,
-                     "tessdata/", "Directory for data files", &params_),
+/* willus mod */
 /*
+#ifdef _WIN32
   STRING_INIT_MEMBER(tessedit_module_name, WINDLLNAME,
                      "Module colocated with tessdata dir", &params_),
+#endif
 */
   INT_INIT_MEMBER(ambigs_debug_level, 0, "Debug level for unichar ambiguities",
                   &params_),
@@ -30,15 +30,16 @@ CCUtil::CCUtil() :
               " whether to adapt to a character", &params_) {
 }
 
-CCUtil::~CCUtil() {
-}
-
+// Destructor.
+// It is defined here, so the compiler can create a single vtable
+// instead of weak vtables in every compilation unit.
+CCUtil::~CCUtil() = default;
 
 CCUtilMutex::CCUtilMutex() {
 #ifdef _WIN32
   mutex_ = CreateMutex(0, FALSE, 0);
 #else
-  pthread_mutex_init(&mutex_, NULL);
+  pthread_mutex_init(&mutex_, nullptr);
 #endif
 }
 

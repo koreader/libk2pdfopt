@@ -815,10 +815,10 @@ pdf_load_windows_cjk_font(fz_context *ctx, const char *fontname, int ros, int se
 		{
 			switch (ros)
 			{
-			case FZ_ADOBE_CNS_1: font = pdf_load_windows_font_by_name(ctx, "MingLiU"); break;
-			case FZ_ADOBE_GB_1: font = pdf_load_windows_font_by_name(ctx, "SimSun"); break;
-			case FZ_ADOBE_JAPAN_1: font = pdf_load_windows_font_by_name(ctx, "MS-Mincho"); break;
-			case FZ_ADOBE_KOREA_1: font = pdf_load_windows_font_by_name(ctx, "Batang"); break;
+			case FZ_ADOBE_CNS: font = pdf_load_windows_font_by_name(ctx, "MingLiU"); break;
+			case FZ_ADOBE_GB: font = pdf_load_windows_font_by_name(ctx, "SimSun"); break;
+			case FZ_ADOBE_JAPAN: font = pdf_load_windows_font_by_name(ctx, "MS-Mincho"); break;
+			case FZ_ADOBE_KOREA: font = pdf_load_windows_font_by_name(ctx, "Batang"); break;
 			default: fz_throw(ctx, FZ_ERROR_GENERIC, "invalid serif ros");
 			}
 		}
@@ -826,8 +826,8 @@ pdf_load_windows_cjk_font(fz_context *ctx, const char *fontname, int ros, int se
 		{
 			switch (ros)
 			{
-			case FZ_ADOBE_CNS_1: font = pdf_load_windows_font_by_name(ctx, "DFKaiShu-SB-Estd-BF"); break;
-			case FZ_ADOBE_GB_1:
+			case FZ_ADOBE_CNS: font = pdf_load_windows_font_by_name(ctx, "DFKaiShu-SB-Estd-BF"); break;
+			case FZ_ADOBE_GB:
 				fz_try(ctx)
 				{
 					font = pdf_load_windows_font_by_name(ctx, "KaiTi");
@@ -837,8 +837,8 @@ pdf_load_windows_cjk_font(fz_context *ctx, const char *fontname, int ros, int se
 					font = pdf_load_windows_font_by_name(ctx, "KaiTi_GB2312");
 				}
 				break;
-			case FZ_ADOBE_JAPAN_1: font = pdf_load_windows_font_by_name(ctx, "MS-Gothic"); break;
-			case FZ_ADOBE_KOREA_1: font = pdf_load_windows_font_by_name(ctx, "Gulim"); break;
+			case FZ_ADOBE_JAPAN: font = pdf_load_windows_font_by_name(ctx, "MS-Gothic"); break;
+			case FZ_ADOBE_KOREA: font = pdf_load_windows_font_by_name(ctx, "Gulim"); break;
 			default: fz_throw(ctx, FZ_ERROR_GENERIC, "invalid sans-serif ros");
 			}
 		}
@@ -861,6 +861,6 @@ pdf_load_windows_cjk_font(fz_context *ctx, const char *fontname, int ros, int se
 void pdf_install_load_system_font_funcs(fz_context *ctx)
 {
 #ifdef _WIN32
-	fz_install_load_system_font_funcs(ctx, pdf_load_windows_font, pdf_load_windows_cjk_font);
+	fz_install_load_system_font_funcs(ctx, pdf_load_windows_font, pdf_load_windows_cjk_font, NULL);
 #endif
 }
