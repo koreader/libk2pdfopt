@@ -1,7 +1,7 @@
 /*
 ** userinput.c    User input functions for k2pdfopt.c.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -130,8 +130,7 @@ int userinput_any_string(char *message,char *dstval,int maxlen,char *defname)
             }
         if (tolower(buf[0])=='q')
             return(-1);
-        strncpy(dstval,buf,maxlen-1);
-        dstval[maxlen-1]='\0';
+        xstrncpy(dstval,buf,maxlen-1);
         return(0);
         }
     }

@@ -13,6 +13,8 @@
 extern "C" {
 #endif
 
+void tess_capi_set_logfile(const char *filename);
+void tess_capi_debug_message(char *message);
 void *tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out,
                     char *initstr,int maxlen,int *status);
 int tess_capi_get_ocr(void *api,PIX *pix,char *outstr,int maxlen,int segmode,FILE *out);

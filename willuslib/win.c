@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2019  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -526,6 +526,18 @@ int win_setdir(char *directory)
 
     {
     return(SetCurrentDirectory(directory));
+    }
+
+
+wmetafile *win_emf_clipboard_ex(int type)
+
+    {
+    HENHMETAFILE    hemf;
+
+    if (!OpenClipboard(type==0?NULL:GetDesktopWindow()))
+        return(NULL);
+    hemf=(HENHMETAFILE)GetClipboardData(CF_ENHMETAFILE);
+    return((wmetafile *)hemf);
     }
 
 
@@ -2545,6 +2557,89 @@ void *win_shared_handle_utf8(char *filename)
     if (handle==INVALID_HANDLE_VALUE)
         return(NULL);
     return((void *)handle);
+    }
+
+
+/*
+**
+** Copy the .exe file to a temp folder and re-run it from that folder.
+** This allows you to auto-update the original .exe file that was run from within
+** the program itself.
+**
+** Problem:  Need to keep track of original .exe location!
+**
+** Typical use like so:
+**
+** int WINAPI WinMain(HINSTANCE hInstance,HINSTANCE hPrevInstance,
+**                    char *cmdline,int iCmdShow)
+**
+**      {
+**      if (win_relaunch(cmdline,iCmdShow))
+**          return(0);
+**      ...
+**      }
+**
+*/
+int win_relaunch(char *cmdline,int iCmdShow)
+
+    {
+    char  basename[512];
+    char  exename[512];
+    char  tmpname[512];
+    char  tmpfolder[512];
+    char  exefolder[512];
+    char  newexe[512];
+    char *p;
+    char *buf;
+    int  cmdlen;
+    STARTUPINFO si;
+    PROCESS_INFORMATION pi;
+    static char *funcname="win_relaunch";
+
+    win_full_exe_name(exename);
+    wfile_basepath(exefolder,exename);
+    wfile_abstmpnam(tmpname);
+    wfile_basepath(tmpfolder,tmpname);
+    if (!stricmp(tmpfolder,exefolder))
+        return(0);
+    wfile_basespec(basename,exename);
+    wfile_newext(basename,basename,"");
+    p=getenv("USERNAME");
+    if (p!=NULL)
+        {
+        int i;
+
+        i=in_string(basename,p);
+        if (i>0 && basename[i-1]=='_')
+            return(0);
+        strcat(basename,"_");
+        strcat(basename,p);
+        }
+    wfile_newext(basename,basename,"exe");
+    wfile_fullname(newexe,tmpfolder,basename);
+
+    /* Copy and launch */
+    if (!wfile_copy_file(newexe,exename,0))
+        return(0);
+
+    GetStartupInfo(&si);
+    cmdlen=strlen(newexe)+strlen(exename)+strlen(cmdline)+16;
+    willus_mem_alloc_warn((void **)&buf,cmdlen,funcname,10);
+    sprintf(buf,"\"%s\" \"%s\"",newexe,exename);
+    if (cmdline[0]!='\0')
+        sprintf(&buf[strlen(buf)]," %s",cmdline);
+    memset(&pi,0,sizeof(PROCESS_INFORMATION));
+    memset(&si,0,sizeof(STARTUPINFO));
+    si.cb = sizeof(STARTUPINFO);
+    si.dwX = 0; /* Ignored unless si.dwFlags |= STARTF_USEPOSITION */
+    si.dwY = 0;
+    si.dwXSize = 0; /* Ignored unless si.dwFlags |= STARTF_USESIZE */
+    si.dwYSize = 0;
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = iCmdShow;
+    /* Re-launch */
+    CreateProcess(newexe,buf,0,0,1,DETACHED_PROCESS,0,NULL,&si,&pi);
+    return(1);
     }
 
 

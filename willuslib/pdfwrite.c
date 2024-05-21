@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -58,8 +58,9 @@ typedef struct
     double nextchar;
     } WILLUSCHARINFO;
 
-
-
+#define ABOVEBASEMEAN 0.6
+#define WIDTHMEAN     0.45
+#define NEXTCHARMEAN  0.12
 
 static WILLUSCHARINFO Helvetica[224] =
     {
@@ -594,6 +595,7 @@ void pdffile_add_bitmap_with_ocrwords(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,
     double pw,ph;
     int ptr1,ptr2,ptrlen,showbitmap,nf;
     WILLUSCHARMAPLIST *cmaplist,_cmaplist;
+
 /*
 {
 int i;
@@ -1514,14 +1516,29 @@ static void ocrword_width_and_maxheight(OCRWORD *word,double *width,double *maxh
         c=cid-32;
         if (c<0 || c>=224)
             c=0;
+        /* 3-15-2020: Replace -1's in dataset with means */
+        /* Hoping to prevent bad text selection of certain unicode chars */
+        {
+        double w,nc,ab;
+
+        w=Helvetica[c].width;
+        nc=Helvetica[c].nextchar;
+        ab=Helvetica[c].abovebase;
+        if (w<=0.)
+            w=WIDTHMEAN;
+        if (nc<=0.)
+            nc=NEXTCHARMEAN+WIDTHMEAN;
+        if (ab<=0.)
+            ab=ABOVEBASEMEAN;
         if (word->text[i+1]=='\0')
-            (*width) += Helvetica[c].width;
+            (*width) += w;
         else
-            (*width) += Helvetica[c].nextchar;
+            (*width) += nc;
         if (charpos!=NULL)
             charpos[i]=(*width);
-        if (Helvetica[c].abovebase > (*maxheight))
-            (*maxheight)=Helvetica[c].abovebase;
+        if (ab > (*maxheight))
+            (*maxheight)=ab;
+        }
         }
     /* Limit checks -- 7-21-2013 */
     if ((*width) < .01)

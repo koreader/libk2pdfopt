@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -308,6 +308,17 @@ void wsys_sleep(int secs)
     win_sleep(secs*1000);
 #else
     sleep(secs);
+#endif
+    }
+
+
+void wsys_sleep_ms(int ms)
+
+    {
+#ifdef HAVE_WIN32_API
+    win_sleep(ms);
+#else
+    usleep(ms*1000);
 #endif
     }
 
@@ -671,4 +682,62 @@ int wsys_file_unlock(char *filename,int fd)
     if (status!=0)
         return(-2);
     return(0);
+    }
+
+/*
+** use NULL to send output to /dev/null or nul
+** use "" to send output to stdout/stderr (no redirect)
+*/
+int wsys_shell_command(char *cmd,char *stdoutfile,char *stderrfile)
+
+    {
+    static char *funcname="wsys_shell_command";
+    char *syscmd;
+    int status;
+#ifdef HAVE_WIN32_API
+    static char *nullname="nul";
+#else
+    static char *nullname="/dev/null";
+#endif
+
+    syscmd=NULL;
+    willus_mem_alloc_warn((void **)&syscmd,strlen(cmd)
+                        +(stdoutfile==NULL?strlen(nullname):strlen(stdoutfile))
+                        +(stderrfile==NULL?strlen(nullname):strlen(stderrfile))+32,funcname,10);
+/* I originally had this code in for unix, but it seems that even if
+   you shell out from a csh-type shell, the redirects still need to
+   use bourne-shell style (1> and 2>).
+    {
+    char *p;
+    p=getenv("SHELL");
+    if (p!=NULL && strlen(p)>3 && !strcmp(&p[strlen(p)-3],"csh"))
+        {
+        strcat(cmd," >>& ");
+        strcat(cmd,logfile);
+        }
+    else
+        {
+        strcat(cmd," 1>> ");
+        strcat(cmd,logfile);
+        strcat(cmd," 2>> ");
+        strcat(cmd,errfile);
+        }
+    }
+*/
+    strcpy(syscmd,cmd);
+    if (stdoutfile==NULL || stdoutfile[0]!='\0')
+        {
+        strcat(syscmd," 1> \"");
+        strcat(syscmd,stdoutfile==NULL?nullname:stdoutfile);
+        strcat(syscmd,"\"");
+        }
+    if (stderrfile==NULL || stderrfile[0]!='\0')
+        {
+        strcat(syscmd," 2> \"");
+        strcat(syscmd,stderrfile==NULL?nullname:stderrfile);
+        strcat(syscmd,"\"");
+        }
+    status=system(syscmd);
+    willus_mem_free((double **)&syscmd,funcname);
+    return(status);
     }

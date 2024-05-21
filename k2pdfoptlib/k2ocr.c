@@ -1,7 +1,7 @@
 /*
 ** k2ocr.c       k2pdfopt OCR functions
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -22,6 +22,7 @@
 #include <windows.h>
 #endif
 #include "k2pdfopt.h"
+#include <locale.h>
 #include <pthread.h>
 
 #ifdef HAVE_OCR_LIB
@@ -58,6 +59,9 @@ typedef struct
     char initstr[256];
     } OCRTESSINITINFO;
 #endif
+static void k2ocr_show_envvar(char *buf,char *color,char *var);
+static void k2ocr_status_line(char *buf,char *color,char *label,char *string);
+static void k2ocr_tesslang_init(char *lang,int assume_yes);
 static void k2ocr_ocrwords_fill_in(MASTERINFO *masterinfo,OCRWORDS *words,BMPREGION *region,
                                    K2PDFOPT_SETTINGS *k2settings);
 /*
@@ -82,13 +86,18 @@ static void wtextchars_add_one_row(WTEXTCHARS *wtcs,int i0,int i1,OCRWORDS *word
 static int wtextchars_ligature_pattern(WTEXTCHARS *wtcs,int index);
 #endif
 
+static char *k2ocr_logfile=NULL;
 
-void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
+
+void k2ocr_init(K2PDFOPT_SETTINGS *k2settings,char *initstr)
 
     {
 #ifdef HAVE_OCR_LIB
     static char *funcname="k2ocr_init";
+    static char ocrinitmessage[256];
+    static char logfilename[256];
 
+    initstr[0]='\0';
     if (maxthreads==0)
         {
         if (k2settings->nthreads<0)
@@ -111,16 +120,22 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
 #if (!defined(HAVE_TESSERACT_LIB) && defined(HAVE_GOCR_LIB))
     if (k2settings->dst_ocr=='t')
         {
-        k2printf(TTEXT_WARN "\a** Tesseract not compiled into this version.  Using GOCR. **"
-                TTEXT_NORMAL "\n\n");
+        static char *tessnot="** Tesseract not compiled into this version.  Using GOCR. **";
+
+        strcpy(initstr,tessnot);
+        strcat(initstr,"\n");
+        k2printf(TTEXT_WARN "\a%s" TTEXT_NORMAL "\n\n",tessnot);
         k2settings->dst_ocr='g';
         }
 #endif
 #if (defined(HAVE_TESSERACT_LIB) && !defined(HAVE_GOCR_LIB))
     if (k2settings->dst_ocr=='g')
         {
-        k2printf(TTEXT_WARN "\a** GOCR not compiled into this version.  Using Tesseract. **"
-                TTEXT_NORMAL "\n\n");
+        static char *gocrnot="** GOCR not compiled into this version.  Using Tesseract. **";
+         
+        strcpy(initstr,gocrnot);
+        strcat(initstr,"\n");
+        k2printf(TTEXT_WARN "\a%s" TTEXT_NORMAL "\n\n",gocrnot);
         k2settings->dst_ocr='t';
         }
 #endif
@@ -136,6 +151,14 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
             pthread_t *thread;
             OCRTESSINITINFO *otii;
             char *istr;
+
+            /* Check that languages exist--download if they don't */
+            k2ocr_tesslang_init(k2settings->dst_ocr_lang,k2settings->assume_yes);
+
+            /* Capture error messages from Tesseract library to a logfile */
+            wfile_abstmpnam(logfilename);
+            k2ocr_logfile=logfilename;
+            ocrtess_set_logfile(k2ocr_logfile);
 
             /* v2.40 -- multithreaded init */
             willus_mem_alloc_warn((void **)(&ocrtess_api),sizeof(void*)*maxthreads,funcname,10); 
@@ -175,28 +198,42 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
                     ocrtess_api[j]=ocrtess_api[i];
                 j++;
                 }
+            ocrtess_set_logfile(NULL); /* Close debugging file */
             if (maxthreads>1)
                 k2printf("\n");
-            if (j>0 && istr!=NULL)
-                k2printf("%s%s%s\n",TTEXT_BOLD,istr,TTEXT_NORMAL);
-            if (j>0 && j<maxthreads)
+            if (j>0)
                 {
-                k2printf(TTEXT_WARN "** Only able to initialize %d instances of Tesseract. **"
-                         TTEXT_NORMAL "\n",j);
-                maxthreads=j;
-                }
-            if (j==0)
-                {
-                k2printf(TTEXT_WARN "Could not find Tesseract data" TTEXT_NORMAL " (env var TESSDATA_PREFIX = %s).\nUsing GOCR v0.50.\n\n",getenv("TESSDATA_PREFIX")==NULL?"(not assigned)":getenv("TESSDATA_PREFIX"));
-                k2ocr_tess_status=-1;
-                maxthreads=1;
+                if (istr!=NULL)
+                    xstrncpy(ocrinitmessage,istr,255);
+                else
+                    strcpy(ocrinitmessage,"Tesseract initialized (no init message returned).");
+                k2printf("%s%s%s\n",TTEXT_BOLD,ocrinitmessage,TTEXT_NORMAL);
+                if (j<maxthreads)
+                    {
+                    k2printf(TTEXT_WARN "** Only able to initialize %d instances of Tesseract. **"
+                             TTEXT_NORMAL "\n",j);
+                    maxthreads=j;
+                    }
+                k2ocr_tess_status=0;
                 }
             else
-                k2ocr_tess_status=0;
+                {
+                sprintf(ocrinitmessage,"Could not initialize any Tesseract threads.\n"
+                     "Possibly could not find Tesseract data (env var TESSDATA_PREFIX = %s).\n"
+                     "Using GOCR v0.50.\n\n",
+                     getenv("TESSDATA_PREFIX")==NULL?"(not assigned)":getenv("TESSDATA_PREFIX"));
+                k2ocr_tess_status=-1;
+                maxthreads=1;
+                k2printf(TTEXT_WARN "%s" TTEXT_NORMAL,ocrinitmessage);
+                k2ocr_showlog();
+                }
+            strcat(initstr,ocrinitmessage);
             willus_mem_free((double **)&otii,funcname);
             willus_mem_free((double **)&thread,funcname);
             k2ocr_tess_inited=1;
             }
+        else
+            strcat(initstr,ocrinitmessage);
 #ifdef HAVE_GOCR_LIB
         }
     else
@@ -208,9 +245,11 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings)
             {
             if (!k2ocr_gocr_inited)
                 {
-                k2printf(TTEXT_BOLD "GOCR v0.50 OCR Engine" TTEXT_NORMAL "\n\n");
+                strcpy(ocrinitmessage,"GOCR v0.50 OCR Engine");
+                k2printf(TTEXT_BOLD "%s" TTEXT_NORMAL "\n\n",ocrinitmessage);
                 k2ocr_gocr_inited=1;
                 }
+            strcat(initstr,ocrinitmessage);
             maxthreads=1;
             }
         }
@@ -231,39 +270,138 @@ void ocrtess_debug_info(char **buf0,int use_ansi)
 
     {
     static char *funcname="ocrtess_debug_info";
-    char *p,*buf;
+    char *buf;
     char langdef[16];
+    char color[16];
     char datapath[MAXFILENAMELEN];
+    char ocrurl[256];
 
     ocrtess_datapath(datapath,NULL,MAXFILENAMELEN-1);
-    willus_mem_alloc_warn((void **)buf0,4096,funcname,10);
+    willus_mem_alloc_warn((void **)buf0,8192,funcname,10);
     buf=(*buf0);
-    p=getenv("TESSDATA_PREFIX");
-    strcpy(buf,"TESSDATA_PREFIX environment variable:  ");
-    if (use_ansi && p!=NULL)
-        strcat(buf,ANSI_MAGENTA);
-    strcat(buf,p==NULL?"(not set)":p);
-    if (use_ansi && p!=NULL)
-        strcat(buf,ANSI_NORMAL);
-    strcat(buf,"\nTesseract data folder:  ");
-    if (use_ansi)
-        strcat(buf,ANSI_MAGENTA);
-    strcat(buf,datapath);
-    if (use_ansi)
-        strcat(buf,ANSI_NORMAL);
-    strcat(buf,"\n\n");
-    strcat(buf,"Contents of ");
+    buf[0]='\0';
+    xstrncpy(color,use_ansi?ANSI_MAGENTA:"",15);
+    k2ocr_show_envvar(buf,color,"TESSDATA_PREFIX");
+    k2ocr_status_line(buf,color,"Tesseract data folder",datapath);
+    k2ocr_show_envvar(buf,color,"TESSDATA_URL");
+    k2ocr_show_envvar(buf,color,"TESSDATAFAST_URL");
+    ocrtess_url(ocrurl,255,0);
+    k2ocr_status_line(buf,color,"Tesseract data URI",ocrurl);
+    k2ocr_status_line(buf,color,"Locale",setlocale(LC_CTYPE,NULL));
+    strcat(buf,"\nContents of ");
     if (use_ansi)
         strcat(buf,ANSI_MAGENTA);
     strcat(buf,datapath);
     if (use_ansi)
         strcat(buf,ANSI_NORMAL);
     strcat(buf,":\n");
-    ocrtess_lang_default(NULL,NULL,0,langdef,16,buf,3000,use_ansi);
+    ocrtess_lang_default(NULL,NULL,0,langdef,16,buf,6000,use_ansi);
     strcat(buf,"* - LSTM = \"Long Short-Term Memory\" training data.\n"
                "    LSTM is the latest, most accurate OCR method used by Tesseract v4.x.\n"
                "    TESS = Tesseract v3.x compatible (can be used by v4.x).\n");
     }
+
+
+static void k2ocr_show_envvar(char *buf,char *color,char *var)
+
+    {
+    char label[256];
+
+    sprintf(label,"%s environment variable",var);
+    k2ocr_status_line(buf,color,label,getenv(var));
+    }
+
+
+static void k2ocr_status_line(char *buf,char *color,char *label,char *string)
+
+    {
+    strcat(buf,label);
+    strcat(buf,":  ");
+    if (color!=NULL && color[0]!='\0' && string!=NULL)
+        strcat(buf,color);
+    strcat(buf,string==NULL ? "(not set)" : string);
+    if (color!=NULL && color[0]!='\0' && string!=NULL)
+        strcat(buf,ANSI_NORMAL);
+    strcat(buf,"\n");
+    }
+
+
+void k2ocr_tesslang_selected(char *lang,int maxlen,K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    xstrncpy(lang,ocrtess_lang_by_index(k2settings->dst_ocr_lang,0),maxlen);
+    }
+
+
+static void k2ocr_tesslang_init(char *lang,int assume_yes)
+
+    {
+    int i;
+    char *longname,*p;
+    char datapath[256];
+
+    ocrtess_datapath(datapath,NULL,255);
+    for (i=0;(p=ocrtess_lang_by_index(lang,i))!=NULL;i++)
+        {
+        int yes,status;
+        char buf[512];
+
+        if (ocrtess_lang_exists(NULL,p))
+            continue;
+        longname=ocrtess_language_name(p);
+        if (!assume_yes)
+            {
+#ifdef HAVE_K2GUI
+            if (k2gui_active())
+                {
+                status=k2gui_yesno("OCR training file not found",
+                       "Tesseract training file for %s not found.  Download from github?",
+                       longname);
+                yes = (status==1);
+                }
+            else
+                {
+#endif
+            k2printf("Tesseract training file for " TTEXT_BOLD "%s" TTEXT_NORMAL " not found.\n"
+                     "  Download from github (y[es]/n[o])? " TTEXT_INPUT,longname);
+            k2gets(buf,16,"y");
+            k2printf(TTEXT_NORMAL);
+            clean_line(buf);
+            yes=(tolower(buf[0])=='y' || buf[0]=='\0');
+#ifdef HAVE_K2GUI
+               }
+#endif
+            }
+        else
+            yes=1;
+        if (!yes)
+            continue;
+        k2printf("Downloading %s to folder %s...\n",longname,datapath);
+        status=ocrtess_lang_get_from_github(NULL,p);
+#ifdef HAVE_K2GUI
+        if (k2gui_active() && !assume_yes)
+            {
+            if (status)
+                {
+                sprintf(buf,"Download of training file for language %s to folder %s failed.  "
+                            "Error %d.",longname,datapath,status);
+                k2gui_redbox(0,"Github download",buf);
+                }
+            else
+                {
+                sprintf(buf,"Download of training file for language %s to folder %s successful.",
+                             longname,datapath);
+                k2gui_messagebox(0,"Github download",buf);
+                }
+            }
+#endif
+        if (status)
+            k2printf(TTEXT_WARN " ... download failed.  Error %d." TTEXT_NORMAL "\n",status);
+        else
+            k2printf(TTEXT_NORMAL " ... download successful." TTEXT_NORMAL "\n");
+        }
+    }
+            
 
     
 static void *otinit(void *data)
@@ -297,14 +435,72 @@ static void *otinit(void *data)
                 if (maxthreads>1)
                     k2printf(".");
                 }
+//            if (ntries>3)
+//                wsys_sleep_ms(250);
             }
         if (done)
             break;
+//        if (ntries>2)
+//            wsys_sleep_ms(250);
         }
     pthread_exit(NULL);
     return(NULL);
     }
 #endif
+
+
+/*
+** Dump Tesseract library debugging log using k2printf()
+** Only print unique line once (due to multi-threading)
+*/
+void k2ocr_showlog(void)
+
+    {
+    static char *funcname="k2ocr_showlog";
+
+    if (k2ocr_tess_status<0 && k2ocr_logfile!=NULL && wfile_status(k2ocr_logfile)==1
+                            && wfile_size(k2ocr_logfile)>0.)
+        {
+        FILE *f;
+        char *bigbuf;
+        char *lines[128];
+        int i,n,nmax;
+        char buf[256];
+        static char *divider="---------------------------\n";
+        static char *header=TTEXT_BOLD "%s%-5s Tesseract library log\n%s" TTEXT_NORMAL;
+
+        nmax=128;
+        n=0;
+        bigbuf=NULL;
+        willus_mem_alloc_warn((void **)&bigbuf,256*nmax,funcname,10);
+        for (i=0;i<nmax;i++)
+            lines[i]=&bigbuf[256*i];
+        k2printf(header,"","Start",divider);
+        k2printf("Starting multi-threaded init.\n");
+        f=fopen(k2ocr_logfile,"r");
+        if (f!=NULL)
+            {
+            while (fgets(buf,255,f)!=NULL)
+                {
+                for (i=0;i<n;i++)
+                    if (!stricmp(buf,lines[i]))
+                        break;
+                if (i<n)
+                    continue;
+                k2printf("%s",buf);
+                if (i<nmax)
+                    {
+                    strcpy(lines[i],buf);
+                    n++;
+                    }
+                }
+            fclose(f);
+            }
+        k2printf(header,divider,"End","\n");
+        willus_mem_free((double **)&bigbuf,funcname);
+        }
+    }
+            
 
 /*
 ** v2.15--call close/free functions even if k2settings->dst_ocr not set--may have
@@ -313,6 +509,8 @@ static void *otinit(void *data)
 void k2ocr_end(K2PDFOPT_SETTINGS *k2settings)
 
     {
+    if (k2ocr_logfile!=NULL)
+        remove(k2ocr_logfile);
 #ifdef HAVE_OCR_LIB
 #ifdef HAVE_TESSERACT_LIB
     static char *funcname="k2ocr_end";
@@ -326,6 +524,7 @@ void k2ocr_end(K2PDFOPT_SETTINGS *k2settings)
             ocrtess_api[i]=NULL;
             }
         willus_mem_free((double **)&ocrtess_api,funcname);
+        k2ocr_tess_inited=0;
         }
 #endif
     ocrwords_free(&k2settings->dst_ocrwords);
@@ -387,7 +586,7 @@ printf("Call #1. k2ocr_ocrwords_fill_in\n");
 printf("\nwrectmaps->n=%d, dst_ocr='%c'\n",region->wrectmaps->n,k2settings->dst_ocr);
 #endif
         if (k2settings->dst_ocr!='m' || region->wrectmaps->n!=1)
-            bmpregion_find_textrows(&pageregions->pageregion[i].bmpregion,k2settings,0,1,0);
+            bmpregion_find_textrows(&pageregions->pageregion[i].bmpregion,k2settings,0,1,-1.0,0);
         pageregions->pageregion[i].bmpregion.wrectmaps = region->wrectmaps;
 #if (WILLUSDEBUGX & 32)
 printf("Call #2. k2ocr_ocrwords_fill_in, pr = %d of %d\n",i+1,pageregions->n);
@@ -412,6 +611,7 @@ static void k2ocr_ocrwords_fill_in(MASTERINFO *masterinfo,OCRWORDS *words,BMPREG
     pthread_t *thread;
     static char *funcname="k2ocr_ocrwords_fill_in";
 
+    type=0;
 #ifdef HAVE_TESSERACT_LIB
 #ifdef HAVE_GOCR_LIB
     if (k2settings->dst_ocr=='t' && !k2ocr_tess_status)
@@ -992,6 +1192,9 @@ printf("@k2ocr_ocrwords_get_from_ocrlayer.\n");
         ocrwords_free(words);
         wtextchars_clear(wtcs);
         wtextchars_fill_from_page(wtcs,masterinfo->srcfilename,masterinfo->pageinfo.srcpage,"");
+        /* v2.52 bug fix--scale text chars w/document scale factor */
+        if (masterinfo->document_scale_factor!=1)
+            wtextchars_scale_page(wtcs,masterinfo->document_scale_factor);
 #if (WILLUSDEBUGX & 0x10000)
 {
 int i;

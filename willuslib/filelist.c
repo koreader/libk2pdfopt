@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -977,7 +977,7 @@ int filelist_fill_from_disk_1(FILELIST *fl,char *filespec,
     while (is_wild(dir))
         {
         int i,l;
-        char buf[MAXFILENAMELEN];
+        char buf[MAXFILENAMELEN+32];
 
         l=strlen(dir);
         if (dir[l-1]==SLASH)
@@ -1017,7 +1017,7 @@ int filelist_create_zipfile(FILELIST *fl,char *zipfile,FILE *out)
     char zipdir[512];
     char curdir[512];
     char tmpfile[512];
-    char cmd[1024];
+    char cmd[1064];
     FILE *f;
     int i;
 
@@ -2285,32 +2285,32 @@ void filelist_new_entry_name(FILELIST *fl,int index,char *newname)
 int filelist_write_to_file(FILELIST *fl,char *filename)
 
     {
-    FILE *f;
+    WZFILE *f;
     int i;
 
-    f=wfile_fopen_utf8(filename,"wb");
+    f=wzopen(filename,"wb");
     if (f==NULL)
         return(-1);
-    if (fwrite(fl,1,sizeof(FILELIST),f)<sizeof(FILELIST))
+    if (wzwrite(f,fl,sizeof(FILELIST))<sizeof(FILELIST))
         {
-        fclose(f);
+        wzclose(f);
         return(-2);
         }
     for (i=0;i<fl->n;i++)
         fl->entry[i].name = (char *)(fl->entry[i].name - fl->databuf);
-    if (fwrite(fl->entry,sizeof(FLENTRY),fl->n,f)<fl->n)
+    if (wzwrite(f,fl->entry,sizeof(FLENTRY)*fl->n)<sizeof(FLENTRY)*fl->n)
         {
-        fclose(f);
+        wzclose(f);
         return(-3);
         }
     for (i=0;i<fl->n;i++)
         fl->entry[i].name = (char *)(fl->databuf + (size_t)fl->entry[i].name);
-    if (fwrite(fl->databuf,1,fl->bytes_allocated,f)<fl->bytes_allocated)
+    if (wzwrite(f,fl->databuf,fl->bytes_allocated)<fl->bytes_allocated)
         {
-        fclose(f);
+        wzclose(f);
         return(-4);
         }
-    if (fclose(f))
+    if (wzclose(f))
         return(-5);
     return(0);
     }
@@ -2319,35 +2319,35 @@ int filelist_write_to_file(FILELIST *fl,char *filename)
 int filelist_read_from_file(FILELIST *fl,char *filename)
 
     {
-    FILE *f;
+    WZFILE *f;
     int i;
     static char *funcname="filelist_read_from_file";
 
-    f=wfile_fopen_utf8(filename,"rb");
+    f=wzopen(filename,"rb");
     if (f==NULL)
         return(-1);
-    if (fread(fl,1,sizeof(FILELIST),f)<sizeof(FILELIST))
+    if (wzread(f,fl,sizeof(FILELIST))<sizeof(FILELIST))
         {
-        fclose(f);
+        wzclose(f);
         return(-2);
         }
     fl->entry=NULL;
     fl->databuf=NULL;
     willus_mem_alloc_warn((void **)&fl->entry,sizeof(FLENTRY)*fl->nmax,funcname,10);
     willus_mem_alloc_warn((void **)&fl->databuf,fl->bytes_allocated,funcname,10);
-    if (fread(fl->entry,sizeof(FLENTRY),fl->n,f)<fl->n)
+    if (wzread(f,fl->entry,sizeof(FLENTRY)*fl->n)<sizeof(FLENTRY)*fl->n)
         {
-        fclose(f);
+        wzclose(f);
         return(-3);
         }
     for (i=0;i<fl->n;i++)
         fl->entry[i].name = (char *)(fl->databuf + (size_t)fl->entry[i].name);
-    if (fread(fl->databuf,1,fl->bytes_allocated,f)<fl->bytes_allocated)
+    if (wzread(f,fl->databuf,fl->bytes_allocated)<fl->bytes_allocated)
         {
-        fclose(f);
+        wzclose(f);
         return(-4);
         }
-    if (fclose(f))
+    if (wzclose(f))
         return(-5);
     return(0);
     }
@@ -2543,4 +2543,141 @@ void filelist_reslash(FILELIST *fl)
     wfile_reslash(fl->dir);
     for (i=0;i<fl->n;i++)
         wfile_reslash(fl->entry[i].name);
+    }
+
+
+/*
+** Fill from unix-style archive (.a) file
+** https://en.wikipedia.org/wiki/Ar_(Unix)#File_format_details
+*/
+int filelist_fill_from_ar(FILELIST *fl,char *arfile)
+
+    {
+    FLENTRY _entry,*entry;
+    FILE *f;
+    static char *funcname="filelist_fill_from_ar";
+    static char *namebuf;
+    int nbna;
+    char filename[256];
+    char buf[256];
+    int i,size,newpos;
+
+    namebuf=NULL;
+    nbna=0;
+    entry=&_entry;
+    entry->name=&filename[0];
+    filelist_clear(fl);
+    size=wfile_size(arfile);
+    if (size<=8)
+        return(-1);
+    f=fopen(arfile,"rb");
+    if (f==NULL)
+        return(-1);
+    if (fread(buf,1,8,f)<8)
+        {
+        fclose(f);
+        return(-2);
+        }
+    buf[8]='\0';
+    if (stricmp(buf,"!<arch>\n"))
+        {
+        fclose(f);
+        return(-3);
+        }
+    fseek(f,56,0);
+    if (fread(buf,1,10,f)<10)
+        {
+        fclose(f);
+        return(-4);
+        }
+    buf[10]='\0';
+    newpos=atoi(buf)+68;
+    while (newpos < size)
+        {
+        time_t t;
+        int slen,valid;
+
+        fseek(f,newpos,0);
+        if (fread(buf,1,16,f)<16)
+            break;
+        valid=0;
+        if (buf[0]=='/' && buf[1]=='/')
+            {
+            fseek(f,26L,1);
+            if (fread(buf,1,16,f)<16)
+                break;
+            buf[16]='\0';
+            clean_line(buf);
+            slen=atoi(buf);
+            fseek(f,2L,1);
+            if (slen+2 > nbna)
+                {
+                if (nbna==0)
+                    willus_mem_alloc_warn((void **)&namebuf,slen+2,funcname,10);
+                else
+                    willus_mem_realloc_robust_warn((void **)&namebuf,slen+2,nbna,funcname,10);
+                nbna=slen+2;
+                }
+            if (fread(namebuf,1,slen,f)<slen)
+                break;
+            namebuf[slen]='/';
+            namebuf[slen+1]='\0';
+            if (fread(buf,1,16,f)<16)
+                break;
+            slen=16;
+            }
+        if (buf[0]=='/')
+            {
+            int index;
+            index=atoi(&buf[1]);
+            if (namebuf!=NULL && strlen(namebuf)>index)
+                {
+                valid=1;
+                xstrncpy(buf,&namebuf[index],255);
+                slen=strlen(buf);
+                }
+            else
+                slen=16;
+            }
+        else
+            slen=16;
+        for (i=0;i<slen && buf[i]!='/';i++);
+        if (buf[i]!='/' || slen<=16 || buf[i+1]=='\0' || buf[i+1]==' ')
+            valid=1;
+        buf[i]='\0';
+        xstrncpy(entry->name,buf,255);
+        if (fread(buf,1,12,f)<12)
+            break;
+        t=(time_t)atoi(buf);
+        entry->date=(*localtime(&t));
+        fseek(f,20L,1);
+        if (fread(buf,1,10,f)<10)
+            break;
+        buf[10]='\0';
+        clean_line(buf);
+        entry->size=atoi(buf);
+        entry->attr=0;
+/*
+printf("%06X:  0/0%7d %02d-%02d-%04d, %02d:%02d:%02d %s\n",
+newpos,
+(int)entry->size,
+entry->date.tm_mon+1,
+entry->date.tm_mday,
+entry->date.tm_year+1900,
+entry->date.tm_hour,
+entry->date.tm_min,
+entry->date.tm_sec,
+entry->name);
+*/
+        if (valid)
+            filelist_add_entry(fl,entry);
+        slen=(int)entry->size;
+        if (slen&1)
+            slen++;
+        newpos=ftell(f)+2+slen;
+        }
+    fclose(f);
+    if (nbna>0)
+        willus_mem_free((double **)&namebuf,funcname);
+    return(0);
     }

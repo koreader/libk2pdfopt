@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -106,6 +106,13 @@ void strbuf_init(STRBUF *sbuf)
     {
     sbuf->s=NULL;
     sbuf->na=0;
+    }
+
+
+int strbuf_len(STRBUF *sbuf)
+
+    {
+    return(sbuf->s==NULL?0:strlen(sbuf->s));
     }
 
 

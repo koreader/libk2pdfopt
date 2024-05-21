@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2019  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -1185,10 +1185,8 @@ void wmupdfinfo_get(char *filename,int *pagelist,char **buf)
     {
 	char *password = "";
 	int show = ALL;
-	int sizebytes;
 	fz_output *out = NULL;
 	fz_context *ctx;
-    FILE *fout;
     char tempname[MAXFILENAMELEN];
 
     /*
@@ -1239,28 +1237,8 @@ void wmupdfinfo_get(char *filename,int *pagelist,char **buf)
     fz_close_output(ctx,out);
 	fz_drop_output(ctx,out);
 	fz_drop_context(ctx);
-    /* fclose(fout); */
-    fout=fopen(tempname,"rb");
-    if (fout==NULL)
-        return;
-    fseek(fout,0L,2);
-    sizebytes=ftell(fout);
-    if (sizebytes<=0)
-        {
-        fclose(fout);
-        return;
-        }
-    (*buf)=malloc(sizebytes+1);
-    if ((*buf)==NULL)
-        {
-        fclose(fout);
-        return;
-        }
-    fseek(fout,0L,0);
-    fread((*buf),1,sizebytes,fout);
-    fclose(fout);
+    wfile_read_ascii_to_buf(buf,tempname);
     remove(tempname);
-    (*buf)[sizebytes]='\0';
     }
 
 

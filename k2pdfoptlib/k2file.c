@@ -2,7 +2,7 @@
 ** k2file.c      K2pdfopt file handling and main file processing
 **               function (k2pdfopt_proc_one()).
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -39,12 +39,13 @@ static char *pagename(int pageno);
 static int  filename_comp(char *name1,char *name2);
 static int  filename_get_temp_pdf_name(char *dst,char *fmt,char *psname);
 static int  count_format_strings(char *fmt,int type);
-static int  overwrite_fail(char *outname,double overwrite_minsize_mb,int assume_yes);
-static int toclist_valid(char *s,FILE *out);
+static int  overwrite_fail(char *outname,double overwrite_minsize_mb,int rename,int assume_yes);
+static int  existing_file_rename(char *filename);
+static int  toclist_valid(char *s,FILE *out);
 static WPDFOUTLINE *wpdfoutline_from_pagelist(char *pagelist,int maxpages);
-static int tocwrites=0;
-static int get_source_type(char *filename);
-static int file_numpages(char *filename,char *mupdffilename,int src_type,int *usegs);
+static int  tocwrites=0;
+static int  get_source_type(char *filename);
+static int  file_numpages(char *filename,char *mupdffilename,int src_type,int *usegs);
 #ifdef HAVE_GHOSTSCRIPT
 static int  gsproc_init(void);
 static int  gs_convert_to_pdf(char *temppdfname,char *psfilename,K2PDFOPT_SETTINGS *k2settings);
@@ -188,7 +189,7 @@ static void k2pdfopt_warn_file_not_found(K2PDFOPT_SETTINGS *k2settings,char *fil
 #ifdef HAVE_K2GUI
     if (k2listproc->mode==K2PDFOPT_FILELIST_PROCESS_MODE_CONVERT_FILES && k2gui_active())
         {
-        char buf[512];
+        char buf[512+64];
         k2gui_cbox_increment_error_count();
         sprintf(buf,"File %s cannot be opened.",filename);
         if (k2settings->preview_page>0)
@@ -432,6 +433,7 @@ static int k2pdfopt_proc_one(K2PDFOPT_SETTINGS *k2settings0,char *filename,
     char dstfile[MAXFILENAMELEN];
     char markedfile[MAXFILENAMELEN];
     char rotstr[128];
+    char initstr[256];
     WILLUSBITMAP _src,*src;
     WILLUSBITMAP _srcgrey,*srcgrey;
     WILLUSBITMAP _marked,*marked;
@@ -472,7 +474,7 @@ printf("    filecount=%d\n",k2fileproc->filecount);
 #endif
     mpdf=&_mpdf;
     /* Must be called once per conversion to init margins / devsize / output size */
-    k2pdfopt_settings_new_source_document_init(k2settings);
+    k2pdfopt_settings_new_source_document_init(k2settings,initstr);
     errcnt=0;
     pixwarn=0;
     mupdffilename=_masterinfo.srcfilename;
@@ -660,9 +662,17 @@ printf("first_time_through = %d\n",first_time_through);
     if (np>0 && pagecount==0)
         {
         if (first_time_through)
-            k2printf("\a\n" TTEXT_WARN "No %ss to convert (-p %s -px %s)!" TTEXT_NORMAL "\n\n",
-                     src_type==SRC_TYPE_BITMAPFOLDER?"file":"page",
-                     k2settings->pagelist,k2settings->pagexlist);
+            {
+            k2printf("\a\n" TTEXT_WARN "No %ss to convert",
+                     src_type==SRC_TYPE_BITMAPFOLDER?"file":"page");
+            if (k2settings->pagelist[0]!='\0' && k2settings->pagexlist[0]!='\0')
+                k2printf(" (-p %s -px %s)",k2settings->pagelist,k2settings->pagexlist);
+            else if (k2settings->pagelist[0]!='\0')
+                k2printf(" (-p %s)",k2settings->pagelist);
+            else if (k2settings->pagexlist[0]!='\0')
+                k2printf(" (-px %s)",k2settings->pagexlist);
+            k2printf("!" TTEXT_NORMAL "\n\n");
+            }
         masterinfo_free(masterinfo,k2settings);
         if (src_type==SRC_TYPE_BITMAPFOLDER)
             filelist_free(fl);
@@ -673,6 +683,13 @@ printf("first_time_through = %d\n",first_time_through);
         {
         if (!k2settings->preview_page)
         {
+#ifdef HAVE_K2GUI
+        if (k2gui_active())
+            {
+            k2printf("%s%s%s",TTEXT_BOLD,initstr,TTEXT_NORMAL);
+            k2ocr_showlog(); /* Only shows if using OCR and had an error */
+            }
+#endif
         k2printf("Reading ");
         if (pagecount>0)
            {
@@ -1069,7 +1086,9 @@ printf("Calling wpdfpageinfo_scale_source_boxes()...\n");
                 if (k2settings->dst_title[0]!='\0')
                     strcpy(masterinfo->pageinfo.title,title);
                 /* v2.20 bug fix -- need to compensate for document_scale_factor if its not 1.0 */
-                wpdfpageinfo_scale_source_boxes(&masterinfo->pageinfo,1./k2settings->document_scale_factor);
+                if (masterinfo->document_scale_factor!=1.)
+                    wpdfpageinfo_scale_source_boxes(&masterinfo->pageinfo,
+                                                      1./masterinfo->document_scale_factor);
 #if (WILLUSDEBUGX & 64)
 printf("Calling wmupdf_remake_pdf()...\n");
 #endif
@@ -1304,7 +1323,7 @@ static int filename_get_temp_pdf_name(char *dst,char *fmt,char *psname)
     wfile_newext(dst,NULL,"");
     for (i=1;i<10000;i++)
         {
-        char newname[MAXFILENAMELEN];
+        char newname[MAXFILENAMELEN+10];
         sprintf(newname,"%s%04d.pdf",dst,i);
         if (wfile_status(newname)==0)
             {
@@ -1449,6 +1468,7 @@ static int count_format_strings(char *fmt,int type)
 /*
 **  0 = ask each time
 **  1 = overwrite all
+**  2 = rename all
 ** -1 = no overwriting (all)
 */
 void overwrite_set(int status)
@@ -1458,7 +1478,7 @@ void overwrite_set(int status)
     }
 
 
-static int overwrite_fail(char *outname,double overwrite_minsize_mb,int assume_yes)
+static int overwrite_fail(char *outname,double overwrite_minsize_mb,int rename,int assume_yes)
 
     {
     double size_mb;
@@ -1470,13 +1490,14 @@ static int overwrite_fail(char *outname,double overwrite_minsize_mb,int assume_y
         return(0);
     if (wfile_status(outname)==0)
         return(0);
-    if (overwrite_minsize_mb < 0.)
-        return(0);
-    if (k2files_overwrite==1)
-        return(0);
     size_mb = wfile_size(outname)/1024./1024.;
-    if (size_mb < overwrite_minsize_mb)
-        return(0);
+    if (overwrite_minsize_mb < 0. || size_mb<overwrite_minsize_mb || k2files_overwrite>0)
+        {
+        if (!rename && k2files_overwrite!=2)
+            return(0);
+        if (existing_file_rename(outname))
+            return(0);
+        }
     if (k2files_overwrite==-1)
         return(1);
     wfile_basepath(basepath,outname);
@@ -1492,11 +1513,21 @@ static int overwrite_fail(char *outname,double overwrite_minsize_mb,int assume_y
                 int reply;
                 reply=k2gui_yes_no_all("File overwrite query","File %s (%.1f MB) already exists!  "
                                        "Overwrite it?",newname,size_mb);
-                if (reply<0)
-                    return(1);
-                if (reply==2)
+                if (reply<0 || reply==2)
                     {
-                    overwrite_set(-1);
+                    reply=k2gui_yes_no_all("File rename query","File %s (%.1f MB) already exists!  "
+                                       "Rename existing file?",newname,size_mb);
+                    if (reply<0) /* No */
+                        return(1);
+                    if (reply==2) /* No to all (rename) */
+                        {
+                        overwrite_set(-1);
+                        return(1);
+                        }
+                    if (reply==3) /* Yes to all (rename) */
+                        overwrite_set(2);
+                    if (existing_file_rename(newname))
+                        return(0);
                     return(1);
                     }
                 if (reply==3)
@@ -1507,18 +1538,20 @@ static int overwrite_fail(char *outname,double overwrite_minsize_mb,int assume_y
                 {
 #endif
             k2printf("File " TTEXT_MAGENTA "%s" TTEXT_NORMAL " (%.1f MB) already exists!\n"
-                      "   Overwrite it (y[es]/n[o]/a[ll]/q[uit])? " TTEXT_INPUT,
+                      "   Overwrite it (y[es]/n[o]/a[ll]/q[uit]/r[ename]/R[ename all])? " TTEXT_INPUT,
                     newname,size_mb);
             k2gets(buf,16,"y");
             k2printf(TTEXT_NORMAL);
             clean_line(buf);
-            buf[0]=tolower(buf[0]);
+            if (buf[0]!='R')
+                buf[0]=tolower(buf[0]);
 #ifdef HAVE_K2GUI
                 }
 #endif
-            if (buf[0]!='y' && buf[0]!='n' && buf[0]!='a' && buf[0]!='q')
+            if (buf[0]!='y' && buf[0]!='n' && buf[0]!='a' && buf[0]!='q'
+                            && buf[0]!='r' && buf[0]!='R')
                 {
-                k2printf("\a\n  ** Must respond with 'y', 'n', 'a', or 'q' **\n\n");
+                k2printf("\a\n  ** Must respond with 'y', 'n', 'a', 'r', 'R', or 'q' **\n\n");
                 continue;
                 }
             break;
@@ -1531,7 +1564,13 @@ static int overwrite_fail(char *outname,double overwrite_minsize_mb,int assume_y
                 overwrite_set(1);
             return(0);
             }
-
+        if (buf[0]=='r' || buf[0]=='R')
+            {
+            if (buf[0]=='R')
+                overwrite_set(2);
+            if (existing_file_rename(outname))
+                return(0);
+            }
         k2printf("Enter a new output base name (.pdf will be appended, q=quit).\n"
                 "New name: " TTEXT_INPUT);
         k2gets(buf,255,"__out__.pdf");
@@ -1550,6 +1589,37 @@ static int overwrite_fail(char *outname,double overwrite_minsize_mb,int assume_y
         }
     strcpy(outname,newname);
     return(0);
+    }
+
+
+static int existing_file_rename(char *filename)
+
+    {
+    char basepath[256];
+    char basename[256];
+    char ext[64];
+    int i;
+
+    wfile_basespec(basename,filename);
+    xstrncpy(ext,wfile_ext(basename),63);
+    wfile_newext(basename,basename,"");
+    wfile_basepath(basepath,filename);
+    for (i=1;i<=9999;i++)
+        {
+        char newbase[356];
+        char fullname[512];
+
+        sprintf(newbase,"%s_old%04d.%s",basename,i,ext);
+        wfile_fullname(fullname,basepath,newbase);
+        if (wfile_status(fullname)!=0)
+            continue;
+        if (!rename(filename,fullname))
+            {
+            k2printf(ANSI_YELLOW "%s --> %s" ANSI_NORMAL "\n",filename,fullname);
+            break;
+            }
+        }
+    return(i<=9999);
     }
 
 
@@ -1850,7 +1920,7 @@ static int gs_convert_to_pdf(char *temppdfname,char *psfilename,K2PDFOPT_SETTING
     k2printf("Converting " TTEXT_MAGENTA "%s" TTEXT_NORMAL " to PDF...\n",
               psfilename);
     status=willusgs_ps_to_pdf(temppdfname,psfilename,NULL);
-    if (status<0)
+    if (status)
         {
         static int warn=0;
         if (warn==0)
@@ -1900,7 +1970,7 @@ static void gs_postprocess(char *filename)
     k2printf("Post processing " TTEXT_MAGENTA "%s" TTEXT_NORMAL " with Ghostscript...\n",
               filename);
     status=willusgs_ps_to_pdf(tempname,filename,NULL);
-    if (status<0)
+    if (status)
         {
         static int warn=0;
         if (warn==0)
@@ -2162,7 +2232,7 @@ static int k2file_setup_output_file_names(K2PDFOPT_SETTINGS *k2settings,char *fi
         k2sys_exit(k2settings,50);
         }
     wfile_prepdir(dstfile);
-    if ((status=overwrite_fail(dstfile,k2settings->overwrite_minsize_mb,
+    if ((status=overwrite_fail(dstfile,k2settings->overwrite_minsize_mb,k2settings->rename,
                                        k2settings->assume_yes))!=0)
         {
         masterinfo_free(masterinfo,k2settings);
