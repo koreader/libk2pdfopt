@@ -1,8 +1,8 @@
-char *k2pdfopt_version = "v2.51";
+char *k2pdfopt_version = "v2.52";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
-** Copyright (C) 2019  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -20,10 +20,81 @@ char *k2pdfopt_version = "v2.51";
 **
 ** VERSION HISTORY
 **
+** v2.52 12 JUN 2020
+**           NEW FEATURES
+**           -Automatically downloads Tesseract v4.0 training files from github.
+**            Use -y for no prompting.  See -ocrlang command usage for full details.
+**           -Added new -go (grid order) option to specify the order in which
+**            areas in gridded pages are processed.  Grid area processing also
+**            defaults to right-to-left if -r is specified.
+**           ENHANCEMENTS
+**           -Prints Tesseract init info at the beginning of each file conversion
+**            now--in the GUI also.
+**           -Redirects Tesseract library debug statements to a log file.  Prints
+**            them out if it cannot initialize correctly.
+**           -Re-edited a lot of the -mode usage descriptions.
+**           -CMakeLists.txt files updated.
+**           -Added Kobo Clara HD, Kobo Forma, and Kobo Libra H2O to device list
+**            (using preliminary resolution numbers).
+**           -Windows version now compiled with gcc 9.3.1 on a core i9-9900.
+**           MS WINDOWS GUI
+**           -Tesseract language selection and download fully supported.
+**           -Added three more preset buttons for a total of seven.
+**           -Added "View" button to GUI to view PDF source file.
+**           BUG FIXES
+**           -Fixed issue where OCR layer placement from an already generated
+**            OCR layer was not correct if a document scale factor not equal
+**            to 1 was used (e.g. -ds 2).
+**           -Hopefully improved detection of out-of-family small rows.
+**            Modified textrows_remove_small_rows() in textrows.c and also added
+**            -rhmin option to remove any row w/text height less than a certain value.
+**            https://www.mobileread.com/forums/showthread.php?p=3693210#post3693210
+**            https://www.mobileread.com/forums/showthread.php?p=2781815#post2781815
+**           -Fixed some issues with -fr option.  Added -ddr option (-ddr- to turn
+**            off double-row detect) to prevent tall figures from potentially
+**            getting broken up inadvertently.  Modified k2proc.c to
+**            "rotate the trow" structure next the end of bmpregion_add() function.
+**            https://www.mobileread.com/forums/showthread.php?p=3549163#post3549163
+**           -Fixed issue where the output margins weren't exactly right in the
+**            case of -mode trim.  See k2settings_adjust_devdims_for_om() function
+**            in k2settings.c. (PM from Tex2002ans on MR.)
+**           -Added textrows_remove_defects() function to bmpregion_find_textrows()
+**            in bmpregion.c.  This helped fix an issue where rows were not
+**            getting selected properly in a document due to small scanning
+**            defects.
+**           -Fixed implementation of -bp <gap>.  This had been broken for some
+**            time.  It was getting overridden by other features.  See mods to
+**            k2proc.c and k2master.c.
+**            https://www.mobileread.com/forums/showthread.php?p=3743393#post37433930
+**           -Fixed some bugs with autocrop (-ac)--particularly an issue that was
+**            causing it to hang for pages with a high aspect ratio--this caused the
+**            "goes idle after page 16" in this post:
+**            https://www.mobileread.com/forums/showthread.php?p=3957183#post3957183
+**            See mods to k2bmp.c.
+**           -Fixed ghostscript (DLL API) to work with UTF-8 strings and also
+**            improved error processing.  Also fixed a ghostscript DLL
+**            initialization error that sometimes caused a crash.
+**            https://www.mobileread.com/forums/showthread.php?p=3884300#post3884300
+**            https://www.mobileread.com/forums/showthread.php?p=3886929#post3886929
+**           -Option to auto-rename existing files rather than overwrite them.
+**            See updated -ow command-line usage (-ow+). Also will prompt for
+**            auto-renaming.
+**           -Expanded the usage description for -gtr.
+**           -Fixed where "u" menu option sometimes printed one too few linefeeds
+**            (pr1cmdopt() function in k2usage.c)
+**           -Fixed issue with a French accented "a" (and some other characters)
+**            having bad text selection dimensions (from 24 Aug 2019).  See mods
+**            to pdfwrite.c.  Certain chars had negative widths/heights in the
+**            Helvetica data set in pdfwrite.c.
+**
+** V2.51a 5 JAN 2019
+**           - Fixed issue with MS Windows GUI not displaying PDF file info
+**             correctly (due to change in MuPDF behavior).
+**
 ** V2.51 4 JAN 2019
 **           - Fixed issue with Tesseract and SSE/AVX support
 **           - Added -ocrdpi option to optimize Tesseract v4.0.0 performance
-**           - Added code modes from:  https://gitlab.com/axet/android-k2pdfopt/commit/163d9c9248f9ac00068ecb60af33f1ae7ec17540
+**           - Added code mods from:  https://gitlab.com/axet/android-k2pdfopt/commit/163d9c9248f9ac00068ecb60af33f1ae7ec17540
 **
 ** V2.50 27 DEC 2018
 **           ENHANCEMENTS
@@ -488,9 +559,9 @@ char *k2pdfopt_version = "v2.51";
 **           - If -wt+ is specified for the white threshold, all pixels >= the
 **             specified value will be painted pure white (255).
 **             https://github.com/koreader/koreader/pull/549
-**           - While not a perfect work-around, large, stylized first letters
-**             which frequently begin a book chapter (typically the height of 2
-**             or 3 normal-sized text rows) are now detected when wrapping text
+**           - While not a perfect work-around, drop caps (large, stylized first
+**             letters which frequently begin a book chapter--typically the height
+**             of 2 or 3 normal-sized text rows) are now detected when wrapping text
 **             lines so that the lines adjacent to them are more-or-less correctly
 **             wrapped. Still needs improvement.
 **

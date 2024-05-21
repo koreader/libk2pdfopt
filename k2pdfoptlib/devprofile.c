@@ -1,7 +1,7 @@
 /*
 ** devprofile.c    Handle device profiles.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -24,8 +24,9 @@
 ** v2.32:  Added new device dims from screen shots on mobileread.com
 ** v2.42:  Added Kobo Aura One
 ** v2.50:  Added Kindle Oasis 2nd-gen; Combined Voyager/PW3+/Oasis
+** v2.52:  Added Kobo Clara HD, Kobo Forma, Kobo Libra H2O
 */
-static DEVPROFILE devprof[21] =
+static DEVPROFILE devprof[28] =
     {
     {"Kindle 1-5","k2",560,735,167,0,1,{0,0,3,4}},
     {"Kindle DX","dx",800,1180,167,0,1,{0,0,0,0}},
@@ -60,6 +61,10 @@ static DEVPROFILE devprof[21] =
     {"Kobo H2O","kbh2o",1080,1309,265,0,1,{0,0,3,4}},
     {"Kobo H2O Full Screen","kbh2ofs",1080,1429,265,0,1,{0,0,3,4}},
     {"Kobo Aura One","kao",1404,1713,300,0,0,{0,0,3,4}},
+    /* v2.52: Three new Kobos */
+    {"Kobo Clara HD","koc",1072,1317,300,0,0,{0,0,3,4}},
+    {"Kobo Forma","kof",1440,1745,300,0,0,{0,0,3,4}},
+    {"Kobo Libra H2O","kol",1264,1527,300,0,0,{0,0,3,4}},
     /* Nexus 7 */
     /* http://www.mobileread.com/forums/showthread.php?p=3181143#post3181143 */
     {"Nexus 7","nex7",1187,1811,323,1,1,{0,0,3,4}},

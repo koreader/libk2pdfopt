@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2019  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -3483,4 +3483,54 @@ int wfile_rename_utf8(char *filename1,char *filename2)
 #else
     return(rename(filename1,filename2));
 #endif
+    }
+
+
+/*
+** O/S independent way to convert linefeeds correctly
+*/
+int wfile_read_ascii_to_buf(char **buf,char *filename)
+
+    {
+    char tempname[MAXFILENAMELEN];
+    char lbuf[256];
+    FILE *out,*f;
+    int sizebytes;
+
+    f=fopen(filename,"r");
+    if (f==NULL)
+        return(-1);
+    wfile_abstmpnam(tempname);
+    out=fopen(tempname,"w");
+    if (out==NULL)
+        {
+        fclose(f);
+        return(-2);
+        }
+    while (fgets(lbuf,255,f)!=NULL)
+        fprintf(out,"%s",lbuf);
+    if (fclose(f)!=0 || fclose(out)!=0)
+        return(-3);
+    f=fopen(tempname,"rb");
+    if (f==NULL)
+        return(-4);
+    fseek(f,0L,2);
+    sizebytes=ftell(f);
+    if (sizebytes<=0)
+        {
+        fclose(f);
+        return(-5);
+        }
+    (*buf)=malloc(sizebytes+1);
+    if ((*buf)==NULL)
+        {
+        fclose(f);
+        return(-6);
+        }
+    fseek(f,0L,0);
+    if (fread((*buf),1,sizebytes,f)<sizebytes || fclose(f)!=0)
+        return(-7);
+    remove(tempname);
+    (*buf)[sizebytes]='\0';
+    return(0);
     }

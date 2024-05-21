@@ -1,7 +1,7 @@
 K2pdfopt build help.
 http://willus.com
 Original: 7 September 2012
-Last updated:  4 Jan 2019 (v2.51)
+Last updated:  12 Jun 2020 (v2.52)
 
 This "read me" file describes the source code distribution for k2pdfopt.
 
@@ -19,7 +19,7 @@ K2pdfopt Source Files
    library dependencies (HAVE_XXX_LIB) and whether or not the MS Windows
    GUI is compiled in (HAVE_K2GUI).
 
-3. willus.com general-purpose C library (38 C files + 1 header file) in
+3. willus.com general-purpose C library (39 C files + 1 header file) in
    willuslib subfolder.
    Compile all C files in this subfolder and build them into libwillus.a.
    Near the top of willus.h are #defines which control third-party
@@ -93,13 +93,13 @@ Notes
       use the predefined macro:  NO_WIN32_API (-DNO_WIN32_API).
 
 5. I have included CMakeLists.txt files for the k2pdfopt and willus libraries
-   from Dirk Thierbach to help with Linux builds.  He also contributed the
-   config.h.in file and the dtcompress.c file (in willus lib).  It is possible
-   to build the project without using these files (I do not use them).
+   originally from Dirk Thierbach to help with Linux builds.  He also contributed
+   the config.h.in file and the dtcompress.c file (in willus lib).  It is
+   possible to build the project without using these files (I do not use them).
    
 
-Build Steps for k2pdfopt on Windows (gcc 7.3.0)
------------------------------------------------
+Build Steps for k2pdfopt on Windows 10 (gcc 9.3.1)
+--------------------------------------------------
 My compile steps with gcc (MinGW) are as follows (assuming all the libraries are built
 to libxxx.a files in d:\3rdparty_lib and headers are in d:\3rdparty_include):
 

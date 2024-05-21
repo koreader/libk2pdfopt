@@ -2,7 +2,7 @@
 ** k2settings2cmd.c    Convert changes in settings structure to equivalent
 **                     command-line arguments.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -330,30 +330,33 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
 #endif
     pagebreak_check(cmdline,nongui,&src->pagebreakmark_breakpage_color,dst->pagebreakmark_breakpage_color,1);
     pagebreak_check(cmdline,nongui,&src->pagebreakmark_nobreak_color,dst->pagebreakmark_nobreak_color,2);
-    if (dst->overwrite_minsize_mb != src->overwrite_minsize_mb)
+    if (dst->overwrite_minsize_mb != src->overwrite_minsize_mb
+               || dst->rename != src->rename)
         {
+        char modifier[2];
+        modifier[1]='\0';
+        modifier[0]=(dst->rename ? '+' : (dst->overwrite_minsize_mb==0. ? '-' : '\0'));
         if (dst->overwrite_minsize_mb<0.)
-            strbuf_dsprintf(cmdline,nongui,"-ow");
+            strbuf_dsprintf(cmdline,nongui,"-ow%s",modifier);
         else if (dst->overwrite_minsize_mb==0.)
-            strbuf_dsprintf(cmdline,nongui,"-ow-");
+            strbuf_dsprintf(cmdline,nongui,"-ow%s",modifier);
         else
-            strbuf_dsprintf(cmdline,nongui,"-ow %g",dst->overwrite_minsize_mb);
+            strbuf_dsprintf(cmdline,nongui,"-ow%s %g",modifier,dst->overwrite_minsize_mb);
         src->overwrite_minsize_mb = dst->overwrite_minsize_mb;
+        src->rename=dst->rename;
         }
     if ((dst->src_grid_cols!=src->src_grid_cols)
          || (dst->src_grid_rows!=src->src_grid_rows)
-         || (dst->src_grid_overlap_percentage!=src->src_grid_overlap_percentage)
-         || (dst->src_grid_order!=src->src_grid_order))
+         || (dst->src_grid_overlap_percentage!=src->src_grid_overlap_percentage))
         {
-        strbuf_dsprintf(cmdline,nongui,"-grid %dx%dx%d%s",
+        strbuf_dsprintf(cmdline,nongui,"-grid %dx%dx%d",
                        dst->src_grid_cols,dst->src_grid_rows,
-                       dst->src_grid_overlap_percentage,
-                       dst->src_grid_order ? "+" : "");
+                       dst->src_grid_overlap_percentage);
         src->src_grid_cols = dst->src_grid_cols;
         src->src_grid_rows = dst->src_grid_rows;
         src->src_grid_overlap_percentage = dst->src_grid_overlap_percentage;
-        src->src_grid_order = dst->src_grid_order;
         }
+    integer_check(cmdline,nongui,"-go",&src->grid_order,dst->grid_order);
     integer_check(cmdline,nongui,"-f2p",&src->dst_fit_to_page,dst->dst_fit_to_page);
     integer_check(cmdline,NULL,"-nt",&src->nthreads,dst->nthreads);
     double_check(cmdline,nongui,"-vb",&src->vertical_break_threshold,dst->vertical_break_threshold);
@@ -382,6 +385,7 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
     minus_check(cmdline,nongui,"-v",&src->verbose,dst->verbose);
     minus_check(cmdline,nongui,"-fr",&src->dst_figure_rotate,dst->dst_figure_rotate);
     minus_check(cmdline,nongui,"-y",&src->assume_yes,dst->assume_yes);
+    minus_check(cmdline,nongui,"-ddr",&src->detect_double_rows,dst->detect_double_rows);
     if (src->jpeg_quality != dst->jpeg_quality)
         {
         if (dst->jpeg_quality <= 0)
@@ -392,7 +396,7 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
         }
     minus_check(cmdline,nongui,"-mc",&src->mark_corners,dst->mark_corners);
 #ifdef HAVE_TESSERACT_LIB
-    string_check(cmdline,nongui,"-ocrlang",src->dst_ocr_lang,dst->dst_ocr_lang);
+    string_check(cmdline,NULL,"-ocrlang",src->dst_ocr_lang,dst->dst_ocr_lang);
 #endif
 #ifdef HAVE_OCR_LIB
     if (src->ocr_detection_type!=dst->ocr_detection_type)
@@ -524,6 +528,7 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
     double_check(cmdline,nongui,"-ch",&src->min_column_height_inches,dst->min_column_height_inches);
     double_check(cmdline,nongui,"-ds",&src->document_scale_factor,dst->document_scale_factor);
     double_check(cmdline,nongui,"-idpi",&src->user_src_dpi,dst->user_src_dpi);
+    double_check(cmdline,nongui,"-rhmin",&src->textheight_min_pts,dst->textheight_min_pts);
     integer_check(cmdline,NULL,"-odpi",&src->dst_userdpi,dst->dst_userdpi);
     cropbox_check(cmdline,nongui,"-m",&src->srccropmargins,&dst->srccropmargins);
     cropbox_check(cmdline,nongui,"-om",&src->dstmargins,&dst->dstmargins);

@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -701,6 +701,9 @@ static int winmbox_message_box_create(void)
 
     pwin = wmb->parent==NULL ? GetDesktopWindow() : (HWND)wmb->parent;
     GetWindowRect(pwin,&rect);
+/*
+printf("rect=(%d,%d)-(%d,%d)\n",(int)rect.left,(int)rect.top,(int)rect.right,(int)rect.bottom);
+*/
     winmbox_message_box_calc_size(wmb);
     x0 = rect.left + ((rect.right-rect.left)-wmb->width)/2;
     y0 = rect.top + ((rect.bottom-rect.top)-wmb->height)/2;
@@ -1228,7 +1231,12 @@ void winmbox_checkbox_button_draw(void *hdc0,void *rect0,int state,void *hfont0,
     g0=(textcolorrgb&0xff00)>>8;
     b0=(textcolorrgb&0xff);
     if (disabled)
-        add_gray(&r0,&g0,&b0,-96);
+        {
+        r0/=2;
+        g0/=2;
+        b0/=2;
+        /* add_gray(&r0,&g0,&b0,-96); */
+        }
     tcolor=((b0<<16)|(g0<<8)|r0);
     tbrush=CreateSolidBrush(tcolor);
     brush=CreateSolidBrush(0x00ffff);
@@ -1559,7 +1567,12 @@ void winmbox_button_draw(void *hdc0,void *rect0,int state,int basecolorrgb,
         b0 = 255-b0;
         }
     if (disabled)
-        add_gray(&r0,&g0,&b0,light ? 96 : -96);
+        {
+        r0/=2;
+        g0/=2;
+        b0/=2;
+        /* add_gray(&r0,&g0,&b0,light ? 96 : -96); */
+        }
     vals= light ? vals_light : vals_dark;
     tcolor=((b0<<16)|(g0<<8)|r0);
     brush[0]=CreateSolidBrush(tcolor);
@@ -1572,7 +1585,12 @@ void winmbox_button_draw(void *hdc0,void *rect0,int state,int basecolorrgb,
     g0=(basecolorrgb&0xff00)>>8;
     b0=(basecolorrgb&0xff);
     if (disabled)
-        add_gray(&r0,&g0,&b0,light ? -96 : 96);
+        {
+        r0/=2;
+        g0/=2;
+        b0/=2;
+        /*add_gray(&r0,&g0,&b0,light ? -96 : 96);*/
+        }
     if (simple && selected)
         {
         r0 = 255-r0;

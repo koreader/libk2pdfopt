@@ -6,7 +6,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -27,14 +27,22 @@
 #include "willus.h"
 
 static int  wpdfbox_compare(WPDFBOX *b1,WPDFBOX *b2);
+static void wtextchar_scale(WTEXTCHAR *wtc,double scale_factor);
 static void wtextchar_rotate_clockwise(WTEXTCHAR *wch,int rot,double page_width_pts,
                                        double page_height_pts);
 static void point_sort(double *x1,double *x2);
 static void point_rotate(double *x,double *y,int rot,double page_width_pts,double page_height_pts);
-static void wtextchars_get_chars_inside(WTEXTCHARS *src,WTEXTCHARS *dst,double x1,double y1,
-                                        double x2,double y2);
+static int wtextchar_compare_vert_ex(WTEXTCHAR *c1,WTEXTCHAR *c2,int index);
 static int  wtextchar_compare_vert(WTEXTCHAR *c1,WTEXTCHAR *c2,int index);
 static int  wtextchar_compare_horiz(WTEXTCHAR *c1,WTEXTCHAR *c2);
+/*
+** Extracting text to STRBUF
+*/
+static void wtextchars_to_strbuf_one_line_1(WTEXTCHARS *wtcs,int i0,int i1,STRBUF *sbuf,
+                                            double xmin,double spacesize,int nnl);
+static void wtextchars_to_strbuf_one_line(WTEXTCHARS *wtcs,STRBUF *sbuf,double xmin,double spacesize);
+static void strbuf_newline_with_spaces(STRBUF *sbuf,int nnl,int n);
+static int  wtextchars_ligature_pattern(WTEXTCHARS *wtcs,int index);
 
 
 void wpdfboxes_init(WPDFBOXES *boxes)
@@ -371,6 +379,30 @@ void wtextchars_rotate_clockwise(WTEXTCHARS *wtc,int rot_deg)
     }
 
 
+void wtextchars_scale_page(WTEXTCHARS *wtextchars,double scale_factor)
+
+    {
+    int i;
+
+    wtextchars->width *= scale_factor;
+    wtextchars->height *= scale_factor;
+    for (i=0;i<wtextchars->n;i++)
+        wtextchar_scale(&wtextchars->wtextchar[i],scale_factor);
+    }
+
+
+static void wtextchar_scale(WTEXTCHAR *wtc,double scale_factor)
+
+    {
+    wtc->xp *= scale_factor;
+    wtc->yp *= scale_factor;
+    wtc->x1 *= scale_factor;
+    wtc->y1 *= scale_factor;
+    wtc->x2 *= scale_factor;
+    wtc->y2 *= scale_factor;
+    }
+
+
 /*
 ** rot = 1 for 90
 **       2 for 180
@@ -458,8 +490,8 @@ void wtextchars_text_inside(WTEXTCHARS *src,char **text,double x1,double y1,doub
     }
 
 
-static void wtextchars_get_chars_inside(WTEXTCHARS *src,WTEXTCHARS *dst,double x1,double y1,
-                                        double x2,double y2)
+void wtextchars_get_chars_inside(WTEXTCHARS *src,WTEXTCHARS *dst,double x1,double y1,
+                                 double x2,double y2)
 
     {
     int i,i1,i2;
@@ -497,7 +529,7 @@ static void wtextchars_get_chars_inside(WTEXTCHARS *src,WTEXTCHARS *dst,double x
         /*
         ** In both directions (horizontal and vertical), determine if either
         **     A. The center of the char box is inside the word box, or
-        **     B. The center of the word box is insdie the char box.
+        **     B. The center of the word box is inside the char box.
         ** If this is true in both directions, keep the char.
         */
         if (((cxc >= xl && src->wtextchar[i].x1 <= xr) || (xc >= src->wtextchar[i].x1 && xc <= src->wtextchar[i].x2))
@@ -585,9 +617,9 @@ void wtextchars_sort_vertically_by_position(WTEXTCHARS *wtc,int type)
         child=top*2+1;
         while (child<=n1)
             {
-            if (child<n1 && wtextchar_compare_vert(&x[child],&x[child+1],type)<0)
+            if (child<n1 && wtextchar_compare_vert_ex(&x[child],&x[child+1],type)<0)
                 child++;
-            if (wtextchar_compare_vert(&x0,&x[child],type)<0)
+            if (wtextchar_compare_vert_ex(&x0,&x[child],type)<0)
                 {
                 x[parent]=x[child];
                 parent=child;
@@ -602,6 +634,18 @@ void wtextchars_sort_vertically_by_position(WTEXTCHARS *wtc,int type)
     wtc->sorted=10+type;
     }
 
+
+static int wtextchar_compare_vert_ex(WTEXTCHAR *c1,WTEXTCHAR *c2,int index)
+
+    {
+    double dy;
+
+    dy=wtextchar_compare_vert(c1,c2,index);
+    if (fabs(dy)>1e-8)
+        return(dy);
+    return(wtextchar_compare_horiz(c1,c2));
+    }
+ 
 
 static int wtextchar_compare_vert(WTEXTCHAR *c1,WTEXTCHAR *c2,int index)
 
@@ -683,4 +727,158 @@ static int wtextchar_compare_horiz(WTEXTCHAR *c1,WTEXTCHAR *c2)
     if (c1->xp==c2->xp)
         return((c1->x1+c1->x2) - (c2->x1+c2->x2));
     return(c1->xp-c2->xp);
+    }
+
+
+void wtextchars_to_strbuf_formatted(WTEXTCHARS *wtcs,STRBUF *sbuf)
+
+    {
+    double vert_spacing_threshold;
+    static char *funcname="wtextchars_group_by_words";
+    int i,i0,nnl;
+    double xmin,spacesize; /* Left most character position in points and size of space in points */
+
+    if (wtcs->n<=0)
+        return;
+    {
+    double *ch; /* population of character heights */
+
+    willus_mem_alloc_warn((void **)&ch,sizeof(double)*wtcs->n,funcname,10);
+    /* Create population character heights to determine row spacing threshold */
+    for (xmin=99999.,i=0;i<wtcs->n-1;i++)
+        {
+        ch[i]=wtcs->wtextchar[i].y2-wtcs->wtextchar[i].y1;
+        if (wtcs->wtextchar[i].xp<xmin)
+            xmin=wtcs->wtextchar[i].xp;
+        }
+    sortd(ch,wtcs->n);
+    vert_spacing_threshold=0.67*ch[wtcs->n/10];
+    if (vert_spacing_threshold<=2.0)
+        vert_spacing_threshold=2.0;
+    spacesize=0.5*ch[wtcs->n/5];
+    if (spacesize < 2.0)
+        spacesize = 2.0;
+    willus_mem_free(&ch,funcname);
+    }
+
+    /* Group characters row by row and add one row at a time */
+    for (nnl=0,i0=0,i=1;i<wtcs->n;i++)
+        {
+        double dy,h;
+
+        h=wtcs->wtextchar[i].y2 - wtcs->wtextchar[i].y1;
+        if (h<2.)
+            h=2.;
+        dy=wtcs->wtextchar[i].yp - wtcs->wtextchar[i-1].yp;
+        if (dy >= h*.75 || dy >= vert_spacing_threshold)
+            {
+            wtextchars_to_strbuf_one_line_1(wtcs,i0,i-1,sbuf,xmin,spacesize,nnl);
+            nnl=dy/vert_spacing_threshold/1.5;
+            if (nnl>2)
+                nnl=2;
+            if (nnl<1)
+                nnl=1;
+            i0=i;
+            }
+        }
+    wtextchars_to_strbuf_one_line_1(wtcs,i0,wtcs->n-1,sbuf,xmin,spacesize,nnl);
+    }
+
+
+static void wtextchars_to_strbuf_one_line_1(WTEXTCHARS *wtcs,int i0,int i1,STRBUF *sbuf,
+                                            double xmin,double spacesize,int nnl)
+
+    {
+    WTEXTCHARS *line,_line;
+    int i;
+
+    if (i0>i1)
+        return;
+    line=&_line;
+    wtextchars_init(line);
+    for (i=i0;i<=i1;i++)
+        wtextchars_add_wtextchar(line,&wtcs->wtextchar[i]);
+    wtextchars_sort_horizontally_by_position(line);
+    strbuf_newline_with_spaces(sbuf,nnl,0);
+    wtextchars_to_strbuf_one_line(line,sbuf,xmin,spacesize);
+    wtextchars_free(line);
+    }
+
+
+static void strbuf_newline_with_spaces(STRBUF *sbuf,int nnl,int n)
+
+    {
+    for (;nnl>0;nnl--)
+        strbuf_cat_ex(sbuf,"\n");
+    for (;n>0;n--)
+        strbuf_cat_ex(sbuf," ");
+    }
+
+
+/*
+** xmin = left margin in points
+** spacesize = approx. size of space in points
+*/
+static void wtextchars_to_strbuf_one_line(WTEXTCHARS *wtcs,STRBUF *sbuf,double xmin,double spacesize)
+
+    {
+    int i;
+
+    if (wtcs->n<=0)
+        return;
+    for (i=0;i<wtcs->n;i++)
+        {
+        double dx;
+        int nc;
+        int u16str[2];
+        char utf8str[8];
+
+        /* If letters are physically separated, add space(s) */
+        dx = wtcs->wtextchar[i].x1 - (i==0 ? xmin : wtcs->wtextchar[i-1].x2);
+        if (dx > spacesize/2.)
+            {
+            int n1;
+
+            n1 = dx>spacesize*3. ? (int)dx/spacesize : 1;
+            if (wtcs->wtextchar[i].ucs==' ')
+                n1--;
+            for (;n1>0;n1--)
+                strbuf_cat_ex(sbuf," ");
+            }
+
+        /*
+        ** Look for ligatured pattern--v2.33 with MuPDF v1.7
+        ** Ligature pattern, e.g. "fi"
+        ** As of MuPDF 1.7, a ligatured "fi" is like this:
+        ** f has zero width, followed by space at same position w/zero width,
+        ** followed by i at same position, followed by space of zero width.
+        */
+        nc=0;
+        if (wtextchars_ligature_pattern(wtcs,i))
+            {
+            u16str[nc++]=wtcs->wtextchar[i].ucs;
+            u16str[nc++]=wtcs->wtextchar[i+2].ucs;
+            i+=3;
+            }
+        else
+            u16str[nc++]=wtcs->wtextchar[i].ucs;
+        unicode_to_utf8(utf8str,u16str,nc);
+        strbuf_cat_ex(sbuf,utf8str);
+        }
+    }
+
+
+/*
+** For MuPDF v1.7 and up
+*/
+static int wtextchars_ligature_pattern(WTEXTCHARS *wtcs,int index)
+
+    {
+    return(index<wtcs->n-3
+             && wtcs->wtextchar[index].ucs!=' ' 
+             && wtcs->wtextchar[index+1].ucs==' '
+             && wtcs->wtextchar[index+2].ucs!=' '
+             && wtcs->wtextchar[index+3].ucs==' '
+             && fabs(wtcs->wtextchar[index+1].x1-wtcs->wtextchar[index].x1)<.01
+             && fabs(wtcs->wtextchar[index+2].x1 - wtcs->wtextchar[index].x1)<.01);
     }

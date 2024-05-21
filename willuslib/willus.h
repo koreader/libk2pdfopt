@@ -362,11 +362,6 @@ typedef double  real;
 
 void   ansi_set      (int on);
 int    aprintf       (char *fmt,...);
-void   wlp_save_status    (void);
-void   wlp_restore_status (void);
-void   wlp_set_stdout     (int sout,int serr,char *filename,int close_after,
-                           int append,int newstream,FILE *str);
-int    wlprintf      (char *fmt,...);
 int    nprintf       (FILE *f,char *fmt,...);
 int    nprintf2      (FILE *f1,FILE *f2,char *fmt,...);
 int    afprintf      (FILE *f,char *fmt,...);
@@ -457,7 +452,9 @@ int  bmp_read_bmp24(WILLUSBITMAP *bmap,char *filename,FILE *out);
 int  bmp_read_png(WILLUSBITMAP *bmp,char *filename,FILE *out);
 int  bmp_read_png_stream(WILLUSBITMAP *bmp,void *io,int size,FILE *out);
 int  bmp_write_png(WILLUSBITMAP *bmp,char *filename,FILE *out);
+int  bmp_write_png_ex(WILLUSBITMAP *bmp,int trns_rgb,char *filename,FILE *out);
 int  bmp_write_png_stream(WILLUSBITMAP *bmp,FILE *dest,FILE *out);
+int  bmp_write_png_stream_ex(WILLUSBITMAP *bmp,int trns_rgb,FILE *f,FILE *out);
 #endif
 #ifdef HAVE_JPEG_LIB
 int  bmp_write_jpeg(WILLUSBITMAP *bmp,char *filename,int quality,FILE *out);
@@ -508,6 +505,7 @@ void bmp_grey_pixel_setf(WILLUSBITMAP *bmp,int x,int y,int grey,double f);
 void bmp_rgb_pixel_setf(WILLUSBITMAP *bmp,int x,int y,int r,int g,int b,double f);
 void bmp_resize(WILLUSBITMAP *bmp,double scalefactor);
 void bmp_integer_resample(WILLUSBITMAP *dest,WILLUSBITMAP *src,int n);
+void bmp_integer_resample_ex(WILLUSBITMAP *dest,WILLUSBITMAP *src,int nx,int ny);
 void bmp_draw_filled_rect(WILLUSBITMAP *bmp,int col1,int row1,int col2,int row2,
                           int r,int g,int b);
 /*
@@ -557,6 +555,7 @@ void bmp_apply_whitethresh(WILLUSBITMAP *bmp,int whitethresh);
 void bmp_dither_to_bpc(WILLUSBITMAP *bmp,int newbpc);
 void bmp_extract(WILLUSBITMAP *dst,WILLUSBITMAP *src,int x0,int y0_from_top,int width,int height);
 int  bmp_read_pcl(WILLUSBITMAP *bmp,char *pclbuf,int n);
+void bmp_autocrop(WILLUSBITMAP *bmp,int pad);
 
 /* fontrender.c */
 void fontrender_set_or(int status);
@@ -681,6 +680,7 @@ void comma_print(char *s,long size);
 void comma_dprint(char *s,double size);
 int string_wild_match_ignore_case(char *pattern,char *name);
 int string_read_doubles(char *buf,double *a,int nmax);
+int string_read_strings(char *buf,char *arg[],int maxlen,char *delimit,int n);
 double string_atof(char *s);
 int string_read_integers(char *buf,int *a,int nmax);
 void clean_quotes(char *s);
@@ -709,6 +709,9 @@ int utf16_to_utf8_alloc(void **d,short *s);
 int utf8_to_utf16(short *d,char *s,int maxlen);
 int utf16_to_utf8(char *d,short *s,int maxlen);
 int hexcolor(char *s);
+void xstrncpy(char *d,char *s,int nmax);
+void xstrncat(char *d,char *s,int nmax);
+int base64_encode(unsigned char *dst,unsigned char *src,int n);
 
 
 #ifdef WIN32
@@ -880,6 +883,7 @@ void wfile_remove_file_plus_parent_dir(char *tempfile);
 FILE *wfile_fopen_utf8(char *filename,char *mode);
 int wfile_remove_utf8(char *filename);
 int wfile_rename_utf8(char *filename1,char *filename2);
+int wfile_read_ascii_to_buf(char **buf,char *filename);
 
 /* wzfile.c */
 typedef struct
@@ -950,6 +954,7 @@ int win_terminate_process(int procnum);
 void *win_process_handle(void);
 void win_sleep(int ms);
 int win_setdir(char *directory);
+wmetafile *win_emf_clipboard_ex(int type);
 wmetafile *win_emf_clipboard(void);
 int win_text_file_to_clipboard(char *filename,FILE *out);
 int win_text_file_to_clipboard_ex(char *filename,FILE *out,int nocrs);
@@ -1023,6 +1028,7 @@ int win_textout_utf8(void *hdc,int x,int y,char *s);
 int win_gettextextentpoint_utf8(void *hdc,char *s,long *dx,long *dy);
 int win_close_handle(void *handle);
 void *win_shared_handle_utf8(char *filename);
+int win_relaunch(char *cmdline,int iCmdShow);
 #endif
 
 /* winshell.c */
@@ -1123,6 +1129,7 @@ void   wsys_system_version(char *system,char *_os,char *_chip,char *_compiler);
 int    wsys_win32_api(void);
 int    wsys_wpid_status(int wpid);
 void   wsys_sleep(int secs);
+void   wsys_sleep_ms(int ms);
 int    wsys_num_cpus(void);
 char  *wsys_full_exe_name(char *s);
 void   wsys_append_nul_redirect(char *s);
@@ -1139,6 +1146,7 @@ int    wsys_set_envvar(char *varname,char *value,int system);
 int    wsys_get_envvar_ex(char *varname,char *value,int maxlen);
 int    wsys_file_lock(char *filename);
 int    wsys_file_unlock(char *filename,int fd);
+int    wsys_shell_command(char *cmd,char *stdoutfile,char *stderrfile);
 
 
 /* token.c */
@@ -1241,11 +1249,25 @@ int filelist_dir_excluded(char *dirname,char *include_only[],char *exclude[]);
 int filelist_dir_name_match(char *pattern,char *dirname);
 void filelist_remove_files_larger_than(FILELIST *fl,double bytes);
 void filelist_reslash(FILELIST *fl);
+int filelist_fill_from_ar(FILELIST *fl,char *arfile);
 
 /* linux.c */
 int linux_which(char *exactname,char *exename);
 int linux_most_recent_in_path(char *exactname,char *wildcard);
 
+
+/* wininet.c */
+/* (must come after filelist declarations) */
+#ifdef WIN32
+int   wininet_query_option(wfile *wf,int option,void *buf,int maxlen);
+int   wininet_set_option(wfile *wf,int option,void *value,int nbytes);
+void  wininet_timeout_settings(wfile *wf);
+void  wininet_set_timeout(double seconds,int retries);
+int   wininet_httpgetdata(void *handle,char *data,int maxlen);
+int   wininet_httpenduri(void *handle);
+void  wininet_httpend(wfile *wf);
+#endif /* WIN32 */
+int inet_httpget(char *dstname,char *lurl);
 
 /* point2d.c */
 typedef struct
@@ -1434,6 +1456,7 @@ void gocr_ocrwords_from_bmp8(OCRWORDS *ocrwords,WILLUSBITMAP *bmp8,
                              int std_proc);
 #endif
 
+#ifdef HAVE_TESSERACT_LIB
 /* ocrtess.c */
 /*
 typedef struct
@@ -1447,13 +1470,34 @@ typedef struct
     int na,n;
     } OCRTESSWORDS;
 */
-#ifdef HAVE_TESSERACT_LIB
+typedef struct
+    {
+    char langname[48];
+    char langurl[256];
+    } OCRTESSLANG;
+
+typedef struct
+    {
+    OCRTESSLANG *otl;
+    int n,na;
+    } OCRTESSLANGS;
+
+char *ocrtess_lang_by_index(char *lang,int index);
+int ocrtess_lang_count(char *langstr);
+void ocrtess_set_logfile(char *filename);
+void ocrtess_debug_message(char *message);
+int ocrtess_lang_exists(char *datadir,char *lang);
+int ocrtess_lang_get_from_github(char *datadir,char *lang);
 void *ocrtess_init(char *datadir,char *tesspath,int maxtesspathlen,
                    char *lang,FILE *out,char *initstr,int maxlen,int *status);
 void ocrtess_lang_default(char *datadir,char *tesspath,int maxtesspathlen,
                           char *langdef,int maxlen,char *debugstr,int maxdebug,int use_ansi);
 void ocrtess_datapath(char *datapath,char *suggested,int maxlen);
+int ocrtess_isfast(char *lang);
+void ocrtess_baselang(char *dst,char *src,int maxlen);
+void ocrtess_url(char *url0,int maxlen,int fast);
 void ocrtess_end(void *api);
+char *ocrtess_language_name(char *lang);
 /*
 void ocrtesswords_init(OCRTESSWORDS *ocrtesswords);
 void ocrtesswords_free(OCRTESSWORDS *ocrtesswords);
@@ -1467,7 +1511,36 @@ void ocrtess_from_bmp8(void *api,char *text,int maxlen,WILLUSBITMAP *bmp8,
                                    int x1,int y1,int x2,int y2,int dpi,
                                    int segmode,int allow_spaces,
                                    int std_proc,FILE *out);
+/*
+int ocrtesslangs_get_language_selection(OCRTESSLANGS *otl);
+void ocrtesslangs_init(OCRTESSLANGS *otl);
+void ocrtesslangs_add_one(OCRTESSLANGS *otl,OCRTESSLANG *tl1);
+void ocrtesslangs_free(OCRTESSLANGS *otl);
+*/
 #endif
+
+
+/* strbuf.c */
+typedef struct
+    {
+    char *s;
+    int na;
+    } STRBUF;
+char *strbuf_lineno(STRBUF *buf,int line_index);
+void strbuf_init(STRBUF *sbuf);
+int  strbuf_len(STRBUF *sbuf);
+void strbuf_cat_ex(STRBUF *sbuf,char *s);
+void strbuf_cat(STRBUF *sbuf,char *s);
+void strbuf_cat_with_quotes(STRBUF *sbuf,char *s);
+void strbuf_cat_no_spaces(STRBUF *sbuf,char *s);
+void strbuf_cpy(STRBUF *sbuf,char *s);
+void strbuf_clear(STRBUF *sbuf);
+void strbuf_ensure(STRBUF *sbuf,int n);
+void strbuf_free(STRBUF *sbuf);
+void strbuf_sprintf(STRBUF *sbuf,char *fmt,...);
+void strbuf_dsprintf(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
+void strbuf_sprintf_no_space(STRBUF *sbuf,char *fmt,...);
+void strbuf_dsprintf_no_space(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
 
 /* pdfwrite.c */
 typedef struct
@@ -1618,9 +1691,13 @@ void wtextchars_add_wtextchar(WTEXTCHARS *wtc,WTEXTCHAR *textchar);
 void wtextchars_remove_wtextchar(WTEXTCHARS *wtc,int index);
 void wtextchars_rotate_clockwise(WTEXTCHARS *wtc,int rot_deg);
 void wtextchars_text_inside(WTEXTCHARS *src,char **text,double x1,double y1,double x2,double y2);
+void wtextchars_get_chars_inside(WTEXTCHARS *src,WTEXTCHARS *dst,double x1,double y1,
+                                 double x2,double y2);
 void wtextchars_sort_vertically_by_position(WTEXTCHARS *wtc,int type);
 void wtextchars_sort_horizontally_by_position(WTEXTCHARS *wtc);
 void wtextchar_array_sort_horizontally_by_position(WTEXTCHAR *x,int n);
+void wtextchars_to_strbuf_formatted(WTEXTCHARS *wtcs,STRBUF *sbuf);
+void wtextchars_scale_page(WTEXTCHARS *wtextchars,double scale_factor);
 
 
 /* bmpmupdf.c */
@@ -1642,6 +1719,8 @@ int  wtextchars_fill_from_page(WTEXTCHARS *wtc,char *filename,int pageno,char *p
 int  wtextchars_fill_from_page_ex(WTEXTCHARS *wtc,char *filename,int pageno,char *password,
                                  int boundingbox);
 WPDFOUTLINE *wpdfoutline_read_from_pdf_file(char *filename);
+void wmupdf_utf8_strbuf_from_pdf(STRBUF *sbuf,char *pdffile0,int pageno0,
+                                 double left,double top,double right, double bottom);
 #endif /* HAVE_MUPDF_LIB */
 
 /* wmupdfinfo.c */
@@ -1662,27 +1741,6 @@ int bmpdjvu_numpages(char *infile);
 /* gslpolyfit.c */
 void gslpolyfit(double *x,double *y,int n,int degree,double *c);
 #define wpolyfitd gslpolyfit
-/* strbuf.c */
-typedef struct
-    {
-    char *s;
-    int na;
-    } STRBUF;
-char *strbuf_lineno(STRBUF *buf,int line_index);
-void strbuf_init(STRBUF *sbuf);
-void strbuf_cat_ex(STRBUF *sbuf,char *s);
-void strbuf_cat(STRBUF *sbuf,char *s);
-void strbuf_cat_with_quotes(STRBUF *sbuf,char *s);
-void strbuf_cat_no_spaces(STRBUF *sbuf,char *s);
-void strbuf_cpy(STRBUF *sbuf,char *s);
-void strbuf_clear(STRBUF *sbuf);
-void strbuf_ensure(STRBUF *sbuf,int n);
-void strbuf_free(STRBUF *sbuf);
-void strbuf_sprintf(STRBUF *sbuf,char *fmt,...);
-void strbuf_dsprintf(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
-void strbuf_sprintf_no_space(STRBUF *sbuf,char *fmt,...);
-void strbuf_dsprintf_no_space(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
-
 /* wgui.c */
 #define WILLUSGUICONTROL_TYPE_BUTTON       1
 #define WILLUSGUICONTROL_TYPE_LISTBOX      2
@@ -1694,6 +1752,7 @@ void strbuf_dsprintf_no_space(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
 #define WILLUSGUICONTROL_TYPE_CHECKBOX     7
 #define WILLUSGUICONTROL_TYPE_SCROLLABLEBITMAP 8
 #define WILLUSGUICONTROL_TYPE_BITMAP       9
+#define WILLUSGUICONTROL_TYPE_BITMAP_CROP  10
 
 #define WILLUSGUIACTION_DRAW_CONTROL     1
 #define WILLUSGUIACTION_INIT             2

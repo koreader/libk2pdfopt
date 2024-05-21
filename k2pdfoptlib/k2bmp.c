@@ -3,7 +3,7 @@
 **              are mostly generic bitmap functions, but there are some
 **              k2pdfopt-specific settings for some.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -29,10 +29,11 @@ static int vert_line_erase(WILLUSBITMAP *bmp,WILLUSBITMAP *cbmp,WILLUSBITMAP *tm
                     double dpi,int erase_vertical_lines);
 static int gscale(unsigned char *p);
 static int not_close(int c1,int c2);
-static int bmp_autocrop2_ex(WILLUSBITMAP *bmp,int pixwidth,int pixstep,int whitethresh,
+static int bmp_autocrop2_ex(WILLUSBITMAP *bmp,int pixwidthx,int pixstepx,
+                            int pixwidthy,int pixstepy,int whitethresh,
                             double blackweight,double minarea,double threshold,int *cx);
 static void bmp_autocrop_refine(WILLUSBITMAP *bmp,int whitethresh,double threshold,int *cx,
-                                int pixwidth);
+                                int pixwidthx,int pixwidthy);
 static double find_threshold(double *x,double *y,int n,double threshold);
 static void xsmooth(double *y,int n,int cwin);
 static double frame_area(double area,int *cx);
@@ -1200,7 +1201,7 @@ int bmp_autocrop2(WILLUSBITMAP *bmp0,int *cx,double aggressiveness)
 
     {
     WILLUSBITMAP *bmp,_bmp;
-    int i,whitemax,wt,sum,status,pw;
+    int i,whitemax,wt,sum,status,pw,ph;
     double s30;
     double hist[256];
     double blackweight;
@@ -1243,7 +1244,9 @@ s+=hist[i];
 fprintf(f,"%d\n",s);
 }
 fprintf(f,"//nc\n");
+fclose(f);
 }
+wfile_written_info("hist.ep",stdout);
 }
 #endif
     s30=0.3*bmp->width*bmp->height;
@@ -1252,7 +1255,18 @@ fprintf(f,"//nc\n");
 /*
 printf("whitemax=%d\n",whitemax);
 */
-    pw = bmp->width/80;
+    if (bmp->height > bmp->width)
+        {
+        ph = bmp->height/200;
+        pw = bmp->width/150;
+        }
+    else
+        {
+        ph = bmp->height/150;
+        pw = bmp->width/200;
+        }
+    if (ph<1)
+        ph=1;
     if (pw<1)
         pw=1;
     wt=192+(whitemax-192)*(pw-1)/pw;
@@ -1263,7 +1277,7 @@ printf("wt=%d\n",wt);
 printf("pw=%d, wt=%d\n",pw,wt);
 */
 //    status=bmp_autocrop2_ex(bmp,pw,pw,wt,10.,.6,cx);
-    status=bmp_autocrop2_ex(bmp,pw,pw,wt,blackweight,.6,0.05,cx);
+    status=bmp_autocrop2_ex(bmp,pw,pw,ph,ph,wt,blackweight,.6,0.05,cx);
 /*
     printf("bmp_autocrop returns %d\n",status);
     printf("    (%d,%d) - (%d,%d)\n",cx[0],cx[1],cx[2],cx[3]);
@@ -1383,8 +1397,14 @@ void k2bmp_prep_for_dewarp(WILLUSBITMAP *dst,WILLUSBITMAP *src,int dx,int whitet
 ** cx[1] = top frame position (from top of bitmap)
 ** cx[2] = right frame position
 ** cx[3] = bottom frame position (from top of bitmap)
+**
+** v2.52, 6-2-20:  Take pixwidthx,pixstepx and pixwidthy,pixstepy args
+**                 Better to have different values for doc pages with
+**                 a high aspect ratio.
+**
 */
-static int bmp_autocrop2_ex(WILLUSBITMAP *bmp,int pixwidth,int pixstep,int whitethresh,
+static int bmp_autocrop2_ex(WILLUSBITMAP *bmp,int pixwidthx,int pixstepx,
+                            int pixwidthy,int pixstepy,int whitethresh,
                             double blackweight,double minarea,double threshold,int *cx)
 
     {
@@ -1394,12 +1414,15 @@ static int bmp_autocrop2_ex(WILLUSBITMAP *bmp,int pixwidth,int pixstep,int white
 
     for (k=0;k<4;k++)
         cxbest[k]=0;
-    pixstep = (pixstep+pixwidth/2)/pixwidth;
-    if (pixstep<1)
-        pixstep=1;
+    pixstepx = (pixstepx+pixwidthx/2)/pixwidthx;
+    if (pixstepx<1)
+        pixstepx=1;
+    pixstepy = (pixstepy+pixwidthy/2)/pixwidthy;
+    if (pixstepy<1)
+        pixstepy=1;
     bw=&_bw;
     bmp_init(bw);
-    bmp_integer_resample(bw,bmp,pixwidth);
+    bmp_integer_resample_ex(bw,bmp,pixwidthx,pixwidthy);
 /*
 printf("pixwidth=%d, bw->height=%d\n",pixwidth,bw->height);
 */
@@ -1408,7 +1431,9 @@ printf("pixwidth=%d, bw->height=%d\n",pixwidth,bw->height);
 {
 static int pageno=0;
 char filename[256];
-int i,n;
+int n;
+printf("@bmp_autocrop2_ex(pixwidthx,y=%d,%d,pixstepx=%d,pixstepy=%d,whitethresh=%d,blackweight=%g,minarea=%g)\n",
+pixwidthx,pixwidthy,pixstepx,pixstepy,whitethresh,blackweight,minarea);
 pageno++;
 if (pageno%2==1)
 {
@@ -1429,28 +1454,51 @@ printf("%s\n",filename);
     cxbest[0]=cxbest[1]=0;
     cxbest[2]=bw->width-1;
     cxbest[3]=bw->height-1;
-    for (cx[0]=0;1;cx[0]=cx[0]+pixstep)
+#if (WILLUSDEBUGX & 0x8000)
+printf("minarea=%g, pixstepx=%d\n",minarea,pixstepx);
+printf("cx[0]=");
+#endif
+    for (cx[0]=0;1;cx[0]=cx[0]+pixstepx)
         {
+#if (WILLUSDEBUGX & 0x8000)
+printf(".%d.",cx[0]);
+fflush(stdout);
+#endif
         cx[1]=0;
         cx[2]=bw->width-1;
         cx[3]=bw->height-1;
         if (frame_area(bmparea,cx)<minarea)
             break;
-        for (cx[1]=0;1;cx[1]=cx[1]+pixstep)
+        for (cx[1]=0;1;cx[1]=cx[1]+pixstepy)
             {
+/*
+#if (WILLUSDEBUGX & 0x8000)
+printf("cx[1]=%d\n",cx[1]);
+#endif
+*/
             cx[2]=bw->width-1;
             cx[3]=bw->height-1;
             if (frame_area(bmparea,cx)<minarea)
                 break;
-            for (cx[2]=bw->width-1;1;cx[2]=cx[2]-pixstep)
+            for (cx[2]=bw->width-1;1;cx[2]=cx[2]-pixstepx)
                 {
+/*
+#if (WILLUSDEBUGX & 0x8000)
+printf("cx[2]=%d\n",cx[2]);
+#endif
+*/
                 cx[3]=bw->height-1;
                 if (frame_area(bmparea,cx)<minarea)
                     break;
-                for (cx[3]=bw->height-1;1;cx[3]=cx[3]-pixstep)
+                for (cx[3]=bw->height-1;1;cx[3]=cx[3]-pixstepy)
                     {
                     double area,areaw,black,stdev;
 
+/*
+#if (WILLUSDEBUGX & 0x8000)
+printf("cx[3]=%d\n",cx[3]);
+#endif
+*/
                     area=frame_area(bmparea,cx);
                     if (area<minarea)
                         break;
@@ -1491,15 +1539,23 @@ printf("maxarea(%d,%d,%d,%d)=%g\n",cx[0],cx[1],cx[2],cx[3],area);
             }
         }
     bmp_free(bw);
-    cx[0]=cxbest[0]*pixwidth;
-    cx[1]=cxbest[1]*pixwidth;
-    cx[2]=(cxbest[2]+1)*pixwidth-1;
-    cx[3]=(cxbest[3]+1)*pixwidth-1;
+    cx[0]=cxbest[0]*pixwidthx;
+    cx[1]=cxbest[1]*pixwidthy;
+    cx[2]=(cxbest[2]+1)*pixwidthx-1;
+    cx[3]=(cxbest[3]+1)*pixwidthy-1;
     if (cx[2]>bmp->width-1)
         cx[2]=bmp->width-1;
     if (cx[3]>bmp->height-1)
         cx[3]=bmp->height-1;
-    bmp_autocrop_refine(bmp,whitethresh,threshold,cx,pixwidth);
+#if (WILLUSDEBUGX & 0x8000)
+printf("\nCalling bmp_autocrop_refine(%d,%g,cx[0..3]=%d,%d,%d,%d,pw=%d,%d)\n",
+whitethresh,threshold,cx[0],cx[1],cx[2],cx[3],pixwidthx,pixwidthy);
+printf("bmp=%dx%d\n",bmp->width,bmp->height);
+#endif
+    bmp_autocrop_refine(bmp,whitethresh,threshold,cx,pixwidthx,pixwidthy);
+#if (WILLUSDEBUGX & 0x8000)
+printf("Back from bmp_autocrop_refine() maxarea=%g\n",maxarea);
+#endif
     return(maxarea>=0.);
     }
 
@@ -1508,7 +1564,7 @@ printf("maxarea(%d,%d,%d,%d)=%g\n",cx[0],cx[1],cx[2],cx[3],area);
 ** thresold = 0 to 1.  Typically 0.1, I'd think.
 */
 static void bmp_autocrop_refine(WILLUSBITMAP *bmp,int whitethresh,double threshold,int *cx,
-                                int pixwidth)
+                                int pixwidthx,int pixwidthy)
 
     {
     double *x0,*hist;
@@ -1528,6 +1584,7 @@ return;
 char filename[256];
 sprintf(filename,"bmp%04d.png",count0);
 bmp_write(bmp,filename,NULL,100);
+wfile_written_info(filename,stdout);
 }
 for (i=0;i<4;i++)
 printf("cx[%d]=%d\n",i,cx[i]);
@@ -1559,7 +1616,14 @@ printf("cx[%d]=%d\n",i,cx[i]);
         sum=1.0;
     for (i=0;i<n;i++)
         hist[i] /= sum;
-    xsmooth(hist,n,pixwidth/3);
+    /* v2.52 bug fix--make sure smooth_aperture>0 */
+    {
+    int smooth_aperture;
+    smooth_aperture=pixwidthx/3;
+    if (smooth_aperture<1)
+        smooth_aperture=1;
+    xsmooth(hist,n,smooth_aperture);
+    }
     cnew[0]=cx[0]+find_threshold(x0,hist,n,threshold)*(cx[2]-cx[0]+1);
 #if (WILLUSDEBUGX & 0x8000)
     {
@@ -1602,9 +1666,21 @@ printf("cx[%d]=%d\n",i,cx[i]);
         sum=1.0;
     for (i=0;i<n;i++)
         hist[i] /= sum;
-    xsmooth(hist,n,pixwidth/3);
-    cnew[1]=cx[1]+find_threshold(x0,hist,bmp->width,threshold)*(cx[3]-cx[1]+1);
+    /* v2.52 bug fix--make sure smooth_aperture>0 */
+    {
+    int smooth_aperture;
+    smooth_aperture=pixwidthy/3;
+    if (smooth_aperture<1)
+        smooth_aperture=1;
+    xsmooth(hist,n,smooth_aperture);
+    }
 #if (WILLUSDEBUGX & 0x8000)
+printf("findthresh(threshold=%g)=%g\n",threshold,find_threshold(x0,hist,n,threshold));
+#endif
+    cnew[1]=cx[1]+find_threshold(x0,hist,n,threshold)*(cx[3]-cx[1]+1);
+#if (WILLUSDEBUGX & 0x8000)
+printf("cx[1]=%d\n",cx[1]);
+printf("cnew[1]=%d\n",cnew[1]);
     {
     FILE *f;
     static int count=0;
@@ -1614,12 +1690,16 @@ printf("cx[%d]=%d\n",i,cx[i]);
         fprintf(f,"%g %g\n",x0[i],hist[i]);
     fprintf(f,"//nc\n");
     fclose(f);
+    wfile_written_info("acrossheight.ep",stdout);
     count++;
     }
 #endif
     for (i=0;i<n;i++)
         x0[i]=1.0-x0[i];
     sortxyd(x0,hist,n);
+#if (WILLUSDEBUGX & 0x8000)
+printf("c3: findthresh(threshold=%g)=%g\n",threshold,find_threshold(x0,hist,n,threshold));
+#endif
     cnew[3]=cx[3]+1-find_threshold(x0,hist,n,threshold)*(cx[3]-cx[1]+1);
 #if (WILLUSDEBUGX & 0x8000)
 count0++;
@@ -1700,7 +1780,11 @@ static double find_threshold(double *x,double *y,int n,double threshold)
     for (i=imin;i<n;i++)
         if (x[i]>0.35 || y[i] >= thresh)
             break;
-    return(x[i-1]);
+#if (WILLUSDEBUGX & 0x8000)
+printf("find_threshold: i-1=%d (n=%d)\n",i-1,n);
+#endif
+    /* v2.52:  Make sure we don't index into x[] with -1 */
+    return(x[i<1?0:i-1]);
     }
 
 

@@ -1,7 +1,7 @@
 /*
 ** k2pdfopt.h   Main include file for k2pdfopt source modules.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -49,21 +49,27 @@
 ** 0x1000000 = font size debug
 ** 0x2000000 = font size debug
 ** 0x4000000 = wrapbmp.c android viewer debug
-**
+** 0x8000000 = autocrop
 ** 0x80000000 = Fake Mupdf
+**
+** WILLUSDEBUGX2
+** 1 = -fr degug
 **
 */
 
 #define K2PDFOPT_DEFAULT_DEVICE "kv"
 /* OCR DEBUG */
+/* -fr */
+// #define WILLUSDEBUGX2 1
 /*
-#define WILLUSDEBUGX 0x10020
-*/
-/*
-#define WILLUSDEBUG
+#define WILLUSDEBUGX 0x800100 // Page breaks
+#define WILLUSDEBUGX 0x20000 // Margin detection
+#define WILLUSDEBUGX 0x000100 // Where to break lines
+#define WILLUSDEBUGX 0x8008000 // Autocrop
+#define WILLUSDEBUGX 0x10420
+#define WILLUSDEBUGX 0x2004000
 #define WILLUSDEBUGX 0x100000
 #define WILLUSDEBUGX 0xfff
-#define WILLUSDEBUG
 */
 
 #include <stdio.h>
@@ -382,12 +388,14 @@ typedef struct
     int erase_horizontal_lines;
     int hyphen_detect;
     double overwrite_minsize_mb;
+    int rename; /* v2.52 */
     int dst_fit_to_page;
     int src_grid_rows;
     int src_grid_cols;
+    int grid_order; /* v2.52:  Two digit code, e.g. 23 where 1=l2r, 2=r2l, 3=t2b, 4=b2t */
     /* v2.35--change overlap from int to double */
     double src_grid_overlap_percentage;
-    int src_grid_order; /* 0=down then across, 1=across then down */
+    /*int src_grid_order;*/ /* 0=down then across, 1=across then down */
     K2CROPBOXES cropboxes; /* Crop boxes */
     K2NOTESET noteset;
     /*
@@ -427,6 +435,8 @@ typedef struct
 
     /* v2.41 */
     int src_erosion; /* Source erosion filter value */
+    int detect_double_rows; /* Detect double or triple text rows "stuck together" */
+    double textheight_min_pts; /* Minimum text row height allowed def = -1 (not used) */
     } K2PDFOPT_SETTINGS;
 
 
@@ -663,6 +673,8 @@ typedef struct
     WRECTMAPS rectmaps;   /* KOReader add to hold WRECTMAPs of the output bitmap */
 #endif
     WPDFPAGEINFO pageinfo;  /* Holds crop boxes for native PDF output */
+    double document_scale_factor; /* Scale factor that multiplied dpi value when reading bitmap */
+                                  /* from source file.                                          */
     WILLUSBITMAP cover_image;  /* Holds cover image for native PDF output (v2.34) */
     /* v2.32:  Maintained by masterinfo_new_source_page_init() */
     int landscape;
@@ -830,8 +842,10 @@ void bmpregion_hyphen_detect(BMPREGION *region,int hyphen_detect,int left_to_rig
 int  bmpregion_textheight(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,int i1,int i2);
 int  bmpregion_is_centered(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,int i1,int i2);
 void bmpregion_get_white_margins(BMPREGION *region);
+void textrows_remove_defects(TEXTROWS *textrows,int defect_size_threshold);
 void bmpregion_find_textrows(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
-                             int dynamic_aperture,int remove_small_rows,int join_figure_captions);
+                             int dynamic_aperture,int remove_small_rows,double minrowgap,
+                             int join_figure_captions);
 void bmpregion_fill_row_threshold_array(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                                         int dynamic_aperture,int *rowthresh,int *rhmean_pixels);
 void bmpregion_one_row_find_textwords(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
@@ -938,6 +952,8 @@ double line_spacing_from_font_size(double lcheight,double h5050,double capheight
 /* k2settings.c */
 void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings);
 int  k2settings_output_is_bitmap(K2PDFOPT_SETTINGS *k2settings);
+int k2settings_columns_left_to_right(K2PDFOPT_SETTINGS *k2settings);
+int k2settings_valid_grid_order(K2PDFOPT_SETTINGS *k2settings);
 K2NOTES *page_has_notes_margin(K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo);
 int  k2pdfopt_settings_landscape(K2PDFOPT_SETTINGS *k2settings,int pageno,int maxpages);
 void k2pdfopt_conversion_init(K2PDFOPT_CONVERSION *k2conv);
@@ -947,7 +963,7 @@ int  k2pdfopt_settings_set_to_device(K2PDFOPT_SETTINGS *k2settings,DEVPROFILE *d
 void k2settings_check_and_warn(K2PDFOPT_SETTINGS *k2settings);
 void k2pdfopt_settings_quick_sanity_check(K2PDFOPT_SETTINGS *k2settings);
 double k2pdfopt_settings_gamma(K2PDFOPT_SETTINGS *k2settings);
-void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings);
+void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings,char *initstr);
 void k2pdfopt_settings_dst_viewable(K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo,
                                       double *width_in,double *height_in);
 void k2pdfopt_settings_restore_output_dpi(K2PDFOPT_SETTINGS *k2settings);
@@ -1031,10 +1047,12 @@ void masterinfo_convert_to_source_pixels(MASTERINFO *masterinfo,LINE2D *userrect
 void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int flushall);
 
 /* k2ocr.c */
-void k2ocr_init(K2PDFOPT_SETTINGS *k2settings);
+void k2ocr_init(K2PDFOPT_SETTINGS *k2settings,char *initstr);
+void k2ocr_showlog(void);
 void k2ocr_end(K2PDFOPT_SETTINGS *k2settings);
 #ifdef HAVE_TESSERACT_LIB
 void ocrtess_debug_info(char **buf0,int use_ansi);
+void k2ocr_tesslang_selected(char *lang,int maxlen,K2PDFOPT_SETTINGS *settings);
 #endif
 #ifdef HAVE_OCR_LIB
 void k2ocr_ocrwords_fill_in_ex(MASTERINFO *masterinfo,OCRWORDS *words,BMPREGION *region,
@@ -1218,6 +1236,7 @@ void k2gui_timer_event(void);
 void k2gui_process_message(WILLUSGUIMESSAGE *message);
 void k2gui_window_minsize(int *width_pixels,int *height_pixels);
 void k2gui_quit(void);
+int  k2gui_redbox(int retval,char *title,char *fmt,...);
 int  k2gui_messagebox(int retval,char *title,char *fmt,...);
 int  k2gui_get_text(char *title,char *message,char *button1,char *button2,
                     char *textbuf,int maxlen);

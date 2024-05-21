@@ -1,7 +1,7 @@
 /*
 ** k2cmdparse.c   Parse command-line options for k2pdfopt.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -233,6 +233,7 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
         MINUS_OPTION("-to",text_only,1)
         MINUS_OPTION("-fr",dst_figure_rotate,1)
         MINUS_OPTION("-y",assume_yes,1)
+        MINUS_OPTION("-ddr",detect_double_rows,1)
 #ifdef HAVE_GHOSTSCRIPT
         MINUS_OPTION("-ppgs",ppgs,1)
 #endif
@@ -601,11 +602,14 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
                 }
             continue;
             }
-        if (!stricmp(cl->cmdarg,"-ow") || !stricmp(cl->cmdarg,"-ow-"))
+        if (!stricmp(cl->cmdarg,"-ow") || !stricmp(cl->cmdarg,"-ow-")
+                                       || !stricmp(cl->cmdarg,"-ow+"))
             {
             int always_prompt;
             char *ptr;
             always_prompt = (cl->cmdarg[3]=='-');
+            if (setvals==1)
+                k2settings->rename=(cl->cmdarg[3]=='+');
             if (((ptr=cmdlineinput_next(cl))==NULL) || !is_a_number(cl->cmdarg))
                 {
                 readnext=0;
@@ -631,13 +635,12 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
 
                 strncpy(buf,cl->cmdarg,127);
                 buf[127]='\0';
-                k2settings->src_grid_order=0;
                 for (i=0;buf[i]!='\0';i++)
                     {
                     if (tolower(buf[i])=='x')
                         buf[i]=' ';
                     if (buf[i]=='+' && buf[i+1]=='\0')
-                        k2settings->src_grid_order=1;
+                        k2settings->grid_order=-2; /* Special code for + */
                     }
                 na=string_read_doubles(buf,v,3);
                 if (na>=2)
@@ -1449,6 +1452,7 @@ printf("units=%d\n",k2settings->srccropmargins.units[0]);
         NEEDS_INTEGER("-evl",erase_vertical_lines)
         NEEDS_INTEGER("-er",src_erosion)
         NEEDS_INTEGER("-ehl",erase_horizontal_lines)
+        NEEDS_INTEGER("-go",grid_order)
         if (!stricmp(cl->cmdarg,"-fs") && setvals==1)
             k2settings->user_mag |= 2;
         NEEDS_VALUE_PLUS("-fs",dst_fontsize_pts)
@@ -1487,6 +1491,7 @@ printf("dst_dpi = %g\n",k2settings->dst_dpi);
         NEEDS_INTEGER("-pr",pad_right)
         NEEDS_INTEGER("-pl",pad_left)
         NEEDS_INTEGER("-pt",pad_top)
+        NEEDS_VALUE("-rhmin",textheight_min_pts)
         /*
         ** UNDOCUMENTED COMMAND-LINE ARGS
         */

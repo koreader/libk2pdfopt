@@ -1,7 +1,7 @@
 /*
 ** textrows.c   Functions to handle TEXTROWS structure.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -227,23 +227,40 @@ void textrows_compute_row_gaps(TEXTROWS *textrows,int r2)
     }
 
 
+void textrows_remove_defects(TEXTROWS *textrows,int defect_size_threshold)
+
+    {
+    int i,j;
+
+    for (i=j=0;i<textrows->n;i++)
+        {
+        if (textrows->textrow[i].r2-textrows->textrow[i].r1+1 <= defect_size_threshold
+             && textrows->textrow[i].c2-textrows->textrow[i].c1+1 <= defect_size_threshold)
+            continue;
+        if (i!=j)
+            textrows->textrow[j] = textrows->textrow[i];
+        j++;
+        }
+    textrows->n=j;
+    }
+
 /*
 ** v2.10:  Tosses out figures for computing statistics
 **
-** v2.33:  Added mingap_in parameter--if this is > 0 and if any gap between two
-**         rows exceeds this gap, the two rows are joined.
+** v2.33:  Added mingap_in parameter--if mingap_in > 0 and if any gap between two
+**         rows is less than mingap_in, the two rows are joined.
 */
 void textrows_remove_small_rows(TEXTROWS *textrows,K2PDFOPT_SETTINGS *k2settings,
                                 double fracrh,double fracgap,BMPREGION *region,
                                 double mingap_in)
 
     {
-    int i,j,mg,mh,mg0,mg1,nr,ng;
+    int i,j,mg,mh,mg0,mg1,nr,ng,mgbl;
     int c1,c2,nc;
-    int *rh,*gap;
+    int *rh,*gap,*gapbl;
     static char *funcname="textrows_remove_small_rows";
 
-#if ((WILLUSDEBUGX & 2) || (WILLUSDEBUGX & 0x40000))
+#if (WILLUSDEBUGX & 0x840002)
 k2printf("@textrows_remove_small_rows(fracrh=%g,fracgap=%g,mingap=%g in)\n",fracrh,fracgap,mingap_in);
 #endif
     if (textrows->n<2)
@@ -251,8 +268,9 @@ k2printf("@textrows_remove_small_rows(fracrh=%g,fracgap=%g,mingap=%g in)\n",frac
     c1=region->c1;
     c2=region->c2;
     nc=c2-c1+1;
-    willus_dmem_alloc_warn(16,(void **)&rh,2*sizeof(int)*textrows->n,funcname,10);
+    willus_dmem_alloc_warn(16,(void **)&rh,3*sizeof(int)*textrows->n,funcname,10);
     gap=&rh[textrows->n];
+    gapbl=&gap[textrows->n];
     for (i=nr=ng=0;i<textrows->n;i++)
         {
         /* v2.10:  Don't include figures in statistics */
@@ -260,7 +278,11 @@ k2printf("@textrows_remove_small_rows(fracrh=%g,fracgap=%g,mingap=%g in)\n",frac
             continue;
         rh[nr++]=textrows->textrow[i].r2-textrows->textrow[i].r1+1;
         if (i<textrows->n-1)
-            gap[ng++]=textrows->textrow[i].gapblank;
+            {
+            gapbl[ng]=textrows->textrow[i].gap;
+            gap[ng]=textrows->textrow[i].gapblank;
+            ng++;
+            }
         }
     if (nr<2)
         {
@@ -275,20 +297,27 @@ k2printf("@textrows_remove_small_rows(fracrh=%g,fracgap=%g,mingap=%g in)\n",frac
         mh=1;
     mg0=gap[ng/2];
     mg = mg0*fracgap;
+    mgbl = gapbl[ng/2]*fracgap;
     mg1 = mg0*0.7;
     if (mg<1)
         mg=1;
-#if (WILLUSDEBUGX & 2)
-k2printf("mh = %d x %g = %d\n",rh[textrows->n/2],fracrh,mh);
-k2printf("mg = %d x %g = %d\n",gap[textrows->n/2],fracgap,mg);
+#if (WILLUSDEBUGX & 0x800002)
+k2printf("mh   = %d x %g = %d\n",rh[textrows->n/2],fracrh,mh);
+k2printf("mg   = %d x %g = %d\n",gap[textrows->n/2],fracgap,mg);
+k2printf("mgbl = %d x %g = %d\n",gapbl[textrows->n/2],fracgap,mgbl);
 #endif
     willus_dmem_free(16,(double **)&rh,funcname);
     for (i=0;i<textrows->n;i++)
         {
         TEXTROW *textrow;
-        int trh,gs1,gs2,g1,g2,gap_is_big,row_too_small;
-        double m1,m2,row_width_inches;
-        int gap_too_small;
+        int trh,gs1,gs2,g1,g2;
+        int gap_below_user_threshold;
+        int row_is_a_fragment;
+        int blankgap_between_rows_is_out_of_family_small;
+        int baselinegap_between_rows_is_out_of_family_small;
+        int rowheight_is_out_of_family_small;
+        int textrow_is_out_of_family_small;
+        int textheight_below_min_threshold;
 
         textrow=&textrows->textrow[i];
         trh=textrow->r2-textrow->r1+1;
@@ -312,50 +341,59 @@ k2printf("mg = %d x %g = %d\n",gap[textrows->n/2],fracgap,mg);
             g2=textrows->textrow[i+1].r1-textrow->r2-1;
             gs2=textrows->textrow[i].gap;
             }
-        gap_too_small = i<textrows->n-1 && mingap_in>0. && (double)g2/region->dpi < mingap_in;
-#if (WILLUSDEBUGX & 2)
-k2printf("   rowheight[%d] = %d, mh=%d, gs1=%d, gs2=%d\n",i,trh,mh,gs1,gs2);
-k2printf("                   (c1,r1)=%d,%d; (c2,r2)=%d,%d\n",textrow->c1,textrow->r1,textrow->c2,textrow->r2);
-k2printf("                   gap between this row and next = %g in\n",(double)g2/region->dpi);
-#endif
-        gap_is_big = (trh >= mh || (gs1 >= mg && gs2 >= mg));
+        textheight_below_min_threshold = textrow->capheight*72./region->dpi 
+                                              < k2settings->textheight_min_pts;
+        /* If row < min user threshold, delete it -- new in v2.52 */
+        if (textheight_below_min_threshold)
+            {
+            int j;
+            for (j=i+1;j<textrows->n;j++)
+                textrows->textrow[j-1]=textrows->textrow[j];
+            textrows->n--;
+            i--;
+            continue;
+            }
+        /* v2.52 -- better describe parameters */
+        rowheight_is_out_of_family_small = trh<mh;
+        blankgap_between_rows_is_out_of_family_small = (g1<=mg1 || g2<=mg1);
+        baselinegap_between_rows_is_out_of_family_small = (gs1 < mgbl || gs2 >= mgbl);
+        textrow_is_out_of_family_small = rowheight_is_out_of_family_small
+                                         && (baselinegap_between_rows_is_out_of_family_small
+                                               || blankgap_between_rows_is_out_of_family_small);
+        gap_below_user_threshold = i<textrows->n-1 && mingap_in>0. 
+                                            && (double)g2/region->dpi < mingap_in;
         /*
         ** Is the row width small and centered?  If so, it should probably
         ** be attached to its nearest neighbor--it's usually a fragment of
         ** an equation or a table/figure.
         */
+        {
+        double row_width_inches,m1,m2;
         row_width_inches = (double)(textrow->c2-textrow->c1+1)/region->dpi;
         m1 = fabs(textrow->c1-c1)/nc;
         m2 = fabs(textrow->c2-c2)/nc;
-        row_too_small = m1 > 0.1 && m2 > 0.1 
+        row_is_a_fragment = m1 > 0.1 && m2 > 0.1 
                             && row_width_inches < k2settings->little_piece_threshold_inches
-                            && (g1<=mg1 || g2<=mg1);
-#if (WILLUSDEBUGX & 2)
-k2printf("       m1=%g, m2=%g, rwi=%g, g1=%d, g2=%d, mg0=%d\n",m1,m2,row_width_inches,g1,g2,mg0);
+                            && blankgap_between_rows_is_out_of_family_small;
+        }
+#if (WILLUSDEBUGX & 0x800002)
+k2printf("   rowheight[%d] = %d, mh=%d, g1=%d, g2=%d, gs1=%d, gs2=%d\n",i,trh,mh,g1,g2,gs1,gs2);
+k2printf("                   (c1,r1)=%d,%d; (c2,r2)=%d,%d\n",textrow->c1,textrow->r1,textrow->c2,textrow->r2);
+k2printf("                   gap between this row and next = %g in\n",(double)g2/region->dpi);
+k2printf("       little_piece_threshold_inches=%g\n",k2settings->little_piece_threshold_inches);
+k2printf("       rowheight_is_out_of_family_small = %d\n",rowheight_is_out_of_family_small);
+k2printf("       blankgap_between_rows_is_out_of_family_small = %d\n",blankgap_between_rows_is_out_of_family_small);
+k2printf("       baselinegap_between_rows_is_out_of_family_small = %d\n",baselinegap_between_rows_is_out_of_family_small);
+k2printf("       textrow_is_out_of_family_small = %d\n",textrow_is_out_of_family_small);
+k2printf("       gap_below_user_threshold=%d\n",gap_below_user_threshold);
+k2printf("       row_is_a_fragment=%d\n",row_is_a_fragment);
 #endif
-        if (!gap_too_small && gap_is_big && !row_too_small)
+        if (!gap_below_user_threshold && !textrow_is_out_of_family_small && !row_is_a_fragment)
             continue;
-#if (WILLUSDEBUGX & 2)
-k2printf("   row[%d] to be combined w/next row (gaptoosmall=%d, gapbig=%d, rowtoosmall=%d).\n",i,gap_too_small,gap_is_big,row_too_small);
-#endif
-        if (!gap_too_small)
-            {
-            if (row_too_small)
-                {
-                if (g1<g2)
-                    i--;
-                }
-            else
-                {
-                if (gs1<gs2)
-                    i--;
-                }
-            }
-#if (WILLUSDEBUGX & 2)
-k2printf("Removing row.  nrows=%d, rh=%d, gs1=%d, gs2=%d\n",textrows->n,trh,gs1,gs2);
-/*
-k2printf("    mh = %d, mg = %d\n",rh[textrows->n/2],gap[(textrows->n-1)/2]);
-*/
+        if (i==textrows->n-1 || (i>0 && g1<g2))
+            i--;
+#if (WILLUSDEBUGX & 0x800002)
+k2printf(" ** COMBINING ROWS %d AND %d **\n",i,i+1);
 #endif
         textrows->textrow[i].r2 = textrows->textrow[i+1].r2;
         if (textrows->textrow[i+1].c2 > textrows->textrow[i].c2)
@@ -372,7 +410,7 @@ k2printf("    mh = %d, mg = %d\n",rh[textrows->n/2],gap[(textrows->n-1)/2]);
         newregion.c2=textrows->textrow[i].c2;
         newregion.r1=textrows->textrow[i].r1;
         newregion.r2=textrows->textrow[i].r2;
-#if (WILLUSDEBUGX & 2)
+#if (WILLUSDEBUGX & 0x800002)
 printf("newregion: (%d,%d) - (%d,%d)\n",newregion.c1,newregion.r1,newregion.c2,newregion.r2);
 #endif
         newregion.bbox.type=0;
@@ -384,6 +422,8 @@ printf("newregion: (%d,%d) - (%d,%d)\n",newregion.c1,newregion.r1,newregion.c2,n
             textrows->textrow[j] = textrows->textrow[j+1];
         textrows->n--;
         i--;
+        if (textrows->n<=1)
+            break;
         }
     }
 
@@ -585,7 +625,7 @@ printf("Large gap:  row[%d] = rows %d - %d, capheight = %d, lch=%d, rh=%d\n",i,t
            ** If we're on the pass where itry==1, then it means there was a case where
            ** a section almost qualified as a double or triple row, so go back through
            ** but with a partial region--ignoring the left side which might encompass
-           ** a "double-row"-sized letter which begins a chapter.
+           ** a dropcap letter which begins a chapter.
            ** Only works for left-to-right docs for now.  v2.20.  7-19-2014.
            */
            if (itry==1)
@@ -749,7 +789,7 @@ printf("    rat[%d rows] = %g = %d / %d\n",j,rat,c2,c1);
                break;
            }
 #if (WILLUSDEBUGX & 256)
-printf("MAX RATIO (%d rows) = %g\n",jbest,maxrat);
+printf("MAX RATIO (%d rows) = %g (must exceed %g)\n",jbest,maxrat,k2settings->row_split_fom);
 #endif
            /* If figure of merit is met, split this row into jbest rows */
            /* 2.32 fix--limit the max number of added rows */

@@ -1,7 +1,7 @@
 /*
 ** k2settings.c     Handles k2pdfopt settings (K2PDFOPT_SETTINGS structure)
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -23,6 +23,9 @@
 static void k2settings_warn(char *message);
 static void k2settings_apply_odpi_magnification(K2PDFOPT_SETTINGS *k2settings,double dispres,
                                                 double mag);
+static int k2settings_width_should_be_padded(K2PDFOPT_SETTINGS *k2settings);
+static int k2settings_height_should_be_padded(K2PDFOPT_SETTINGS *k2settings);
+static void k2settings_adjust_devdims_for_om(K2PDFOPT_SETTINGS *k2settings,int *width,int *height);
 
 
 void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
@@ -141,11 +144,13 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->erase_vertical_lines=0;
     k2settings->hyphen_detect=1;
     k2settings->overwrite_minsize_mb=10;
+    k2settings->rename=0;
     k2settings->dst_fit_to_page=0;
     k2settings->src_grid_rows=-1;
     k2settings->src_grid_cols=-1;
+    k2settings->grid_order=-1;
     k2settings->src_grid_overlap_percentage=2.;
-    k2settings->src_grid_order=0; /* 0=down then across, 1=across then down */
+    /*k2settings->src_grid_order=0;*/ /* 0=down then across, 1=across then down */
     k2settings->preview_page=0; /* 0 = no preview */
     k2settings->echo_source_page_count=0;
 /*
@@ -229,6 +234,9 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
 #ifdef HAVE_LEPTONICA_LIB
     k2settings->dewarp=0;
 #endif
+    /* v2.52 */
+    k2settings->detect_double_rows=1;
+    k2settings->textheight_min_pts=-1.;
     }
 
 
@@ -236,6 +244,51 @@ int k2settings_output_is_bitmap(K2PDFOPT_SETTINGS *k2settings)
 
     {
     return(filename_is_bitmap(k2settings->dst_opname_format));
+    }
+
+
+int k2settings_columns_left_to_right(K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    int grid_order,g1,g2;
+
+    grid_order=k2settings_valid_grid_order(k2settings);
+    g1=grid_order/10;
+    g2=grid_order%10;
+    return(g1!=2 && g2!=2);
+    }
+
+
+int k2settings_valid_grid_order(K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    int grid_order,g1,g2;
+
+    grid_order=k2settings->grid_order;
+    if (grid_order==-2)
+        grid_order = k2settings->src_left_to_right ? 13 : 23;
+    else if (grid_order<0)
+        grid_order = k2settings->src_left_to_right ? 31 : 32;
+    g1=grid_order/10;
+    g2=grid_order%10;
+    if (g1<1 || g1>4)
+        {
+        g1=g2;
+        g2=0;
+        }
+    if (g1<1 || g1>4)
+        {
+        grid_order = k2settings->src_left_to_right ? 31 : 32;
+        g1=grid_order/10;
+        g2=grid_order%10;
+        }
+    if (g2<1 || g2>4)
+        g2 = (g1==1 || g1==2) ? 3 : (k2settings->src_left_to_right ? 1 : 2);
+    if (g1<3 && g2<3)
+        g1=3;
+    if (g1>2 && g2>2)
+        g2 = (k2settings->src_left_to_right ? 1 : 2);
+    return(g1*10+g2);
     }
 
 
@@ -286,6 +339,8 @@ printf("    retval=%d\n",retval);
 void k2pdfopt_conversion_init(K2PDFOPT_CONVERSION *k2conv)
 
     {
+    /* No debugging output from wlprintf() calls in wininet.c */
+    wlp_set_stdout(0,0,"",1,0,0,NULL);
     k2pdfopt_settings_init(&k2conv->k2settings);
     k2pdfopt_files_init(&k2conv->k2files);
     }
@@ -462,9 +517,10 @@ double k2pdfopt_settings_gamma(K2PDFOPT_SETTINGS *k2settings)
 ** of each new document.
 **
 */
-void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings)
+void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings,char *initstr)
 
     {
+    initstr[0]='\0';
     k2pdfopt_settings_quick_sanity_check(k2settings);
 
     {
@@ -501,7 +557,7 @@ void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings)
     /* Init document OCR word list */
     if (k2settings->dst_ocr)
         {
-        k2ocr_init(k2settings);
+        k2ocr_init(k2settings,initstr);
         ocrwords_clear(&k2settings->dst_ocrwords);
         }
 #endif
@@ -701,6 +757,16 @@ printf("    userrect (out) = %g,%g - %g,%g\n",userrect.p[0].x,userrect.p[0].y,us
 #endif
     new_width=(int)(userrect.p[1].x-userrect.p[0].x+.5);
     new_height=(int)(userrect.p[1].y-userrect.p[0].y+.5);
+#if (WILLUSDEBUGX & 0x20000)
+printf("    before devdims adjust = %d x %d (dpi=%d)\n",new_width,new_height,k2settings->dst_dpi);
+#endif
+
+    /* If dev height is set to trim, source, or ocrlayer, have to add -om margins -- v2.52 */
+    k2settings_adjust_devdims_for_om(k2settings,&new_width,&new_height);
+
+#if (WILLUSDEBUGX & 0x20000)
+printf("    after devdims adjust = %d x %d\n",new_width,new_height);
+#endif
     /*
     new_width=devsize_pixels(k2settings->dst_userwidth,k2settings->dst_userwidth_units,
                              swidth_in,twidth_in,k2settings->dst_dpi,0);
@@ -778,6 +844,84 @@ printf("dst_dpi set to %d\n",k2settings->dst_dpi);
 printf("After set_margins_and_devsize: dst_dpi=%d\n",k2settings->dst_dpi);
 #endif
     }  
+
+
+static int k2settings_width_should_be_padded(K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    return((k2settings->dst_userwidth_units==UNITS_TRIMMED
+            || k2settings->dst_userwidth_units==UNITS_SOURCE
+            || k2settings->dst_userwidth_units==UNITS_OCRLAYER)
+            && (k2settings->dstmargins.box[0]>1e-6
+                || k2settings->dstmargins.box[2]>1e-6));
+    }
+
+
+static int k2settings_height_should_be_padded(K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    return((k2settings->dst_userheight_units==UNITS_TRIMMED
+            || k2settings->dst_userheight_units==UNITS_SOURCE
+            || k2settings->dst_userheight_units==UNITS_OCRLAYER)
+            && (k2settings->dstmargins.box[1]>1e-6
+                || k2settings->dstmargins.box[3]>1e-6));
+    }
+
+/*
+** v2.52
+** If dev height is set to trim, source, or ocrlayer, have to add -om margins
+** Input:  *width and *height are device dims in pixels (at k2settings->dst_dpi)
+** Output:  *width and *height are increased to the correct number of pixels
+**         to accomodate the -om margin settings (at k2settings->dst_dpi)
+*/
+static void k2settings_adjust_devdims_for_om(K2PDFOPT_SETTINGS *k2settings,int *width,int *height)
+
+    {
+    int d;
+    double dpi;
+
+    dpi=k2settings->dst_dpi;
+    for (d=0;d<2;d++)
+        {
+        double dim_in,dim_perc;
+        int *dim,i,status;
+
+        dim=(d==0 ? width : height);
+        dim_in = (double)(*dim)/dpi;
+        dim_perc=0.;
+        status=(d==0 ? k2settings_width_should_be_padded(k2settings)
+                     : k2settings_height_should_be_padded(k2settings));
+        if (!status)
+            continue;
+        for (i=0;i<=2;i+=2)
+            {
+            double x;
+            int unit;
+
+            x=k2settings->dstmargins.box[d+i];
+            unit=k2settings->dstmargins.units[d+i];
+#if (WILLUSDEBUGX & 0x20000)
+printf("        d=%d, i=%d, x=%g, unit=%d\n",d,i,x,unit);
+#endif
+            if (unit==UNITS_PIXELS)
+                dim_in += x/dpi;
+            else if (unit==UNITS_INCHES)
+                dim_in += x;
+            else if (unit==UNITS_CM)
+                dim_in += x/2.54;
+            else
+                dim_perc += x;
+            }
+        if (dim_perc>0.)
+            {
+            if (dim_perc>.95)
+                dim_perc=.95;
+            dim_in /= (1.-dim_perc);
+            }
+        (*dim)=(int)floor(dim_in*dpi+.5);
+        }
+    }
+
 
 /*
 ** If in trim mode and effectively got a blank page, add blank rows and eject them

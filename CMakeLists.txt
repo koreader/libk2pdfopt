@@ -1,6 +1,9 @@
 project(k2pdfopt C)
 cmake_minimum_required(VERSION 2.6)
 
+#
+# Last modified by Q.P. Hou 8 June 2019
+#
 # ---- Test for packages
 
 include(FindPkgConfig)
@@ -41,6 +44,8 @@ include(FindPNG)
 if(PNG_FOUND)
   set(HAVE_PNG_LIB 1)
   set(K2PDFOPT_LIB ${K2PDFOPT_LIB} ${PNG_LIBRARY_RELEASE})
+else(PNG_FOUND)
+  message( FATAL_ERROR "Missing required dependency libpng." )
 endif(PNG_FOUND)
 
 include(FindJPEG)
@@ -92,14 +97,26 @@ if(DJVU_FOUND)
 endif(DJVU_FOUND)
 
 # HAVE_GOCR_LIB
-# HAVE_LEPTONICA_LIB
-# HAVE_TESSERACT_LIB
+
+pkg_check_modules(LEPT lept)
+if(LEPT_FOUND)
+  set(HAVE_LEPTONICA_LIB 1)
+  set(K2PDFOPT_LIB ${K2PDFOPT_LIB} ${LEPT_LDFLAGS})
+  include_directories(SYSTEM ${LEPT_INCLUDEDIR})
+endif(LEPT_FOUND)
+
+pkg_check_modules(TESSERACT tesseract)
+if(TESSERACT_FOUND)
+  set(HAVE_TESSERACT_LIB 1)
+  set(K2PDFOPT_LIB ${K2PDFOPT_LIB} ${TESSERACT_LDFLAGS})
+  include_directories(SYSTEM ${TESSERACT_INCLUDEDIR})
+endif(TESSERACT_FOUND)
 
 # ---- Describe project
 
 SET(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DUSE_CMAKE -Wall")
 
-include_directories(. willuslib k2pdfoptlib)
+include_directories(. "${PROJECT_BINARY_DIR}" willuslib k2pdfoptlib)
 
 configure_file (
   "${PROJECT_SOURCE_DIR}/config.h.in"
@@ -111,7 +128,7 @@ add_subdirectory(k2pdfoptlib)
 
 # ms
 add_executable(k2pdfopt k2pdfopt.c)
-target_link_libraries (k2pdfopt k2pdfoptlib willuslib ${K2PDFOPT_LIB})
+target_link_libraries (k2pdfopt k2pdfoptlib willuslib ${K2PDFOPT_LIB} pthread)
 
 
 message("")

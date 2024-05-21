@@ -1,7 +1,7 @@
 /*
 ** k2publish.c   Convert and write the master output bitmap to PDF output pages.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -123,63 +123,15 @@ printf("use_toc=%d, outline=%p, spc=%d, srcpage=%d\n",k2settings->use_toc,master
 #ifdef HAVE_OCR_LIB
         if (k2settings->dst_ocr)
             {
-            int flags_extra;
-
-            flags_extra=0;
-            if (k2settings->dst_ocr=='m')
-                {
-                flags_extra=0x20;
-                /* Don't re-sort--messes up the copy/paste flow */
-                /*
-                if (masterinfo->ocrfilename[0]=='\0')
-                    ocrwords_sort_by_pageno(ocrwords);
-                */
-/*
-** This section no longer needed in v2.20.  The text in the ocrword boxes
-** has already been determined by k2ocr_ocrwords_get_from_ocrlayer() in k2ocr.c
-*/
-/*
-                for (i=0;i<ocrwords->n;i++)
-                    {
-                    static char *funcname="masterinfo_publish";
-
-                    if (ocrwords->word[i].pageno != pageno)
-                        {
-                        wtextchars_clear(wtcs);
-                        wtextchars_fill_from_page(wtcs,masterinfo->srcfilename,
-                                                  ocrwords->word[i].pageno,"");
-                        wtextchars_rotate_clockwise(wtcs,360-(int)ocrwords->word[i].rot0_deg);
-                        pageno=ocrwords->word[i].pageno;
-                        }
-                    willus_mem_free((double **)&ocrwords->word[i].text,funcname);
-                    wtextchars_text_inside(wtcs,&ocrwords->word[i].text,
-                                           ocrwords->word[i].x0,
-                                           ocrwords->word[i].y0,
-                                           ocrwords->word[i].x0+ocrwords->word[i].w0,
-                                           ocrwords->word[i].y0+ocrwords->word[i].h0);
-#if (WILLUSDEBUGX & 0x400)
-printf("MuPDF Word (%5.1f,%5.1f) - (%5.1f,%5.1f) = '%s'\n",
-ocrwords->word[i].x0,
-ocrwords->word[i].y0,
-ocrwords->word[i].x0+ocrwords->word[i].w0,
-ocrwords->word[i].y0+ocrwords->word[i].h0,
-ocrwords->word[i].text);
-#endif
-                    if (ocrwords->word[i].text==NULL || ocrwords->word[i].text[0]=='\0')
-                        {
-                        ocrwords_remove_words(ocrwords,i,i);
-                        i--;
-                        }
-                    }
-*/
-                
-                }
             if (masterinfo->ocrfilename[0]!='\0')
                 ocrwords_to_textfile(ocrwords,masterinfo->ocrfilename,
                                      masterinfo->published_pages>1);
-
             if (!bitmap && !k2settings->use_crop_boxes)
                 {
+                int flags;
+
+                flags = k2settings->dst_ocr_visibility_flags
+                         | ((k2settings->dst_ocr=='m') ? 0x20 : 0);
 #if (WILLUSDEBUGX & 0x400)
 printf("Calling pdffile_add_bitmap_with_ocrwords.\n");
 #endif
@@ -202,8 +154,7 @@ printf("    na=%d\n",masterinfo->outfile.na);
 #endif
                 pdffile_add_bitmap_with_ocrwords(&masterinfo->outfile,bmp,bmpdpi,
                                              k2settings->jpeg_quality,size_reduction,
-                                             ocrwords,k2settings->dst_ocr_visibility_flags
-                                                        | flags_extra);
+                                             ocrwords,flags);
                 }
 #if (WILLUSDEBUGX & 0x400)
 printf("Back from pdffile_add_bitmap_with_ocrwords.\n");
