@@ -18,7 +18,7 @@
 
 // Include automatically generated configuration file if running autoconf.
 #ifdef HAVE_CONFIG_H
-#include "config_auto.h"
+#  include "config_auto.h"
 #endif
 
 #include "lstmrecognizer.h"
@@ -46,6 +46,11 @@ const double kDictRatio = 2.25;
 // Default certainty offset to give the dictionary a chance.
 const double kCertOffset = -0.085;
 
+LSTMRecognizer::LSTMRecognizer(const STRING language_data_path_prefix)
+    : LSTMRecognizer::LSTMRecognizer() {
+  ccutil_.language_data_path_prefix = language_data_path_prefix;
+}
+
 LSTMRecognizer::LSTMRecognizer()
     : network_(nullptr),
       training_flags_(0),
@@ -66,13 +71,14 @@ LSTMRecognizer::~LSTMRecognizer() {
 }
 
 // Loads a model from mgr, including the dictionary only if lang is not null.
-bool LSTMRecognizer::Load(const char* lang, TessdataManager* mgr) {
+bool LSTMRecognizer::Load(const ParamsVectors* params, const char* lang,
+                          TessdataManager* mgr) {
   TFile fp;
   if (!mgr->GetComponent(TESSDATA_LSTM, &fp)) return false;
   if (!DeSerialize(mgr, &fp)) return false;
   if (lang == nullptr) return true;
   // Allow it to run without a dictionary.
-  LoadDictionary(lang, mgr);
+  LoadDictionary(params, lang, mgr);
   return true;
 }
 
@@ -154,9 +160,15 @@ bool LSTMRecognizer::LoadRecoder(TFile* fp) {
 // on the unicharset matching. This enables training to deserialize a model
 // from checkpoint or restore without having to go back and reload the
 // dictionary.
-bool LSTMRecognizer::LoadDictionary(const char* lang, TessdataManager* mgr) {
+// Some parameters have to be passed in (from langdata/config/api via Tesseract)
+bool LSTMRecognizer::LoadDictionary(const ParamsVectors* params,
+                                    const char* lang, TessdataManager* mgr) {
   delete dict_;
   dict_ = new Dict(&ccutil_);
+  dict_->user_words_file.ResetFrom(params);
+  dict_->user_words_suffix.ResetFrom(params);
+  dict_->user_patterns_file.ResetFrom(params);
+  dict_->user_patterns_suffix.ResetFrom(params);
   dict_->SetupForLoad(Dict::GlobalDawgCache());
   dict_->LoadLSTM(lang, mgr);
   if (dict_->FinishLoad()) return true;  // Success.
@@ -259,7 +271,8 @@ bool LSTMRecognizer::RecognizeLine(const ImageData& image_data, bool invert,
     pixInvert(pix, pix);
     Input::PreparePixInput(network_->InputShape(), pix, &randomizer_,
                            &inv_inputs);
-    network_->Forward(debug, inv_inputs, nullptr, &scratch_space_, &inv_outputs);
+    network_->Forward(debug, inv_inputs, nullptr, &scratch_space_,
+                      &inv_outputs);
     float inv_min, inv_mean, inv_sd;
     OutputStats(inv_outputs, &inv_min, &inv_mean, &inv_sd);
     if (inv_min > pos_min && inv_mean > pos_mean && inv_sd < pos_sd) {
@@ -403,7 +416,7 @@ void LSTMRecognizer::DebugActivationRange(const NetworkIO& outputs,
 // Helper returns true if the null_char is the winner at t, and it beats the
 // null_threshold, or the next choice is space, in which case we will use the
 // null anyway.
-#if 0 // TODO: unused, remove if still unused after 2020.
+#if 0  // TODO: unused, remove if still unused after 2020.
 static bool NullIsBest(const NetworkIO& output, float null_thr,
                        int null_char, int t) {
   if (output.f(t)[null_char] >= null_thr) return true;

@@ -469,7 +469,7 @@ printf("fitcols=%d\n",fitcols);
 
         /* Flush output if required */
         if (masterinfo->fit_to_page==-2)
-            masterinfo_flush(masterinfo,k2settings);
+            masterinfo_flush(masterinfo,k2settings,0);
         }
     /* Restore default DPI if it was altered */
 /*
@@ -1310,7 +1310,7 @@ aprintf(ANSI_CYAN "\nATOMIC REGION HAS PAGEBREAKMARKS.\n\n" ANSI_NORMAL);
         bmpregion_free(newregion);
         /* Use -to+ for this? */
         if (k2settings->dst_break_pages==4) /* Break page if we're skipping a figure */
-            masterinfo_flush(masterinfo,k2settings);
+            masterinfo_flush(masterinfo,k2settings,0);
         return;
         }
 
@@ -2616,7 +2616,7 @@ printf("row0=%d\n",row0);
             bmpregion_add_textrows(&added_region,k2settings,masterinfo);
             }
         if (k2settings->dst_break_pages==3)
-            masterinfo_flush(masterinfo,k2settings);
+            masterinfo_flush(masterinfo,k2settings,0);
         }
     /* Finish notes regions */
     if (notes)
@@ -2631,7 +2631,7 @@ printf("row0=%d\n",row0);
             bmpregion_add_textrows(&added_region,k2settings,masterinfo);
             }
     if (k2settings->dst_break_pages==4)
-        masterinfo_flush(masterinfo,k2settings);
+        masterinfo_flush(masterinfo,k2settings,0);
     if (revert)
         k2pdfopt_settings_restore_output_dpi(k2settings);
     if (notes)

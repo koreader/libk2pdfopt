@@ -57,6 +57,23 @@
 // static tesseract::TessBaseAPI api[4];
 
 /*
+** Pass NULL to close log file
+*/
+void tess_capi_set_logfile(const char *filename)
+
+    {
+    tprintf_set_debugfile(filename);
+    }
+
+
+void tess_capi_debug_message(char *message)
+
+    {
+    tprintf("%s",message);
+    }
+
+
+/*
 ** ocr_type=0:  OEM_DEFAULT
 ** ocr_type=1:  OEM_TESSERACT_ONLY
 ** ocr_type=2:  OEM_LSTM_ONLY
@@ -68,6 +85,7 @@ void *tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out,
     {
     char original_locale[256];
     tesseract::TessBaseAPI *api = new tesseract::TessBaseAPI;
+
 /*
 printf("@tess_capi_init\n");
 printf("    datapath='%s'\n",datapath);
@@ -172,14 +190,29 @@ v4.00 loads either TESSERACT enginer, LSTM engine, or both.  No CUBE.
     */
     {
     char istr[1024];
-    int sse,avx;
+    static const char *simdtype[]={"FMA","AVX2","AVX","SSE",""};
+    int i,c,simd[4];
 
 // printf("tessedit_ocr_engine_mode = %d\n",tessedit_ocr_engine_mode);
     sprintf(istr,"%s",api->Version());
-    sse=SIMDDetect::IsSSEAvailable();
-    avx=SIMDDetect::IsAVXAvailable();
-    if (sse || avx)
-        sprintf(&istr[strlen(istr)]," [%s]",sse&&avx?"SSE+AVX":(sse?"SSE":"AVX"));
+    simd[0]=tesseract::SIMDDetect::IsFMAAvailable();
+    simd[1]=tesseract::SIMDDetect::IsAVX2Available();
+    simd[2]=tesseract::SIMDDetect::IsAVXAvailable();
+    simd[3]=tesseract::SIMDDetect::IsSSEAvailable();
+    for (i=c=0;simdtype[i][0]!='\0';i++)
+        {
+        if (!strcmp(simdtype[i],"AVX") && i>0 && simd[i-1])
+            continue;
+        if (!simd[i])
+            continue;
+        if (!c)
+            sprintf(&istr[strlen(istr)]," [%s",simdtype[i]);
+        else
+            sprintf(&istr[strlen(istr)],"+%s",simdtype[i]);
+        c++;
+        }
+    if (c>0)
+        sprintf(&istr[strlen(istr)],"]");
     sprintf(&istr[strlen(istr)],"\n    Tesseract data folder = '%s'",datapath==NULL?getenv("TESSDATA_PREFIX"):datapath);
     strcat(istr,"\n    Tesseract languages: ");
     GenericVector<STRING> languages;

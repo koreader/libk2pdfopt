@@ -605,13 +605,69 @@ int bmp_read_png(WILLUSBITMAP *bmp,char *filename,FILE *out)
     return(status);
     }
 
-static unsigned char *pngdata;
-static int pngindex;
+
+#define MAXPNGTHREADS 16
+static png_structp g_png_ptr[MAXPNGTHREADS];
+static unsigned char *g_pngdata[MAXPNGTHREADS];
+static int g_pngindex[MAXPNGTHREADS];
+static void png_thread_new(png_structp png_ptr,unsigned char *data,int idx_start);
+static void png_thread_close(png_structp png_ptr);
+static void bmp_read_png_from_memory(png_structp png_ptr,void *buf,int nbytes);
+static int png_thread_index(png_structp png_ptr);
+
+static void png_thread_new(png_structp png_ptr,unsigned char *data,int idx_start)
+
+    {
+    int i;
+
+    i=png_thread_index(NULL);
+    g_png_ptr[i]=png_ptr;
+    g_pngdata[i]=data;
+    g_pngindex[i]=idx_start;
+    }
+
+
+static void png_thread_close(png_structp png_ptr)
+
+    {
+    int i;
+
+    i=png_thread_index(png_ptr);
+    g_png_ptr[i]=NULL;
+    }
+
+
 static void bmp_read_png_from_memory(png_structp png_ptr,void *buf,int nbytes)
 
     {
-    memcpy(buf,&pngdata[pngindex],nbytes);
-    pngindex+=nbytes;
+    int i;
+
+    i=png_thread_index(png_ptr);
+/*
+if (i>0)
+aprintf(ANSI_YELLOW "bmp_read_png:  index=%d" ANSI_NORMAL "\n",i);
+else
+printf("bmp_read_png:  index=%d\n",i);
+*/
+    memcpy(buf,&g_pngdata[i][g_pngindex[i]],nbytes);
+    g_pngindex[i]+=nbytes;
+    }
+
+
+static int png_thread_index(png_structp png_ptr)
+
+    {
+    int i;
+
+    for (i=0;i<MAXPNGTHREADS;i++)
+        if (g_png_ptr[i]==png_ptr)
+            break;
+    if (i>=MAXPNGTHREADS)
+        {
+        printf("Out of PNG read threads!\n");
+        exit(10);
+        }
+    return(i);
     }
 
 
@@ -643,9 +699,10 @@ int bmp_read_png_stream(WILLUSBITMAP *bmp,void *io,int size,FILE *out)
         }
     else
         {
-        pngindex=8;
-        pngdata=(unsigned char *)io;
-        if (png_sig_cmp(pngdata,0,8))
+        unsigned char *ptmp;
+
+        ptmp=(unsigned char *)io;
+        if (png_sig_cmp(ptmp,0,8))
             {
             nprintf(out,"%s",notpng);
             return(-2);
@@ -657,6 +714,8 @@ int bmp_read_png_stream(WILLUSBITMAP *bmp,void *io,int size,FILE *out)
         nprintf(out,"Cannot create PNG structure.\n");
         return(-3);
         }
+    if (size!=0)
+        png_thread_new(png_ptr,(unsigned char *)io,8);
     info_ptr = png_create_info_struct(png_ptr);
     if (info_ptr==NULL)
         {
@@ -785,6 +844,8 @@ int bmp_read_png_stream(WILLUSBITMAP *bmp,void *io,int size,FILE *out)
             gotpal=1;
             }
         }
+    if (size!=0)
+        png_thread_close(png_ptr);
     png_destroy_read_struct(&png_ptr,&info_ptr,&end_info);
     return(0);
     }

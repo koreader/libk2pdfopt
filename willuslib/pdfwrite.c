@@ -1498,7 +1498,12 @@ static void ocrword_width_and_maxheight(OCRWORD *word,double *width,double *maxh
     willus_mem_alloc_warn((void **)&d,sizeof(int)*n,funcname,10);
     n=utf8_to_unicode(d,word->text,n-1);
     (*width)=0.;
-    (*maxheight)=0.;
+    /*
+    ** 7-10-2020--return a standard height for all chars for better
+    **            selection consistency.
+    */
+    /* (*maxheight)=0.; */
+    (*maxheight)=0.65;
     for (i=0;i<n;i++)
         {
         int c,cid,index;
@@ -1536,8 +1541,11 @@ static void ocrword_width_and_maxheight(OCRWORD *word,double *width,double *maxh
             (*width) += nc;
         if (charpos!=NULL)
             charpos[i]=(*width);
+        /* 7-10-2020 -- see above */
+        /*
         if (ab > (*maxheight))
             (*maxheight)=ab;
+        */
         }
         }
     /* Limit checks -- 7-21-2013 */
@@ -1772,14 +1780,14 @@ static void ocrword_to_pdf_stream(OCRWORD *word,FILE *f,double dpi,
 
 /*
 printf("word->text='%s'\n",word->text);
-printf("    wxh = %dx%d\n",word->w,word->h);
+printf("    wxh = %dx%d, dpi=%g\n",word->w,word->h,dpi);
 */
     n=strlen(word->text)+2;
     willus_mem_alloc_warn((void **)&d,sizeof(int)*n,funcname,10);
     n=utf8_to_unicode(d,word->text,n-1);
     ocrword_width_and_maxheight(word,&width_per_point,&height_per_point,cmaplist,NULL);
 /*
-printf("    word->maxheight=%g\n",word->maxheight);
+printf("    word->maxheight=%g, height_per_point=%g\n",word->maxheight,height_per_point);
 */
     if (word->w/10. < word->lcheight)
         wordw = 0.9*word->w;

@@ -362,6 +362,8 @@ typedef double  real;
 
 void   ansi_set      (int on);
 int    aprintf       (char *fmt,...);
+void   wlp_set_stdout     (int sout,int serr,char *filename,int close_after,
+                           int append,int newstream,FILE *str);
 int    nprintf       (FILE *f,char *fmt,...);
 int    nprintf2      (FILE *f1,FILE *f2,char *fmt,...);
 int    afprintf      (FILE *f,char *fmt,...);
@@ -702,6 +704,9 @@ char  *wide_to_char(char *d,short *s);
 short *char_to_wide(short *d,char *s);
 short *char_to_wide_list(short *d,char *s);
 int utf8_to_unicode(int *d,char *s,int maxlen);
+void clean_line_utf8(char *s);
+void utf8_vals_to_stream(char *s,FILE *out);
+void clean_line_unicode(int *u,int *n);
 int utf8_length(int *s,int n);
 char *unicode_to_utf8(char *d,int *s,int n);
 int utf8_to_utf16_alloc(void **d,char *s);
@@ -1394,6 +1399,7 @@ char  *willuslibversion (void);
 
 /* wgs.c */
 #ifdef HAVE_GHOSTSCRIPT
+void willusgs_set_device_width_and_height_pts(int w,int h);
 int willusgs_read_pdf_or_ps_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double dpi,FILE *out);
 int willusgs_ps_to_pdf(char *dstfile,char *srcfile,FILE *out);
 int willusgs_init(FILE *out);
@@ -1412,6 +1418,11 @@ typedef struct
     int rot;   /* rotation angle of word in degrees */
     int n;     /* Number of chars in word */
     char *text;  /* UTF-8 text of word */
+    /* The next three members store info for OCR-ing at a later time */
+    WILLUSBITMAP *bmp; /* If non-null, word has not been determined yet and this is the */
+               /* bitmap that should be used to determine the word.             */
+    double dpi; /* DPI of bitmap */
+    double bmpscale; /* Scale bmp pixels by this immediately after OCR */
 
     /* Used by MuPDF */
     double x0,y0; /* Position of top-left of first char of word rel. to top-left of
@@ -1432,6 +1443,10 @@ typedef struct
 void ocrword_init(OCRWORD *word);
 void ocrword_free(OCRWORD *word);
 void ocrwords_init(OCRWORDS *words);
+int  ocrwords_num_queued(OCRWORDS *words);
+void ocrwords_queue_bitmap(OCRWORDS *words,WILLUSBITMAP *bmp8,int dpi,
+                           int c1,int r1,int c2,int r2,int lcheight);
+double ocrwords_multithreaded_ocr(OCRWORDS *words,void **ocr_api,int nthreads,int type,int target_dpi);
 void ocrword_copy(OCRWORD *dst,OCRWORD *src);
 void ocrword_truncate(OCRWORD *word,int i1,int i2);
 int  ocrwords_to_textfile(OCRWORDS *words,char *filename,int append);
@@ -1442,9 +1457,14 @@ void ocrwords_free(OCRWORDS *words);
 void ocrwords_sort_by_pageno(OCRWORDS *words);
 void ocrwords_offset(OCRWORDS *words,int dx,int dy);
 void ocrwords_scale(OCRWORDS *words,double srat);
+void ocrwords_rot90(OCRWORDS *words,int bmpwidth_pixels);
 void ocrwords_int_scale(OCRWORDS *words,int ndiv);
 void ocrwords_concatenate(OCRWORDS *dst,OCRWORDS *src);
 void ocr_text_proc(char *s,int allow_spaces);
+void ocrwords_sort_by_position(OCRWORDS *ocrwords);
+void ocrwords_to_easyplot(OCRWORDS *words,char *filename,int append,int *yoffset);
+void ocrword_echo(OCRWORD *word,FILE *out,int count,int index,int writebmp);
+void ocrwords_echo(OCRWORDS *ocrwords,FILE *out,int count,int writebmp);
 
 #ifdef HAVE_GOCR_LIB
 /* ocrgocr.c */
@@ -1587,7 +1607,6 @@ void pdffile_finish(PDFFILE *pdf,char *title,char *author,char *producer,char *c
 int  pdf_numpages(char *filename);
 void ocrwords_box(OCRWORDS *ocrwords,WILLUSBITMAP *bmp);
 void wpdfoutline_init(WPDFOUTLINE *wpdfoutline);
-void wpdfoutline_init(WPDFOUTLINE *wpdfoutline);
 void wpdfoutline_free(WPDFOUTLINE *wpdfoutline);
 void wpdfoutline_append(WPDFOUTLINE *outline1,WPDFOUTLINE *outline2);
 void wpdfoutline_add_to_srcpages(WPDFOUTLINE *outline,int pagecount);
@@ -1656,7 +1675,8 @@ typedef struct
     WPDFBOXES boxes;
     } WPDFPAGEINFO;
 /*
-** Positions are from upper left corner of page
+** Positions are from UPPER left corner of page
+** It is expected that x2>x1 and y2>y1 (i.e. y2 is the bottom of the character)
 */
 typedef struct
     {
@@ -1698,12 +1718,14 @@ void wtextchars_sort_horizontally_by_position(WTEXTCHARS *wtc);
 void wtextchar_array_sort_horizontally_by_position(WTEXTCHAR *x,int n);
 void wtextchars_to_strbuf_formatted(WTEXTCHARS *wtcs,STRBUF *sbuf);
 void wtextchars_scale_page(WTEXTCHARS *wtextchars,double scale_factor);
+void wtextchars_to_easyplot(WTEXTCHARS *wtcs,char *filename);
 
 
 /* bmpmupdf.c */
 /* Mupdf / bitmap functions */
 #ifdef HAVE_MUPDF_LIB
 int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double dpi,int bpp);
+void wmupdf_cbzinfo_get(char *filename,int *pagelist,char **buf0);
 int bmpmupdf_pdffile_width_and_height(char *filename,int pageno,double *width_in,double *height_in);
 #endif /* HAVE_MUPDF_LIB */
 
@@ -1734,7 +1756,10 @@ void wmupdfinfo_get(char *filename,int *pagelist,char **buf);
 /* djvu supported functions */
 int bmpdjvu_djvufile_to_bmp(WILLUSBITMAP *bmp,char *infile,int pageno,
                             int dpi,int bpp,FILE *out);
+void bmpdjvu_info_get(char *filename,int *pagelist,char **buf0);
 int bmpdjvu_numpages(char *infile);
+WPDFOUTLINE *wpdfoutline_read_from_djvu_file(char *filename);
+int wtextchars_fill_from_djvu_page(WTEXTCHARS *wtcs,char *filename,int pageno,int boundingbox);
 #endif /* HAVE_DJVU_LIB */
 
 

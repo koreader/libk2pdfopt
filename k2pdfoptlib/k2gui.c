@@ -25,6 +25,10 @@
 
 #include <k2pdfopt.h>
 
+#if (WILLUSDEBUGX & 0x4000)
+#include <windows.h>
+#endif
+
 #ifdef HAVE_K2GUI
 
 static char *unitname[]={"px","in","cm","s","t","x",""};
@@ -1241,12 +1245,9 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                         WILLUSGUICONTROL *filelistbox;
 
                         willus_mem_alloc_warn((void **)&selected,sizeof(int)*maxsel,funcname,10);
-                        for (i=0;i<k2gui->ncontrols;i++)
-                            if (!stricmp(k2gui->control[i].name,"file list"))
-                                break;
-                        if (i>=k2gui->ncontrols)
+                        filelistbox=k2gui_control_by_name("file list");
+                        if (filelistbox==NULL)
                             k2gui_error_out("Can't find file list control!");
-                        filelistbox = &k2gui->control[i];
                         n=willusgui_control_listbox_get_selected_items_count(filelistbox,
                                                                             selected,maxsel);
                         for (i=0;i<n;i++)
@@ -1293,12 +1294,9 @@ printf("settings->src_trim=%d\n",k2settings->src_trim);
                         WILLUSGUICONTROL *filelistbox;
 
                         willus_mem_alloc_warn((void **)&selected,sizeof(int)*maxsel,funcname,10);
-                        for (i=0;i<k2gui->ncontrols;i++)
-                            if (!stricmp(k2gui->control[i].name,"file list"))
-                                break;
-                        if (i>=k2gui->ncontrols)
+                        filelistbox=k2gui_control_by_name("file list");
+                        if (filelistbox==NULL)
                             k2gui_error_out("Can't find file list control!");
-                        filelistbox = &k2gui->control[i];
                         n=willusgui_control_listbox_get_selected_items_count(filelistbox,
                                                                             selected,maxsel);
                         if (n==0)
@@ -1863,13 +1861,16 @@ static void k2gui_display_info(void)
     if (filename[0]=='\0')
         return;
     pagelist_get_array(&pagelist,k2gui->k2conv->k2settings.pagelist);
-    wmupdfinfo_get(filename,pagelist,&buf);
+    winmbox_wait_end();
+    winmbox_wait(k2gui->mainwin.handle,"Getting file info...",0);
+    k2file_get_info(filename,pagelist,&buf);
+    winmbox_wait_end();
     if (pagelist!=NULL)
         free(pagelist);
     if (buf==NULL)
         {
         buf=buf0;
-        sprintf(buf,"FILE: %s\n\nCannot obtain information.\n",filename);
+        sprintf(buf,"FILE: %s\r\n\r\nCannot obtain information.\r\n",filename);
         }
     willusgui_window_get_rect(&k2gui->mainwin,&wrect);
     rect=wrect;
@@ -1882,7 +1883,7 @@ static void k2gui_display_info(void)
         fontsize = 16.;
     winmbox_set_font("Courier New");
     willusgui_message_box(&k2gui->mainwin,
-           "PDF File Info",
+           "File Info",
            filename,
            "*&DISMISS",NULL,NULL,
            buf,strlen(buf),
@@ -1899,7 +1900,7 @@ static void k2gui_get_selected_source_file(char *filename)
 
     {
     int *selected;
-    int i,n,index,maxsel;
+    int n,index,maxsel;
     WILLUSGUICONTROL *filelistbox;
     static char *funcname="k2gui_get_selected_source_file";
 
@@ -1907,14 +1908,10 @@ static void k2gui_get_selected_source_file(char *filename)
     filename[0]='\0';
     maxsel=k2gui->k2conv->k2files.n;
     willus_mem_alloc_warn((void **)&selected,sizeof(int)*maxsel,funcname,10);
-    for (i=0;i<k2gui->ncontrols;i++)
-        if (!stricmp(k2gui->control[i].name,"file list"))
-            break;
-    if (i>=k2gui->ncontrols)
+    filelistbox=k2gui_control_by_name("file list");
+    if (filelistbox==NULL)
         k2gui_error_out("Can't find file list control!");
-    filelistbox = &k2gui->control[i];
-    n=willusgui_control_listbox_get_selected_items_count(filelistbox,
-                                                        selected,maxsel);
+    n=willusgui_control_listbox_get_selected_items_count(filelistbox,selected,maxsel);
     if (n==0)
         index=0;
     else
@@ -2233,6 +2230,7 @@ static void k2gui_add_files(void)
     char *filename;
     static char *allowed_files="PDF files\0*.pdf\0"
                                "DJVU files\0*.djvu\0"
+                               "CBZ files\0*.cbz\0"
                                "All files\0*\0\0\0";
     int size,status;
 
@@ -4210,6 +4208,7 @@ static void k2gui_preview_make_bitmap(char *data)
 #if (WILLUSDEBUGX & 1)
 printf("@k2gui_preview_make_bitmap...\n");
 #endif
+/* No PNG CRC error */
     if (k2gui->k2conv->k2files.n<1)
         {
         k2gui_preview_cleanup(1);
@@ -4234,6 +4233,7 @@ printf("@k2gui_preview_make_bitmap...\n");
     strbuf_init(cmdline);
     k2gui_settings_to_cmdline(cmdline,&k2gui->k2conv->k2settings);
     parse_cmd_args(k2conv,k2gui->env,cmdline,&k2gui->cmdxtra,1,1);
+/* Succeeds here */
     /* v2.35--remove duplicate line */
     /* parse_cmd_args(k2conv,k2gui->env,cmdline,&k2gui->cmdxtra,1,1); */
 
@@ -4245,6 +4245,26 @@ printf("@k2gui_preview_make_bitmap...\n");
     /* Set the preview page */
     willusgui_control_get_text(ppage,buf,10);
     k2conv->k2settings.preview_page = atoi(buf);
+
+    /* If showing markup, go directly to the page requested */
+    if (k2conv->k2settings.show_marked_source)
+        {
+        int np,pn;
+        np=k2file_get_num_pages(k2conv->k2files.file[0]);
+        pn=double_pagelist_page_by_index(k2conv->k2settings.pagelist,
+                             k2conv->k2settings.pagexlist,
+                             k2conv->k2settings.preview_page-1,np);
+        k2conv->k2settings.pagexlist[0]='\0';
+        if (pn<=0 || pn>np)
+            {
+            willus_mem_free((double **)&buf,funcname);
+            willus_mem_free((double **)&k2conv,funcname);
+            k2gui_preview_cleanup(4);
+            return;
+            }
+        sprintf(k2conv->k2settings.pagelist,"%d",pn);
+        k2conv->k2settings.preview_page=1;
+        }
 
     /* Turn off OCR (no point in having it on for a preview) */
 #ifdef HAVE_OCR_LIB
@@ -4286,6 +4306,9 @@ printf("Exiting k2gui_preview_make_bitmap.\n");
 static void k2gui_preview_cleanup(int statuscode)
 
     {
+#if (WILLUSDEBUGX&0x4000)
+printf("@k2gui_preview_cleanup(%d)\n",statuscode);
+#endif
     if (statuscode>0)
         k2gui_preview_fail(statuscode);
     else

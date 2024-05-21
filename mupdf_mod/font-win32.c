@@ -246,7 +246,7 @@ decode_unicode_BE(fz_context *ctx, char *source, int sourcelen, char *dest, int 
 	if (sourcelen % 2 != 0)
 		fz_throw(ctx, FZ_ERROR_GENERIC, "fonterror : invalid unicode string");
 
-	tmp = fz_malloc_array(ctx, sourcelen / 2 + 1, sizeof(WCHAR));
+	tmp = fz_malloc_array(ctx, sourcelen / 2 + 1, WCHAR);
 	for (i = 0; i < sourcelen / 2; i++)
 		tmp[i] = BEtoHs(((WCHAR *)source)[i]);
 	tmp[sourcelen / 2] = '\0';
@@ -520,7 +520,7 @@ parseTTCs(fz_context *ctx, const char *path)
 		}
 
 		numFonts = BEtoHl(fontcollectionBE.NumFonts);
-		offsettableBE = fz_malloc_array(ctx, numFonts, sizeof(ULONG));
+		offsettableBE = fz_malloc_array(ctx, numFonts, ULONG);
 
 		safe_read(ctx, file, sizeof(FONT_COLLECTION), (char *)offsettableBE, numFonts * sizeof(ULONG));
 		for (i = 0; i < numFonts; i++)
@@ -698,7 +698,7 @@ pdf_load_windows_font_by_name(fz_context *ctx, const char *orig_name)
 	if (!found && !comma && (str_ends_with(fontname, "Bold") || str_ends_with(fontname, "Italic")))
 	{
 		int styleLen = str_ends_with(fontname, "Bold") ? 4 : str_ends_with(fontname, "BoldItalic") ? 10 : 6;
-		fontname = fz_resize_array(ctx, fontname, strlen(fontname) + 2, sizeof(char));
+		fontname = fz_realloc_array(ctx, fontname, strlen(fontname) + 2, char);
 		comma = fontname + strlen(fontname) - styleLen;
 		memmove(comma + 1, comma, styleLen + 1);
 		*comma = '-';

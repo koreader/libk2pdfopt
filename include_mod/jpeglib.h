@@ -17,8 +17,17 @@
 
 #ifndef JPEGLIB_H
 #define JPEGLIB_H
+
+/*
+ * First we include the configuration files that record how this
+ * installation of the JPEG library is set up.  jconfig.h can be
+ * generated automatically for many systems.  jmorecfg.h contains
+ * manual configuration options that most people need not worry about.
+ */
+
+#ifndef JCONFIG_INCLUDED        /* in case jinclude.h already did */
 #define JPEG_LIB_VERSION 80
-#define LIBJPEG_TURBO_VERSION 201
+#define LIBJPEG_TURBO_VERSION 204
 
 #define C_ARITH_CODING_SUPPORTED
 #define D_ARITH_CODING_SUPPORTED
@@ -27,7 +36,7 @@
 #define WITH_SIMD
 */
 
-#define BITS_IN_JSAMPLE  8      /* use 8 or 12 */
+#define BITS_IN_JSAMPLE  8     /* use 8 or 12 */
 
 #define HAVE_STDDEF_H
 #define HAVE_STDLIB_H
@@ -52,7 +61,7 @@ typedef short INT16;
 typedef signed int INT32;
 #endif
 #define XMD_H                   /* prevent jmorecfg.h from redefining it */
-
+#endif
 /*
  * jmorecfg.h
  *

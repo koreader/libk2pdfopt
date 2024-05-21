@@ -1484,13 +1484,14 @@ int utf8_to_utf16(short *d,char *s,int maxlen)
 
 /*
 ** If d!=NULL, it gets populated w/unicode values
+** maxlen=-1 for no limit
 */
 int utf8_to_unicode(int *d,char *s,int maxlen)
 
     {
     int i,c;
 
-    for (i=c=0;c<maxlen && s[i]!='\0';i++)
+    for (i=c=0;(maxlen<0 || c<maxlen) && s[i]!='\0';i++)
         {
         int x,bits,topbyte;
 
@@ -1511,6 +1512,61 @@ int utf8_to_unicode(int *d,char *s,int maxlen)
         c++;
         }
     return(c);
+    }
+
+
+void utf8_vals_to_stream(char *s,FILE *out)
+
+    {
+    static char *funcname="utf8_vals_to_stream";
+    int i,n;
+    int *u;
+     
+    n=utf8_to_unicode(NULL,s,-1);
+    willus_mem_alloc_warn((void **)&u,sizeof(int)*n,funcname,10);
+    utf8_to_unicode(u,s,n);
+    for (i=0;i<n;i++)
+        fprintf(out,"[%d]",u[i]);
+    willus_mem_free((double **)&u,funcname);
+    }
+
+
+void clean_line_utf8(char *s)
+
+    {
+    static char *funcname="clean_line_utf8";
+    int *u;
+    int i,n0,n;
+
+    n=utf8_to_unicode(NULL,s,-1);
+    willus_mem_alloc_warn((void **)&u,sizeof(int)*n,funcname,10);
+    utf8_to_unicode(u,s,n);
+    n0=n;
+    clean_line_unicode(u,&n);
+    if (n<n0)
+        unicode_to_utf8(s,u,n);
+    willus_mem_free((double **)&u,funcname);
+    }
+
+
+void clean_line_unicode(int *u,int *n0)
+
+    {
+    int i,j,n;
+   
+    n=(*n0);
+    for (i=0;i<n && u[i]!='\n' && u[i]!='\r';i++);
+    for (i--;i>=0 && (u[i]==' ' || u[i]=='\t');i--);
+    n=i+1;
+    for (i=0;u[i]==' ' || u[i]=='\t';i++);
+    if (i)
+        {
+        int j;
+        for (j=0;i<n;j++,i++)
+            u[j]=u[i];
+        n=j;
+        }
+    (*n0)=n;
     }
 
 

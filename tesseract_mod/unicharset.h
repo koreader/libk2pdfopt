@@ -2,7 +2,6 @@
 // File:        unicharset.h
 // Description: Unicode character/ligature set class.
 // Author:      Thomas Kielbus
-// Created:     Wed Jun 28 17:05:01 PDT 2006
 //
 // (C) Copyright 2006, Google Inc.
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -28,6 +27,8 @@
 #include "tesscallback.h"
 #include "unichar.h"
 #include "unicharmap.h"
+/* willus mod -- for support of ASSERT_HOSTXX macro */
+#include "tprintf.h"
 
 // Enum holding special values of unichar_id. Every unicharset has these.
 // Warning! Keep in sync with kSpecialUnicharCodes.
@@ -63,7 +64,7 @@ class CHAR_FRAGMENT {
     set_natural(natural);
   }
   inline void set_unichar(const char *uch) {
-    strncpy(this->unichar, uch, UNICHAR_LEN);
+    strncpy(this->unichar, uch, sizeof(this->unichar));
     this->unichar[UNICHAR_LEN] = '\0';
   }
   inline void set_pos(int p) { this->pos = p; }
@@ -153,7 +154,7 @@ class UNICHARSET {
   // List of strings for the SpecialUnicharCodes. Keep in sync with the enum.
   static TESS_API const char* kSpecialUnicharCodes[SPECIAL_UNICHAR_CODES_COUNT];
 
-  // ICU 2.0 UCharDirection enum (from third_party/icu/include/unicode/uchar.h)
+  // ICU 2.0 UCharDirection enum (from icu/include/unicode/uchar.h)
   enum Direction {
       U_LEFT_TO_RIGHT               = 0,
       U_RIGHT_TO_LEFT               = 1,
@@ -174,7 +175,13 @@ class UNICHARSET {
       U_POP_DIRECTIONAL_FORMAT      = 16,
       U_DIR_NON_SPACING_MARK        = 17,
       U_BOUNDARY_NEUTRAL            = 18,
+      U_FIRST_STRONG_ISOLATE        = 19,
+      U_LEFT_TO_RIGHT_ISOLATE       = 20,
+      U_RIGHT_TO_LEFT_ISOLATE       = 21,
+      U_POP_DIRECTIONAL_ISOLATE     = 22,
+#ifndef U_HIDE_DEPRECATED_API
       U_CHAR_DIRECTION_COUNT
+#endif  // U_HIDE_DEPRECATED_API
   };
 
   // Create an empty UNICHARSET
@@ -485,7 +492,7 @@ class UNICHARSET {
   // Return the isalpha property of the given unichar.
   bool get_isalpha(UNICHAR_ID unichar_id) const {
     if (INVALID_UNICHAR_ID == unichar_id) return false;
-    /* willus mod to ASSERT_HOSTXX */
+    /* willus mod change ASSERT_HOST to ASSERT_HOSTXX */
     ASSERT_HOSTXX(contains_unichar_id(unichar_id));
     return unichars[unichar_id].properties.isalpha;
   }
@@ -493,7 +500,7 @@ class UNICHARSET {
   // Return the islower property of the given unichar.
   bool get_islower(UNICHAR_ID unichar_id) const {
     if (INVALID_UNICHAR_ID == unichar_id) return false;
-    /* willus mod to ASSERT_HOSTXX */
+    /* willus mod change ASSERT_HOST to ASSERT_HOSTXX */
     ASSERT_HOSTXX(contains_unichar_id(unichar_id));
     return unichars[unichar_id].properties.islower;
   }
@@ -501,7 +508,7 @@ class UNICHARSET {
   // Return the isupper property of the given unichar.
   bool get_isupper(UNICHAR_ID unichar_id) const {
     if (INVALID_UNICHAR_ID == unichar_id) return false;
-    /* willus mod to ASSERT_HOSTXX */
+    /* willus mod change ASSERT_HOST to ASSERT_HOSTXX */
     ASSERT_HOSTXX(contains_unichar_id(unichar_id));
     return unichars[unichar_id].properties.isupper;
   }
@@ -509,7 +516,7 @@ class UNICHARSET {
   // Return the isdigit property of the given unichar.
   bool get_isdigit(UNICHAR_ID unichar_id) const {
     if (INVALID_UNICHAR_ID == unichar_id) return false;
-    /* willus mod to ASSERT_HOSTXX */
+    /* willus mod change ASSERT_HOST to ASSERT_HOSTXX */
     ASSERT_HOSTXX(contains_unichar_id(unichar_id));
     return unichars[unichar_id].properties.isdigit;
   }
@@ -517,7 +524,7 @@ class UNICHARSET {
   // Return the ispunctuation property of the given unichar.
   bool get_ispunctuation(UNICHAR_ID unichar_id) const {
     if (INVALID_UNICHAR_ID == unichar_id) return false;
-    /* willus mod to ASSERT_HOSTXX */
+    /* willus mod change ASSERT_HOST to ASSERT_HOSTXX */
     ASSERT_HOSTXX(contains_unichar_id(unichar_id));
     return unichars[unichar_id].properties.ispunctuation;
   }
@@ -525,7 +532,7 @@ class UNICHARSET {
   // Return the isngram property of the given unichar.
   bool get_isngram(UNICHAR_ID unichar_id) const {
     if (INVALID_UNICHAR_ID == unichar_id) return false;
-    /* willus mod to ASSERT_HOSTXX */
+    /* willus mod change ASSERT_HOST to ASSERT_HOSTXX */
     ASSERT_HOSTXX(contains_unichar_id(unichar_id));
     return unichars[unichar_id].properties.isngram;
   }
@@ -877,6 +884,7 @@ class UNICHARSET {
 
   // Return the enabled property of the given unichar.
   bool get_enabled(UNICHAR_ID unichar_id) const {
+    ASSERT_HOST(contains_unichar_id(unichar_id));
     return unichars[unichar_id].properties.enabled;
   }
 

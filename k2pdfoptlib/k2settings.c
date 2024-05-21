@@ -62,14 +62,15 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->dst_ocr_lang[0]='\0';
 #endif
     k2settings->ocr_max_columns=-1;  /* -1 = use value of max_columns */
-#ifdef HAVE_MUPDF_LIB
+#if (defined(HAVE_MUPDF_LIB) || defined(HAVE_DJVU_LIB))
     k2settings->dst_ocr='m';
+    k2settings->ocrvbb=0;
+    k2settings->ocrsort=0;
 #else
     k2settings->dst_ocr=0;
 #endif
     k2settings->dst_ocr_visibility_flags=1;
     k2settings->ocr_max_height_inches=1.5;
-    ocrwords_init(&k2settings->dst_ocrwords);
     k2settings->sort_ocr_text=0;
 #endif
     k2settings->dst_dither=1;
@@ -498,6 +499,9 @@ void k2pdfopt_settings_quick_sanity_check(K2PDFOPT_SETTINGS *k2settings)
     if (k2settings->ocrout[0]!='\0' && k2settings->dst_ocr==0)
         k2settings->dst_ocr='m';
 #endif
+#if (WILLUSDEBUGX & 0x10000)
+printf("End k2settings defaults: dst_ocr='%c'\n",k2settings->dst_ocr);
+#endif
     }
 
 
@@ -556,10 +560,7 @@ void k2pdfopt_settings_new_source_document_init(K2PDFOPT_SETTINGS *k2settings,ch
 #ifdef HAVE_OCR_LIB
     /* Init document OCR word list */
     if (k2settings->dst_ocr)
-        {
         k2ocr_init(k2settings,initstr);
-        ocrwords_clear(&k2settings->dst_ocrwords);
-        }
 #endif
     k2proc_init_one_document();
     }
@@ -786,7 +787,7 @@ printf("    after devdims adjust = %d x %d\n",new_width,new_height);
         if (width_change)
             {
             if (k2settings->devsize_set>1)
-                masterinfo_flush(masterinfo,k2settings);
+                masterinfo_flush(masterinfo,k2settings,1);
             }
         k2settings->dst_width=new_width;
         k2settings->dst_height=new_height;

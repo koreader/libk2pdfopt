@@ -189,8 +189,6 @@ int wmupdf_remake_pdf(char *infile,char *outfile,WPDFPAGEINFO *pageinfo,int use_
     pdf_write_opts.do_compress=1;
     pdf_write_opts.do_linear=0;
     pdf_write_opts.do_garbage=1; /* 2 and 3 don't work for this. */
-    pdf_write_opts.continue_on_error=0;
-    pdf_write_opts.errors=NULL;
     write_failed=0;
     wpdfpageinfo_sort(pageinfo);
     xref=NULL;

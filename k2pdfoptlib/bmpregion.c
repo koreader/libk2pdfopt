@@ -2174,6 +2174,9 @@ printf("@get_word_gap_threshold, ngaps=%d, dr=%d\n",ngaps,dr);
     ** where dr = height of lowercase 'o' in pixels.
     */
     expected=(double)row_width/(6*dr)-1.;
+#if (WILLUSDEBUGX & 0x01000)
+printf("    expected=%g\n",expected);
+#endif
     /*
     ** Text rows longer than display width either need to be wrapped or shrunk
     */
@@ -2235,11 +2238,22 @@ printf("    gw[%2d]=(%4d,%2d); dgap[%2d]=%2d, gapcount[%2d]=%4d\n",i,copt[i],gw[
 #if (WILLUSDEBUGX & 0x1000)
 printf("i=%d/%d, dgap=%d, gapcount=%d\n",i,ngaps-1,dgap[i],gapcount[i]);
 #endif
+        /* Are we down to pretty small gap changes? If so, quit. */
         if ((double)dgap[i]/dr < 0.1)
+            break;
+        /*
+        ** New in v2.53--quit if this gap change is much smaller than the previous ones.
+        ** Fixes problem with one of the regression test cases.
+        ** Was the last gap change significantly bigger than this one?  If so, quit.
+        */
+        if (i>0 && (double)(dgap[i-1]-dgap[i])/dr > 0.35)
             break;
         if (i>0 && (double)gw[gapcount[i]]/gw[gapcount[i-1]] > 0.6)
             continue;
         pos = (double)gapcount[i]/expected;
+#if (WILLUSDEBUGX & 0x1000)
+printf("    pos[%d] = %g\n",i,pos);
+#endif
         if (bestpos<0. || fabs(pos-1.0) < fabs(bestpos-1.0))
             {
             bestpos=pos;
@@ -2247,7 +2261,7 @@ printf("i=%d/%d, dgap=%d, gapcount=%d\n",i,ngaps-1,dgap[i],gapcount[i]);
             }
         }
 #if (WILLUSDEBUGX & 0x1000)
-printf("Done loop checkinf for best-centered large gap. ibest=%d\n",ibest);
+printf("Done loop checking for best-centered large gap. ibest=%d\n",ibest);
 #endif
     if (ibest >= 0)
         {

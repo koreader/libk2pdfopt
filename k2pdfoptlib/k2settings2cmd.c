@@ -407,6 +407,8 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
         {
         strbuf_dsprintf(cmdline,nongui,"-ocrdpi %d",dst->ocr_dpi);
         }
+    minus_check(cmdline,nongui,"-ocrsort",&src->ocrsort,dst->ocrsort);
+    minus_check(cmdline,nongui,"-ocrvbb",&src->ocrvbb,dst->ocrvbb);
     if ((src->dst_ocr_visibility_flags&7) != (dst->dst_ocr_visibility_flags&7))
         {
         strbuf_dsprintf(cmdline,nongui,"-ocrvis %s%s%s",
@@ -419,11 +421,6 @@ static void k2settings_to_cmd(STRBUF *cmdline,K2PDFOPT_SETTINGS *dst,
         strbuf_dsprintf(cmdline,nongui,"-ocrsp%s",
                        dst->dst_ocr_visibility_flags&16 ? "+"
                        : dst->dst_ocr_visibility_flags&8 ? "" : "-");
-        }
-    if ((src->dst_ocr_visibility_flags&32) != (dst->dst_ocr_visibility_flags&32))
-        {
-        strbuf_dsprintf(cmdline,nongui,"-ocrsort%s",
-                       dst->dst_ocr_visibility_flags&32 ? "" : "-");
         }
     src->dst_ocr_visibility_flags = dst->dst_ocr_visibility_flags;
     double_check(cmdline,nongui,"-ocrhmax",&src->ocr_max_height_inches,dst->ocr_max_height_inches);
