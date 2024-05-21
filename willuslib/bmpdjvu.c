@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2020  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -219,12 +219,12 @@ WPDFOUTLINE *wpdfoutline_read_from_djvu_file(char *filename)
 
     ctx=ddjvu_context_create("wtextchars_fill_from_djvu_page");
     if (ctx==NULL)
-        return(-1);
+        return(NULL);
     doc=ddjvu_document_create_by_filename_utf8(ctx,filename,1);
     if (doc==NULL)
         {
         ddjvu_context_release(ctx);
-        return(-2);
+        return(NULL);
         }
     /*
     npages=ddjvu_document_get_pagenum(doc);

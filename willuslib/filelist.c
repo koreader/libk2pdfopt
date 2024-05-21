@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2020  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -892,6 +892,51 @@ void filelist_remove_fast(FILELIST *fl,char *pattern)
             }
         }
     fl->n=j;
+    }
+
+
+void filelist_chdir_fast(FILELIST *fl,char *folder0)
+
+    {
+    int     i,j,len,len2;
+    char folder[MAXFILENAMELEN];
+
+    strncpy(fl->dir,folder0,MAXFILENAMELEN-1);
+    strncpy(folder,folder0,MAXFILENAMELEN-1);
+    len=strlen(folder);
+#ifdef WIN32
+    if (folder[len-1]!='\\')
+        strcat(folder,"\\");
+#else
+    if (folder[len-1]!='/')
+        strcat(folder,"/");
+#endif
+    len=strlen(folder);
+    for (i=j=0;i<fl->n;i++)
+        {
+#ifdef WIN32
+        if (strnicmp(fl->entry[i].name,folder,len))
+#else
+        if (strncmp(fl->entry[i].name,folder,len))
+#endif
+            continue;
+        if (i!=j)
+            fl->entry[j]=fl->entry[i];
+        j++;
+        }
+    fl->n=j;
+    /* Shorten the names */
+    for (i=0;i<fl->n;i++)
+        {
+#ifdef WIN32
+        if (strnicmp(fl->entry[i].name,folder,len))
+#else
+        if (strncmp(fl->entry[i].name,folder,len))
+#endif
+            continue;
+        len2=strlen(fl->entry[i].name);
+        memmove(fl->entry[i].name,&fl->entry[i].name[len],len2-len+1);
+        }
     }
 
 
@@ -2099,15 +2144,24 @@ static int nexttoken(char *dst,char *src,int *index)
 int filelist_add_entry(FILELIST *fl,FLENTRY *entry)
 
     {
-    int len;
+    return(filelist_add_entry_ex(fl,entry,NULL));
+    }
 
-    len=strlen(entry->name);
+
+int filelist_add_entry_ex(FILELIST *fl,FLENTRY *entry,char *namebuf)
+
+    {
+    int len;
+    char *name;
+
+    name=(namebuf==NULL ? entry->name : namebuf);
+    len=strlen(name);
     if (fl->databuf==NULL || fl->entry==NULL || fl->n+1>fl->nmax
                   || fl->nc+len+1 > fl->ncmax)
         filelist_realloc(fl,len+1);
     fl->entry[fl->n] = (*entry);
     fl->entry[fl->n].name = &fl->databuf[fl->nc];
-    strcpy(fl->entry[fl->n].name,entry->name);
+    strcpy(fl->entry[fl->n].name,name);
     fl->nc += len+1;
     fl->n++;
     fl->sorted=0;
@@ -2276,12 +2330,68 @@ void filelist_new_entry_name(FILELIST *fl,int index,char *newname)
     delta = newlen-oldlen;
     fl->nc += delta;
     strcpy(p,newname);
+    /*
+    ** This loop can slow things down a lot for doing a lot of these
+    ** calls on a large list.  If you have to do that, it's better to
+    ** just start a new filelist structure and copy the new entries and
+    ** names into it. -- 25 May 2021
+    */
     for (i=0;i<fl->n;i++)
         if (fl->entry[i].name > p)
             fl->entry[i].name += delta;
     }
 
 
+/*
+** 2-24-22:  Works with sizes exceeding 2^31 bytes now
+*/
+int filelist_write_to_file(FILELIST *fl,char *filename)
+
+    {
+    WZFILE *f;
+    size_t i,bufsize;
+
+    f=wzopen(filename,"wb");
+    if (f==NULL)
+        return(-1);
+    if (wzwrite(f,fl,sizeof(FILELIST))<sizeof(FILELIST))
+        {
+        wzclose(f);
+        return(-2);
+        }
+    for (i=0;i<fl->n;i++)
+        {
+        fl->entry[i].name = (char *)(fl->entry[i].name - fl->databuf);
+        if (wzwrite(f,&fl->entry[i],sizeof(FLENTRY))<sizeof(FLENTRY))
+            {
+            wzclose(f);
+            return(-3);
+            }
+        fl->entry[i].name = (char *)(fl->databuf + (size_t)fl->entry[i].name);
+        }
+    bufsize=100*1024*1024; /* 100 MB at a time */
+    for (i=0;i<fl->bytes_allocated;)
+        {
+        size_t nb;
+
+        nb = fl->bytes_allocated-i > bufsize ? bufsize : fl->bytes_allocated-i;
+        if (wzwrite(f,&fl->databuf[i],(int)nb)<(int)nb)
+            {
+            wzclose(f);
+            return(-4);
+            }
+        i+=nb;
+        }
+    if (wzclose(f))
+        return(-5);
+    return(0);
+    }
+
+
+/*
+** Old version--does not work with sizes > 2^31 bytes
+*/
+/*
 int filelist_write_to_file(FILELIST *fl,char *filename)
 
     {
@@ -2314,13 +2424,17 @@ int filelist_write_to_file(FILELIST *fl,char *filename)
         return(-5);
     return(0);
     }
+*/
 
 
+/*
+** Should work with buffer sizes exceeding 2^31 bytes now
+*/
 int filelist_read_from_file(FILELIST *fl,char *filename)
 
     {
     WZFILE *f;
-    int i;
+    size_t i,bufsize;
     static char *funcname="filelist_read_from_file";
 
     f=wzopen(filename,"rb");
@@ -2342,15 +2456,43 @@ int filelist_read_from_file(FILELIST *fl,char *filename)
         }
     for (i=0;i<fl->n;i++)
         fl->entry[i].name = (char *)(fl->databuf + (size_t)fl->entry[i].name);
-    if (wzread(f,fl->databuf,fl->bytes_allocated)<fl->bytes_allocated)
+    bufsize=100*1024*1024; /* 100 MB at a time */
+    for (i=0;i<fl->bytes_allocated;)
         {
-        wzclose(f);
-        return(-4);
+        size_t nb;
+
+        nb = fl->bytes_allocated-i > bufsize ? bufsize : fl->bytes_allocated-i;
+        if (wzread(f,&fl->databuf[i],(int)nb)<(int)nb)
+            {
+            wzclose(f);
+            return(-4);
+            }
+        i+=nb;
         }
     if (wzclose(f))
         return(-5);
     return(0);
     }
+
+/*
+void filelist_alloc(FILELIST *fl,int entries,int cps)
+
+    {
+    void *vp;
+    char *cp;
+    static char *funcname="filelist_alloc";
+
+    fl->bytes_allocated = (sizeof(FLENTRY)+cps)*entries;
+    willus_mem_alloc_warn(&vp,fl->bytes_allocated,funcname,10);
+    fl->databuf=(char *)vp;
+    cp=&fl->databuf[cps*entries];
+    fl->entry=(FLENTRY *)cp;
+    fl->n=0;
+    fl->nc=0;
+    fl->ncmax=cps*entries;
+    fl->nmax=entries;
+    }
+*/
 
 
 static void filelist_realloc(FILELIST *fl,int len)
@@ -2416,8 +2558,10 @@ static void filelist_realloc(FILELIST *fl,int len)
     delta = fl->databuf - odb;
     for (i=0;i<fl->n;i++)
         fl->entry[i].name += delta;
-// printf("    realloc:  %3d MB, cps=%3d, fl->nc/ncmax=%d/%d, fl->n/nmax=%d/%d\n",
-// fl->bytes_allocated>>20,cps,fl->nc,fl->ncmax,fl->n,fl->nmax);
+/*
+printf("    realloc:  %3d MB, cps=%3d, fl->nc/ncmax=%d/%d, fl->n/nmax=%d/%d\n",
+       (int)(fl->bytes_allocated>>20),(int)cps,(int)fl->nc,(int)fl->ncmax,(int)fl->n,(int)fl->nmax);
+*/
     }
 
 
@@ -2650,6 +2794,10 @@ int filelist_fill_from_ar(FILELIST *fl,char *arfile)
             break;
         t=(time_t)atoi(buf);
         entry->date=(*localtime(&t));
+/*
+printf("sizeof(time_t)=%d\n",(int)sizeof(time_t));
+printf("%s:  %d-%d-%04d\n",entry->name,entry->date.tm_mon+1,entry->date.tm_mday,entry->date.tm_year+1900);
+*/
         fseek(f,20L,1);
         if (fread(buf,1,10,f)<10)
             break;

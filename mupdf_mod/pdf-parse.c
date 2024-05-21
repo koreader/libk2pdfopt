@@ -1,7 +1,51 @@
+// Copyright (C) 2004-2021 Artifex Software, Inc.
+//
+// This file is part of MuPDF.
+//
+// MuPDF is free software: you can redistribute it and/or modify it under the
+// terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version.
+//
+// MuPDF is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+// details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with MuPDF. If not, see <https://www.gnu.org/licenses/agpl-3.0.en.html>
+//
+// Alternative licensing terms are available from the licensor.
+// For commercial licensing, see <https://www.artifex.com/> or contact
+// Artifex Software, Inc., 1305 Grant Avenue - Suite 200, Novato,
+// CA 94945, U.S.A., +1(415)492-9861, for further information.
+
 #include "mupdf/fitz.h"
 #include "mupdf/pdf.h"
 
 #include <string.h>
+#include <time.h>
+
+/* willus mod--don't use _mkgmtime--not available in Win XP */
+#ifdef _WIN32
+/* #define timegm _mkgmtime */
+static time_t timegm(struct tm *date);
+static time_t timegm(struct tm *date)
+
+    {
+    time_t t,z;
+    struct tm gmz;
+
+    z=(time_t)0;
+    gmz=(*gmtime(&z));
+    t=mktime(date)-mktime(&gmz);
+    return(t);
+    }
+#endif
+
+
+
+#define isdigit(c) (c >= '0' && c <= '9')
 
 fz_rect
 pdf_to_rect(fz_context *ctx, pdf_obj *array)
@@ -54,6 +98,136 @@ pdf_to_matrix(fz_context *ctx, pdf_obj *array)
 		m.f = pdf_array_get_real(ctx, array, 5);
 		return m;
 	}
+}
+
+char *
+pdf_format_date(fz_context *ctx, int64_t time, char *s, size_t n)
+{
+	time_t secs = time;
+#ifdef _POSIX_SOURCE
+	struct tm tmbuf, *tm = gmtime_r(&secs, &tmbuf);
+#else
+	struct tm *tm = gmtime(&secs);
+#endif
+	if (time < 0 || !tm || !strftime(s, n, "D:%Y%m%d%H%M%SZ", tm))
+		return NULL;
+	return s;
+}
+
+int64_t
+pdf_parse_date(fz_context *ctx, const char *s)
+{
+	int tz_sign, tz_hour, tz_min, tz_adj;
+	struct tm tm;
+	time_t utc;
+
+	if (!s[0])
+		return -1;
+
+	memset(&tm, 0, sizeof tm);
+	tm.tm_mday = 1;
+
+	tz_sign = 1;
+	tz_hour = 0;
+	tz_min = 0;
+
+	if (s[0] == 'D' && s[1] == ':')
+		s += 2;
+
+	if (!isdigit(s[0]) || !isdigit(s[1]) || !isdigit(s[2]) || !isdigit(s[3]))
+	{
+		fz_warn(ctx, "invalid date format (missing year)");
+		return -1;
+	}
+	tm.tm_year = (s[0]-'0')*1000 + (s[1]-'0')*100 + (s[2]-'0')*10 + (s[3]-'0') - 1900;
+	s += 4;
+
+	if (tm.tm_year < 70)
+	{
+		fz_warn(ctx, "invalid date (year out of range)");
+		return -1;
+	}
+
+	if (isdigit(s[0]) && isdigit(s[1]))
+	{
+		tm.tm_mon = (s[0]-'0')*10 + (s[1]-'0') - 1; /* month is 0-11 in struct tm */
+		s += 2;
+		if (isdigit(s[0]) && isdigit(s[1]))
+		{
+			tm.tm_mday = (s[0]-'0')*10 + (s[1]-'0');
+			s += 2;
+			if (isdigit(s[0]) && isdigit(s[1]))
+			{
+				tm.tm_hour = (s[0]-'0')*10 + (s[1]-'0');
+				s += 2;
+				if (isdigit(s[0]) && isdigit(s[1]))
+				{
+					tm.tm_min = (s[0]-'0')*10 + (s[1]-'0');
+					s += 2;
+					if (isdigit(s[0]) && isdigit(s[1]))
+					{
+						tm.tm_sec = (s[0]-'0')*10 + (s[1]-'0');
+						s += 2;
+					}
+				}
+			}
+		}
+	}
+
+	if (tm.tm_sec > 60 || tm.tm_min > 59 || tm.tm_hour > 23 || tm.tm_mday > 31 || tm.tm_mon > 11)
+	{
+		fz_warn(ctx, "invalid date (a field is out of range)");
+		return -1;
+	}
+
+	if (s[0] == 'Z')
+	{
+		s += 1;
+	}
+	else if ((s[0] == '-' || s[0] == '+') && isdigit(s[1]) && isdigit(s[2]))
+	{
+		tz_sign = (s[0] == '-') ? -1 : 1;
+		tz_hour = (s[1]-'0')*10 + (s[2]-'0');
+		s += 3;
+		if (s[0] == '\'' && isdigit(s[1]) && isdigit(s[2]))
+		{
+			tz_min = (s[1]-'0')*10 + (s[2]-'0');
+			s += 3;
+			if (s[0] == '\'')
+				s += 1;
+		}
+	}
+
+	/* PDF is based on ISO/IEC 8824 which limits time zones from -15 to +16. */
+	if (tz_sign < 0 && (tz_hour > 15 || (tz_hour == 15 && tz_min > 0)))
+	{
+		fz_warn(ctx, "invalid date format (time zone out of range)");
+		return -1;
+	}
+	if (tz_sign > 0 && (tz_hour > 16 || (tz_hour == 16 && tz_min > 0)))
+	{
+		fz_warn(ctx, "invalid date format (time zone out of range)");
+		return -1;
+	}
+
+	if (s[0] != 0)
+		fz_warn(ctx, "invalid date format (garbage at end)");
+
+	utc = timegm(&tm);
+	if (utc == (time_t)-1)
+	{
+		fz_warn(ctx, "date overflow error");
+		return -1;
+	}
+
+	tz_adj = tz_sign * (tz_hour * 3600 + tz_min * 60);
+	return utc - tz_adj;
+}
+
+int64_t
+pdf_to_date(fz_context *ctx, pdf_obj *time)
+{
+	return pdf_parse_date(ctx, pdf_to_str_buf(ctx, time));
 }
 
 static int
@@ -599,14 +773,14 @@ pdf_parse_stm_obj(fz_context *ctx, pdf_document *doc, fz_stream *file, pdf_lexbu
 }
 
 pdf_obj *
-pdf_parse_ind_obj(fz_context *ctx, pdf_document *doc,
-	fz_stream *file, pdf_lexbuf *buf,
-	int *onum, int *ogen, int64_t *ostmofs, int *try_repair)
+pdf_parse_ind_obj_or_newobj(fz_context *ctx, pdf_document *doc, fz_stream *file,
+	int *onum, int *ogen, int64_t *ostmofs, int *try_repair, int *newobj)
 {
 	pdf_obj *obj = NULL;
 	int num = 0, gen = 0;
 	int64_t stm_ofs;
 	pdf_token tok;
+	pdf_lexbuf *buf = &doc->lexbuf.base;
 	int64_t a, b;
 	int read_next_token = 1;
 
@@ -631,8 +805,22 @@ pdf_parse_ind_obj(fz_context *ctx, pdf_document *doc,
 		fz_throw(ctx, FZ_ERROR_SYNTAX, "expected generation number (%d ? obj)", num);
 	}
 	gen = buf->i;
+	if (gen < 0 || gen >= 65536)
+	{
+		if (try_repair)
+			*try_repair = 1;
+		fz_throw(ctx, FZ_ERROR_SYNTAX, "invalid generation number (%d)", gen);
+	}
 
 	tok = pdf_lex(ctx, file, buf);
+	if (tok == PDF_TOK_NEWOBJ && newobj)
+	{
+		*newobj = 1;
+		if (onum) *onum = num;
+		if (ogen) *ogen = gen;
+		if (ostmofs) *ostmofs = 0;
+		return NULL;
+	}
 	if (tok != PDF_TOK_OBJ)
 	{
 		if (try_repair)
@@ -734,6 +922,59 @@ if (c=='\n')
 	if (onum) *onum = num;
 	if (ogen) *ogen = gen;
 	if (ostmofs) *ostmofs = stm_ofs;
+
+	return obj;
+}
+
+pdf_obj *
+pdf_parse_ind_obj(fz_context *ctx, pdf_document *doc, fz_stream *file,
+	int *onum, int *ogen, int64_t *ostmofs, int *try_repair)
+{
+	return pdf_parse_ind_obj_or_newobj(ctx, doc, file, onum, ogen, ostmofs, try_repair, NULL);
+}
+
+pdf_obj *
+pdf_parse_journal_obj(fz_context *ctx, pdf_document *doc, fz_stream *stm,
+	int *onum, fz_buffer **ostm, int *newobj)
+{
+	pdf_obj *obj = NULL;
+	pdf_token tok;
+	pdf_lexbuf *buf = &doc->lexbuf.base;
+	int64_t stmofs;
+
+	*newobj = 0;
+	obj = pdf_parse_ind_obj_or_newobj(ctx, doc, stm, onum, NULL, &stmofs, NULL, newobj);
+	/* This will have consumed either the stream or the endobj keywords. */
+
+	*ostm = NULL;
+	if (stmofs)
+	{
+		fz_stream *stream = NULL;
+
+		fz_var(stream);
+
+		fz_try(ctx)
+		{
+			stream = fz_open_endstream_filter(ctx, stm, 0, stmofs);
+			*ostm = fz_read_all(ctx, stream, 32);
+			fz_drop_stream(ctx, stream);
+			stream = NULL;
+			fz_seek(ctx, stm, stmofs + (*ostm ? (*ostm)->len : 0), SEEK_SET);
+			tok = pdf_lex(ctx, stm, buf);
+			if (tok != PDF_TOK_ENDSTREAM)
+				fz_throw(ctx, FZ_ERROR_SYNTAX, "expected 'endstream' keyword");
+			tok = pdf_lex(ctx, stm, buf);
+			if (tok != PDF_TOK_ENDOBJ)
+				fz_throw(ctx, FZ_ERROR_SYNTAX, "expected 'endobj' keyword");
+		}
+		fz_always(ctx)
+			fz_drop_stream(ctx, stream);
+		fz_catch(ctx)
+		{
+			pdf_drop_obj(ctx, obj);
+			fz_rethrow(ctx);
+		}
+	}
 
 	return obj;
 }

@@ -85,7 +85,7 @@ if(MUPDF_FOUND)
   include_directories(SYSTEM ${MUPDF_INCLUDEDIR})
   message(STATUS "mupdf libraries: ${MUPDF_LDFLAGS}")
   set(K2PDFOPT_LIB ${K2PDFOPT_LIB} ${MUPDF_LDFLAGS} 
-    -lmupdf-js-none -lopenjpeg -ljbig2dec -ljpeg -lfreetype
+    -lmupdf-js-none -lopenjpeg -ljbig2dec -ljpeg -lfreetype -llcms -lgumbo
   )
 endif(MUPDF_FOUND)
 

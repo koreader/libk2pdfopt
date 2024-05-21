@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -72,6 +72,7 @@ typedef struct compress_handle_s
     } compress_handle_t;
 
 typedef compress_handle_t *compress_handle_p;
+static int g_level;
 
 compress_handle compress_start(FILE *f,int level)
 
@@ -88,7 +89,11 @@ compress_handle compress_start(FILE *f,int level)
     h->strm.total_out = 0;
     h->strm.avail_in = 0;
     h->strm.next_in = &h->in[0];
-    ret = deflateInit2(&h->strm,level,Z_DEFLATED,MAX_WBITS,8,Z_DEFAULT_STRATEGY);
+    g_level=level;
+    if (level < 0)
+        ret = inflateInit2(&h->strm,(15+32));
+    else
+        ret = deflateInit2(&h->strm,level,Z_DEFLATED,MAX_WBITS,8,Z_DEFAULT_STRATEGY);
     /* memory level 8 (default) = 128K */
     if (ret != Z_OK) /* Error */
         return NULL;
@@ -114,7 +119,7 @@ static size_t compress_out(FILE *f,compress_handle_p h,int flush)
         {
         h->strm.avail_out = COMPRESS_CHUNK;
         h->strm.next_out = &h->out[0];
-        ret = deflate(&h->strm,flush);  /* no bad return value */
+        ret = (g_level<0) ? inflate(&h->strm,flush) : deflate(&h->strm,flush);  /* no bad return value */
         if (ret==Z_STREAM_ERROR)
             {
             fprintf(stderr,"Internal error in compress_out.  Z_STREAM_ERROR.\n"
@@ -124,7 +129,10 @@ static size_t compress_out(FILE *f,compress_handle_p h,int flush)
         have = COMPRESS_CHUNK - h->strm.avail_out; // size of output produced
         if (fwrite(&h->out,1,have,f)!=have || ferror(f)) 
             {
-            (void)deflateEnd(&h->strm);
+            if (g_level<0)
+                (void)inflateEnd(&h->strm);
+            else
+                (void)deflateEnd(&h->strm);
             return Z_ERRNO;
             }
         written += have;
@@ -154,7 +162,10 @@ void compress_done(FILE *f,compress_handle *hh)
         {
         if (f)
             compress_out(f,h,Z_FINISH);
-        deflateEnd(&h->strm);
+        if (g_level<0)
+            inflateEnd(&h->strm);
+        else
+            deflateEnd(&h->strm);
         /* Fix memory leak, 2-2-14 */
         willus_mem_free((double **)hh,funcname);
         }

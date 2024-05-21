@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2021  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -486,6 +486,106 @@ void bmp_blit_to_hdc_ex(WILLUSBITMAP *bmp,void *hdc,int x0,int y0,int width,int 
         }
     */
     }
+
+/*
+** Display bmp w/transparent background color
+**
+** x0,y0 = top left corner of destination rectangle in HDC
+**
+** tr=transparent color red
+** tg=transparent color green
+** tb=transparent color blu
+**
+*/
+void bmp_show_bmp_xparent(WILLUSBITMAP *bmp,void *handle,int x0,int y0,int tr,int tg,int tb)
+
+    {
+    HWND h;
+    HDC hDC;
+    BITMAPINFO *bmi;
+    int i,width,height,bpp;
+    /* Worst case size (8-bit w/palette) */
+    static char _bmih[sizeof(BITMAPINFOHEADER)+256*sizeof(RGBQUAD)];
+
+    h=(HWND)handle;
+    hDC=GetDC(h);
+    if (hDC==NULL)
+        return;
+    width=bmp->width;
+    height=bmp->height;
+    /*
+    ** Allocate bit map info structure (has to be allocated due to
+    ** arbitrarily sized color palette ==> cannot be statically declared)
+    */
+    bmi = (BITMAPINFO *)_bmih;
+    bmi->bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi->bmiHeader.biWidth = bmp->width;
+    bmi->bmiHeader.biHeight = bmp->height;
+    bmi->bmiHeader.biPlanes = 1;
+    bmi->bmiHeader.biBitCount = bmp->bpp;
+    bmi->bmiHeader.biCompression = BI_RGB;
+    bmi->bmiHeader.biSizeImage = bmp->width*bmp->height*(bmp->bpp==8 ? 1 : 3);
+    bmi->bmiHeader.biXPelsPerMeter = 72;
+    bmi->bmiHeader.biYPelsPerMeter = 72;
+    bmi->bmiHeader.biClrUsed = 0;
+    bmi->bmiHeader.biClrImportant = 0;
+    /*
+    ** Set up GIF palette
+    */
+    if (bmp->bpp==8)
+        {
+        RGBQUAD *rgb;
+        rgb=&bmi->bmiColors[0];
+        for (i=0;i<256;i++)
+            {
+            rgb[i].rgbRed   = bmp->red[i];
+            rgb[i].rgbGreen = bmp->green[i];
+            rgb[i].rgbBlue  = bmp->blue[i];
+            rgb[i].rgbReserved = 0;
+            }
+        bmp8_win32_palette_set(bmp);
+        if (bmp8_palette!=NULL)
+            {
+            SelectPalette(hDC,bmp8_palette,FALSE);
+            RealizePalette(hDC);
+            }
+        }
+
+    if (bmp->type!=WILLUSBITMAP_TYPE_WIN32 && bmp->bpp==24)
+        bmp24_flip_rgb(bmp);
+    bpp = bmp->bpp==24 ? 3 : 1;
+    for (i=0;i<bmp->height && i<height;i++)
+        {
+        unsigned char *p,*p0;
+        int j,rl;
+
+        p0=p=bmp_rowptr_from_top(bmp,i);
+        rl=0;
+        for (j=0;j<bmp->width && j<width;j++,p+=bpp)
+            {
+            if (p[0]==tb && p[1]==tg && p[2]==tr)
+                {
+                if (rl>0)
+                    {
+                    SetDIBitsToDevice(hDC,x0+j-rl,i+y0,rl,1,0,0,0,1,p0,bmi,DIB_RGB_COLORS);
+                    rl=0;
+                    }
+                }
+            else
+                {
+                if (rl==0)
+                    p0=p;
+                rl++;
+                }
+            }
+        if (rl>0)
+            SetDIBitsToDevice(hDC,x0+j-rl,i+y0,rl,1,0,0,0,1,p0,bmi,DIB_RGB_COLORS);
+        }
+    if (bmp->type!=WILLUSBITMAP_TYPE_WIN32 && bmp->bpp==24)
+        bmp24_flip_rgb(bmp);
+    ReleaseDC(h,hDC);
+    }
+
 
 
 /*

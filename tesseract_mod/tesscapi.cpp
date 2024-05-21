@@ -41,12 +41,15 @@
 #endif
 
 #include "allheaders.h"
-#include "baseapi.h"
+#include "tesseract/baseapi.h"
+/*
 #include "strngs.h"
+*/
 #include "params.h"
 #include "blobs.h"
 #include "simddetect.h"
 #include "tesseractclass.h"
+#include "tprintf.h"
 /*
 #include "notdll.h"
 */
@@ -62,14 +65,14 @@
 void tess_capi_set_logfile(const char *filename)
 
     {
-    tprintf_set_debugfile(filename);
+    tesseract::tprintf_set_debugfile(filename);
     }
 
 
 void tess_capi_debug_message(char *message)
 
     {
-    tprintf("%s",message);
+    tesseract::tprintf("%s",message);
     }
 
 
@@ -85,7 +88,6 @@ void *tess_capi_init(char *datapath,char *language,int ocr_type,FILE *out,
     {
     char original_locale[256];
     tesseract::TessBaseAPI *api = new tesseract::TessBaseAPI;
-
 /*
 printf("@tess_capi_init\n");
 printf("    datapath='%s'\n",datapath);
@@ -166,6 +168,9 @@ v4.00 loads either TESSERACT enginer, LSTM engine, or both.  No CUBE.
         delete api;
         return(NULL);
         }
+/*
+printf("Init success, lang='%s'\n",lang);
+*/
     /*
     api.Init("tesscapi",lang,tesseract::OEM_DEFAULT,
            &(argv[arg]), argc - arg, NULL, NULL, false);
@@ -190,32 +195,16 @@ v4.00 loads either TESSERACT enginer, LSTM engine, or both.  No CUBE.
     */
     {
     char istr[1024];
-    static const char *simdtype[]={"FMA","AVX2","AVX","SSE",""};
-    int i,c,simd[4];
 
 // printf("tessedit_ocr_engine_mode = %d\n",tessedit_ocr_engine_mode);
-    sprintf(istr,"%s",api->Version());
-    simd[0]=tesseract::SIMDDetect::IsFMAAvailable();
-    simd[1]=tesseract::SIMDDetect::IsAVX2Available();
-    simd[2]=tesseract::SIMDDetect::IsAVXAvailable();
-    simd[3]=tesseract::SIMDDetect::IsSSEAvailable();
-    for (i=c=0;simdtype[i][0]!='\0';i++)
-        {
-        if (!strcmp(simdtype[i],"AVX") && i>0 && simd[i-1])
-            continue;
-        if (!simd[i])
-            continue;
-        if (!c)
-            sprintf(&istr[strlen(istr)]," [%s",simdtype[i]);
-        else
-            sprintf(&istr[strlen(istr)],"+%s",simdtype[i]);
-        c++;
-        }
-    if (c>0)
-        sprintf(&istr[strlen(istr)],"]");
-    sprintf(&istr[strlen(istr)],"\n    Tesseract data folder = '%s'",datapath==NULL?getenv("TESSDATA_PREFIX"):datapath);
+    sprintf(istr,"%s [",api->Version());
+#ifdef FAST_FLOAT
+    strcat(istr,"FF+");
+#endif
+    sprintf(&istr[strlen(istr)],"%s]\n",tesseract::SIMDDetect::simd_method());
+    sprintf(&istr[strlen(istr)],"    Tesseract data folder = '%s'",datapath==NULL?getenv("TESSDATA_PREFIX"):datapath);
     strcat(istr,"\n    Tesseract languages: ");
-    GenericVector<STRING> languages;
+    std::vector<std::string> languages;
     api->GetLoadedLanguagesAsVector(&languages);
 /*
 printf("OEM=%d\n",api->oem());
@@ -224,15 +213,14 @@ printf("AnyTessLang()=%d\n",(int)api->tesseract()->AnyTessLang());
 printf("AnyLSTMLang()=%d\n",(int)api->tesseract()->AnyLSTMLang());
 printf("num_sub_langs()=%d\n",api->tesseract()->num_sub_langs());
 printf("languages.size()=%d\n",(int)languages.size());
-*/
-    
+*/   
     for (int i=0;i<=api->tesseract()->num_sub_langs();i++)
         {
         tesseract::Tesseract *lang1;
         int eng;
         lang1 = i==0 ? api->tesseract() : api->tesseract()->get_sub_lang(i-1);
         eng=(int)lang1->tessedit_ocr_engine_mode;
-        sprintf(&istr[strlen(istr)],"%s%s [%s]",i==0?"":", ",lang1->lang.string(),
+        sprintf(&istr[strlen(istr)],"%s%s [%s]",i==0?"":", ",lang1->lang.c_str(),
                  eng==2?"LSTM+Tess":(eng==1?"LSTM":"Tess"));
         }
 /*

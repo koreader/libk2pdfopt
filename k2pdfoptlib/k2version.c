@@ -1,8 +1,8 @@
-char *k2pdfopt_version = "v2.53";
+char *k2pdfopt_version = "v2.54";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
-** Copyright (C) 2020  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -20,6 +20,16 @@ char *k2pdfopt_version = "v2.53";
 **
 ** VERSION HISTORY
 **
+** v2.54     6 JAN 2023
+**           ENHANCEMENTS
+**           -Compiled with gcc v12.2.0 in MS Windows
+**           -Library updates:  Tesseract 5.3.0, Leptonica 1.83, Mupdf 1.21,
+**                              Freetype 2.12.1, libpng 1.6.39, jpeg-turbo 2.1.4,
+**                              openjpeg 2.5.0, jbig2dec 0.19, zlib 1.2.13
+**           BUG FIXES
+**           -ocrword library updated to fix possible memory leak from not
+**            freeing bitmaps used by the data structure.
+**
 ** v2.53     18 JUL 2020
 **           NEW FEATURES
 **           -Added more support for DJVU input files, including OCR-layer text
@@ -35,7 +45,7 @@ char *k2pdfopt_version = "v2.53";
 **            time had effectively turned off OCR multithreading since only
 **            one row of text at a time was passed to the OCR engine.
 **           -Updated many of the support libraries to their latest releases:
-**            Tesseact 4.1.1, Leptonica 1.79, Mupdf 1.17, Freetype 2.10.2
+**            Tesseract 4.1.1, Leptonica 1.79, Mupdf 1.17, Freetype 2.10.2
 **            libpng 1.6.37, jpeg-turbo 2.0.4, openjpeg 2.3.1
 **           -When previewing "marked up" pages, the preview now only
 **            processes the desired preview page, making it much faster for

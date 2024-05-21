@@ -5,7 +5,7 @@
  * Copyright (C) 1991-1998, Thomas G. Lane.
  * Modified 2002-2009 by Guido Vollbeding.
  * libjpeg-turbo Modifications:
- * Copyright (C) 2009-2011, 2013-2014, 2016-2017, D. R. Commander.
+ * Copyright (C) 2009-2011, 2013-2014, 2016-2017, 2020, D. R. Commander.
  * Copyright (C) 2015, Google, Inc.
  * For conditions of distribution and use, see the accompanying README.ijg
  * file.
@@ -27,16 +27,16 @@
 
 #ifndef JCONFIG_INCLUDED        /* in case jinclude.h already did */
 #define JPEG_LIB_VERSION 80
-#define LIBJPEG_TURBO_VERSION 204
+#define LIBJPEG_TURBO_VERSION 214
 
 #define C_ARITH_CODING_SUPPORTED
 #define D_ARITH_CODING_SUPPORTED
 #define MEM_SRCDST_SUPPORTED
 /*
-#define WITH_SIMD
+#cmakedefine WITH_SIMD
 */
 
-#define BITS_IN_JSAMPLE  8     /* use 8 or 12 */
+#define BITS_IN_JSAMPLE  8                      /* use 8 or 12 */
 
 #define HAVE_STDDEF_H
 #define HAVE_STDLIB_H
@@ -61,7 +61,7 @@ typedef short INT16;
 typedef signed int INT32;
 #endif
 #define XMD_H                   /* prevent jmorecfg.h from redefining it */
-#endif
+#endif // !JCONFIG_INCLUDED
 /*
  * jmorecfg.h
  *
@@ -69,7 +69,7 @@ typedef signed int INT32;
  * Copyright (C) 1991-1997, Thomas G. Lane.
  * Modified 1997-2009 by Guido Vollbeding.
  * libjpeg-turbo Modifications:
- * Copyright (C) 2009, 2011, 2014-2015, 2018, D. R. Commander.
+ * Copyright (C) 2009, 2011, 2014-2015, 2018, 2020, D. R. Commander.
  * For conditions of distribution and use, see the accompanying README.ijg
  * file.
  *
@@ -107,24 +107,10 @@ typedef signed int INT32;
 
 #if BITS_IN_JSAMPLE == 8
 /* JSAMPLE should be the smallest type that will hold the values 0..255.
- * You can use a signed char by having GETJSAMPLE mask it with 0xFF.
  */
-
-#ifdef HAVE_UNSIGNED_CHAR
 
 typedef unsigned char JSAMPLE;
 #define GETJSAMPLE(value)  ((int)(value))
-
-#else /* not HAVE_UNSIGNED_CHAR */
-
-typedef char JSAMPLE;
-#ifdef __CHAR_UNSIGNED__
-#define GETJSAMPLE(value)  ((int)(value))
-#else
-#define GETJSAMPLE(value)  ((int)(value) & 0xFF)
-#endif /* __CHAR_UNSIGNED__ */
-
-#endif /* HAVE_UNSIGNED_CHAR */
 
 #define MAXJSAMPLE      255
 #define CENTERJSAMPLE   128
@@ -161,21 +147,8 @@ typedef short JCOEF;
  * managers, this is also the data type passed to fread/fwrite.
  */
 
-#ifdef HAVE_UNSIGNED_CHAR
-
 typedef unsigned char JOCTET;
 #define GETJOCTET(value)  (value)
-
-#else /* not HAVE_UNSIGNED_CHAR */
-
-typedef char JOCTET;
-#ifdef __CHAR_UNSIGNED__
-#define GETJOCTET(value)  (value)
-#else
-#define GETJOCTET(value)  ((value) & 0xFF)
-#endif /* __CHAR_UNSIGNED__ */
-
-#endif /* HAVE_UNSIGNED_CHAR */
 
 
 /* These typedefs are used for various table entries and so forth.
@@ -187,23 +160,11 @@ typedef char JOCTET;
 
 /* UINT8 must hold at least the values 0..255. */
 
-#ifdef HAVE_UNSIGNED_CHAR
 typedef unsigned char UINT8;
-#else /* not HAVE_UNSIGNED_CHAR */
-#ifdef __CHAR_UNSIGNED__
-typedef char UINT8;
-#else /* not __CHAR_UNSIGNED__ */
-typedef short UINT8;
-#endif /* __CHAR_UNSIGNED__ */
-#endif /* HAVE_UNSIGNED_CHAR */
 
 /* UINT16 must hold at least the values 0..65535. */
 
-#ifdef HAVE_UNSIGNED_SHORT
 typedef unsigned short UINT16;
-#else /* not HAVE_UNSIGNED_SHORT */
-typedef unsigned int UINT16;
-#endif /* HAVE_UNSIGNED_SHORT */
 
 /* INT16 must hold at least the values -32768..32767. */
 
@@ -337,9 +298,9 @@ typedef int boolean;
 
 /* Capability options common to encoder and decoder: */
 
-#define DCT_ISLOW_SUPPORTED     /* slow but accurate integer algorithm */
-#define DCT_IFAST_SUPPORTED     /* faster, less accurate integer method */
-#define DCT_FLOAT_SUPPORTED     /* floating-point: accurate, fast on fast HW */
+#define DCT_ISLOW_SUPPORTED     /* accurate integer method */
+#define DCT_IFAST_SUPPORTED     /* less accurate int method [legacy feature] */
+#define DCT_FLOAT_SUPPORTED     /* floating-point method [legacy feature] */
 
 /* Encoder capability options: */
 
@@ -698,9 +659,9 @@ typedef enum {
 /* DCT/IDCT algorithm options. */
 
 typedef enum {
-  JDCT_ISLOW,             /* slow but accurate integer algorithm */
-  JDCT_IFAST,             /* faster, less accurate integer method */
-  JDCT_FLOAT              /* floating-point: accurate, fast on fast HW */
+  JDCT_ISLOW,             /* accurate integer method */
+  JDCT_IFAST,             /* less accurate integer method [legacy feature] */
+  JDCT_FLOAT              /* floating-point method [legacy feature] */
 } J_DCT_METHOD;
 
 #ifndef JDCT_DEFAULT            /* may be overridden in jconfig.h */
@@ -1580,8 +1541,9 @@ struct jpeg_color_quantizer { long dummy; };
  * Copyright (C) 1991-1997, Thomas G. Lane.
  * Modified 1997-2009 by Guido Vollbeding.
  * libjpeg-turbo Modifications:
- * Copyright (C) 2015-2016, D. R. Commander.
+ * Copyright (C) 2015-2016, 2019, 2021, D. R. Commander.
  * Copyright (C) 2015, Google, Inc.
+ * Copyright (C) 2021, Alex Richardson.
  * For conditions of distribution and use, see the accompanying README.ijg
  * file.
  *
@@ -1622,6 +1584,18 @@ typedef enum {            /* Operating modes for buffer controllers */
 /* JLONG must hold at least signed 32-bit values. */
 typedef long JLONG;
 
+/* JUINTPTR must hold pointer values. */
+#ifdef __UINTPTR_TYPE__
+/*
+ * __UINTPTR_TYPE__ is GNU-specific and available in GCC 4.6+ and Clang 3.0+.
+ * Fortunately, that is sufficient to support the few architectures for which
+ * sizeof(void *) != sizeof(size_t).  The only other options would require C99
+ * or Clang-specific builtins.
+ */
+typedef __UINTPTR_TYPE__ JUINTPTR;
+#else
+typedef size_t JUINTPTR;
+#endif
 
 /*
  * Left shift macro that handles a negative operand without causing any
@@ -1733,6 +1707,9 @@ struct jpeg_decomp_master {
   JDIMENSION first_MCU_col[MAX_COMPONENTS];
   JDIMENSION last_MCU_col[MAX_COMPONENTS];
   boolean jinit_upsampler_no_alloc;
+
+  /* Last iMCU row that was successfully decoded */
+  JDIMENSION last_good_iMCU_row;
 };
 
 /* Input control module */
@@ -1932,15 +1909,6 @@ extern const int jpeg_natural_order[]; /* zigzag coef order to natural order */
 
 /* Arithmetic coding probability estimation tables in jaricom.c */
 extern const JLONG jpeg_aritab[];
-
-/* Suppress undefined-structure complaints if necessary. */
-
-#ifdef INCOMPLETE_TYPES_BROKEN
-#ifndef AM_MEMORY_MANAGER       /* only jmemmgr.c defines these */
-struct jvirt_sarray_control { long dummy; };
-struct jvirt_barray_control { long dummy; };
-#endif
-#endif /* INCOMPLETE_TYPES_BROKEN */
 /*
  * jerror.h
  *
@@ -1948,7 +1916,7 @@ struct jvirt_barray_control { long dummy; };
  * Copyright (C) 1994-1997, Thomas G. Lane.
  * Modified 1997-2009 by Guido Vollbeding.
  * libjpeg-turbo Modifications:
- * Copyright (C) 2014, 2017, D. R. Commander.
+ * Copyright (C) 2014, 2017, 2021-2022, D. R. Commander.
  * For conditions of distribution and use, see the accompanying README.ijg
  * file.
  *
@@ -2046,7 +2014,7 @@ JMESSAGE(JERR_MISMATCHED_QUANT_TABLE,
          "Cannot transcode due to multiple use of quantization table %d")
 JMESSAGE(JERR_MISSING_DATA, "Scan script does not transmit all data")
 JMESSAGE(JERR_MODE_CHANGE, "Invalid color quantization mode change")
-JMESSAGE(JERR_NOTIMPL, "Not implemented yet")
+JMESSAGE(JERR_NOTIMPL, "Requested features are incompatible")
 JMESSAGE(JERR_NOT_COMPILED, "Requested feature was omitted at compile time")
 #if JPEG_LIB_VERSION >= 70
 JMESSAGE(JERR_NO_ARITH_TABLE, "Arithmetic table 0x%02x was not defined")
@@ -2150,6 +2118,10 @@ JMESSAGE(JWRN_ARITH_BAD_CODE, "Corrupt JPEG data: bad arithmetic code")
 #endif
 #endif
 JMESSAGE(JWRN_BOGUS_ICC, "Corrupt JPEG data: bad ICC marker")
+#if JPEG_LIB_VERSION < 70
+JMESSAGE(JERR_BAD_DROP_SAMPLING,
+         "Component index %d: mismatching sampling ratio %d:%d, %d:%d, %c")
+#endif
 
 #ifdef JMAKE_ENUM_LIST
 
@@ -2195,9 +2167,19 @@ JMESSAGE(JWRN_BOGUS_ICC, "Corrupt JPEG data: bad ICC marker")
    (cinfo)->err->msg_parm.i[2] = (p3), \
    (cinfo)->err->msg_parm.i[3] = (p4), \
    (*(cinfo)->err->error_exit) ((j_common_ptr)(cinfo)))
+#define ERREXIT6(cinfo, code, p1, p2, p3, p4, p5, p6) \
+  ((cinfo)->err->msg_code = (code), \
+   (cinfo)->err->msg_parm.i[0] = (p1), \
+   (cinfo)->err->msg_parm.i[1] = (p2), \
+   (cinfo)->err->msg_parm.i[2] = (p3), \
+   (cinfo)->err->msg_parm.i[3] = (p4), \
+   (cinfo)->err->msg_parm.i[4] = (p5), \
+   (cinfo)->err->msg_parm.i[5] = (p6), \
+   (*(cinfo)->err->error_exit) ((j_common_ptr)(cinfo)))
 #define ERREXITS(cinfo, code, str) \
   ((cinfo)->err->msg_code = (code), \
    strncpy((cinfo)->err->msg_parm.s, (str), JMSG_STR_PARM_MAX), \
+   (cinfo)->err->msg_parm.s[JMSG_STR_PARM_MAX - 1] = '\0', \
    (*(cinfo)->err->error_exit) ((j_common_ptr)(cinfo)))
 
 #define MAKESTMT(stuff)         do { stuff } while (0)
@@ -2254,6 +2236,7 @@ JMESSAGE(JWRN_BOGUS_ICC, "Corrupt JPEG data: bad ICC marker")
 #define TRACEMSS(cinfo, lvl, code, str) \
   ((cinfo)->err->msg_code = (code), \
    strncpy((cinfo)->err->msg_parm.s, (str), JMSG_STR_PARM_MAX), \
+   (cinfo)->err->msg_parm.s[JMSG_STR_PARM_MAX - 1] = '\0', \
    (*(cinfo)->err->emit_message) ((j_common_ptr)(cinfo), (lvl)))
 
 #endif /* JERROR_H */

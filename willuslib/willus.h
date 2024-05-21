@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2015  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -258,6 +258,14 @@ typedef double  real;
 */
 
 /*
+** Determine if we can use winshell functions
+** If CLANG version > 7 or GNU C version > 4
+*/
+#if (defined(HAVE_WIN32_API) && ((defined(__clang_major__) && __clang_major__ > 7) || (!defined(__GNUC__) || __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8))))
+#define HAVE_WINSHELL_FUNCS
+#endif
+
+/*
 ** CMAKE handles the defines, not this source
 ** (Mod from Dirk Thierbach, 31-Dec-2013)
 */
@@ -343,6 +351,7 @@ typedef double  real;
 #ifndef __ANSI_H__
 #define ANSI_RED            "\x1b[1m\x1b[31m"
 #define ANSI_GREEN          "\x1b[1m\x1b[32m"
+#define ANSI_DARKGREEN      "\x1b[0m\x1b[32m"
 #define ANSI_YELLOW         "\x1b[1m\x1b[33m"
 #define ANSI_BROWN          "\x1b[0m\x1b[33m"
 #define ANSI_BLUE           "\x1b[1m\x1b[34m"
@@ -360,15 +369,78 @@ typedef double  real;
 #define __ANSI_H__
 #endif
 
+int    ansi_escape_code(char *s,int *len);
 void   ansi_set      (int on);
 int    aprintf       (char *fmt,...);
 void   wlp_set_stdout     (int sout,int serr,char *filename,int close_after,
                            int append,int newstream,FILE *str);
+void   wlp_save_status    (void);
+void   wlp_restore_status (void);
+int    wlprintf      (char *fmt,...);
 int    nprintf       (FILE *f,char *fmt,...);
 int    nprintf2      (FILE *f1,FILE *f2,char *fmt,...);
 int    afprintf      (FILE *f,char *fmt,...);
 int    avprintf      (FILE *f,char *fmt,va_list args);
 int    ansi_rows_cols(FILE *f,int *rows,int *cols);
+
+/* wzfile.c */
+typedef struct
+    {
+    void *f;
+    int   type;  /* 0 = regular, 1 = zlib file */
+    } WZFILE;
+WZFILE *wzopen_special(char *archfile,char *filename,char *tempname);
+int     wfile_is_binary(char *filename,int maxlen);
+WZFILE *wzopen(char *filename,char *mode);
+void    wzfile_date(char *filename,struct tm *date);
+int     wzclose(WZFILE *wz);
+char   *wzgets(char *buf,int maxlen,WZFILE *wz);
+int     wzgetc(WZFILE *wz);
+int     wzputc(WZFILE *wz,int c);
+int     wzread(WZFILE *wz,void *ptr,int length);
+int     wzwrite(WZFILE *wz,void *ptr,int length);
+#ifdef WILLUS_HAVE_FILE64
+int     wzseek(WZFILE *wz,long long position);
+int     wzseek2(WZFILE *wz,long long position,int type);
+long long wztell(WZFILE *wz);
+#else
+int     wzseek(WZFILE *wz,long position);
+int     wzseek2(WZFILE *wz,long position,int type);
+long    wztell(WZFILE *wz);
+#endif
+void    wzrewind(WZFILE *wz);
+int     wfile_is_gzfile(char *filename);
+int     wzbe_read(WZFILE *wz,void *ptr,int elsize,int nobj);
+int     wzbe_write(WZFILE *wz,void *ptr,int elsize,int nobj);
+int     wzerror(WZFILE *wz);
+int     wzprintf(WZFILE *wz,char *fmt,...);
+int     wzcompressed(WZFILE *wz);
+WZFILE *wzuncompressed(FILE *out);
+
+/* strbuf.c */
+typedef struct
+    {
+    char *s;
+    int len;
+    int na;
+    } STRBUF;
+char *strbuf_lineno(STRBUF *buf,int line_index);
+void strbuf_init(STRBUF *sbuf);
+int  strbuf_len(STRBUF *sbuf);
+void strbuf_cat_ex(STRBUF *sbuf,char *s);
+void strbuf_to_file(STRBUF *sbuf,FILE *out);
+void strbuf_cat_ex2(STRBUF *sbuf,char *s,int add_a_space);
+void strbuf_cat(STRBUF *sbuf,char *s);
+void strbuf_cat_with_quotes(STRBUF *sbuf,char *s);
+void strbuf_cat_no_spaces(STRBUF *sbuf,char *s);
+void strbuf_cpy(STRBUF *sbuf,char *s);
+void strbuf_clear(STRBUF *sbuf);
+void strbuf_ensure(STRBUF *sbuf,int n);
+void strbuf_free(STRBUF *sbuf);
+void strbuf_sprintf(STRBUF *sbuf,char *fmt,...);
+void strbuf_dsprintf(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
+void strbuf_sprintf_no_space(STRBUF *sbuf,char *fmt,...);
+void strbuf_dsprintf_no_space(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
 
 /* array.c */
 double array_mean(double *a,int n,double *mean,double *stddev);
@@ -570,9 +642,9 @@ void fontrender_set_justification(int just);
 void fontrender_caption(WILLUSBITMAP *bmp,char *s,int justify,FILE *out);
 void fontrender_close(void);
 void fontrender_render(WILLUSBITMAP *bmp,double x,double y_from_bottom,
-                       char *string,int rot,FILE *out);
+                       char *string,double rot,FILE *out);
 void fontrender_render_ex(WILLUSBITMAP *bmp,double x,double y_from_bottom,
-                          char *string,int rot,
+                          char *string,double rot,
                           int ep_translate,int justify_per_line,
                           int clear_behind_letters,FILE *out);
 void fontrender_tweak_string(char *s,int maxwidth,int *nlines);
@@ -651,13 +723,13 @@ double afmod(double x,real modval);
 /* mem.c */
 void willus_mem_init(void);
 void willus_mem_close(void);
-int willus_mem_alloc_warn(void **ptr,int size,char *name,int exitcode);
-int willus_mem_realloc_warn(void **ptr,int newsize,char *name,int exitcode);
-int willus_mem_realloc_robust_warn(void **ptr,int newsize,int oldsize,char *name,
+int willus_mem_alloc_warn(void **ptr,size_t size,char *name,int exitcode);
+int willus_mem_realloc_warn(void **ptr,size_t newsize,char *name,int exitcode);
+int willus_mem_realloc_robust_warn(void **ptr,size_t newsize,size_t oldsize,char *name,
                                 int exitcode);
-int  willus_mem_alloc(double **ptr,long size,char *name);
-int  willus_mem_realloc(double **ptr,long newsize,char *name);
-int  willus_mem_realloc_robust(double **ptr,long newsize,long oldsize,char *name);
+int  willus_mem_alloc(double **ptr,size_t size,char *name);
+int  willus_mem_realloc(double **ptr,size_t newsize,char *name);
+int  willus_mem_realloc_robust(double **ptr,size_t newsize,size_t oldsize,char *name);
 void willus_mem_free(double **ptr,char *name);
 
 /* string.c */
@@ -667,6 +739,7 @@ char  *get_line      (char *buf,int max,FILE *f);
 char  *get_line_cf   (char *buf,int max,FILE *f);
 int   mem_get_line_cf(char *buf,int maxlen,char *cptr,long *cindex,long csize);
 int    in_string     (char *buffer,char *pattern);
+int    in_string_case_sensitive(char *buffer,char *pattern);
 int    is_a_number   (char *s);
 int    is_an_integer (char *s);
 int    get_pos_range (char *s,int *n1,int *n2);
@@ -714,14 +787,147 @@ int utf16_to_utf8_alloc(void **d,short *s);
 int utf8_to_utf16(short *d,char *s,int maxlen);
 int utf16_to_utf8(char *d,short *s,int maxlen);
 int hexcolor(char *s);
+void xstrncpy_and_clean(char *d,char *s,int nmax);
 void xstrncpy(char *d,char *s,int nmax);
 void xstrncat(char *d,char *s,int nmax);
 int base64_encode(unsigned char *dst,unsigned char *src,int n);
+void strncpywide(char *d,short *s,int maxlen);
 
 
 #ifdef WIN32
 typedef void wmetafile;
 #endif
+
+/* ocrwords.c */
+typedef struct
+    {
+    int r,c;   /* row,column position of left baseline of the word, e.g. the bottom left of */
+               /* most capital letters */
+    int w,h;   /* width and height of word in pixels */
+    double maxheight;  /* max height of any letter from baseline in pixels */
+    double lcheight;  /* height of a lowercase letter in pixels */
+    int rot;   /* rotation angle of word in degrees */
+    int n;     /* Number of chars in word */
+    char *text;  /* UTF-8 text of word */
+    /* The next three members store info for OCR-ing at a later time */
+    /* member bmp changed to xbmp to discourage direct use */
+    WILLUSBITMAP *xbmp; /* If non-null, word has not been determined yet and this is the */
+               /* bitmap that should be used to determine the word.             */
+    double dpi; /* DPI of bitmap */
+    double bmpscale; /* Scale bmp pixels by this immediately after OCR */
+
+    /* Used by MuPDF */
+    double x0,y0; /* Position of top-left of first char of word rel. to top-left of
+                     rendered source page (pts) */
+    double w0,h0; /* Width and height of word in points */
+    double *cpos; /* Position of the right side of each character, horizontally, from the */
+                  /* beginning of the word, in points.  cpos[n-1] should be = w0.         */
+    double rot0_deg; /* Rotation of source document */
+    int pageno; /* Source page number */
+    } OCRWORD;
+
+typedef struct
+    {
+    OCRWORD *word;
+    int n,na;
+    } OCRWORDS;
+
+void ocrword_init(OCRWORD *word);
+void ocrword_free(OCRWORD *word);
+void ocrwords_init(OCRWORDS *words);
+int  ocrwords_num_queued(OCRWORDS *words);
+void ocrword_copy(OCRWORD *dst,OCRWORD *src);
+void ocrword_truncate(OCRWORD *word,int i1,int i2);
+int  ocrwords_to_textfile(OCRWORDS *words,char *filename,int append);
+void ocrwords_add_word(OCRWORDS *words,OCRWORD *word);
+void ocrwords_remove_words(OCRWORDS *words,int i1,int i2);
+void ocrwords_clear(OCRWORDS *words);
+void ocrwords_free(OCRWORDS *words);
+void ocrwords_sort_by_pageno(OCRWORDS *words);
+void ocrwords_offset(OCRWORDS *words,int dx,int dy);
+void ocrwords_scale(OCRWORDS *words,double srat);
+void ocrwords_rot90(OCRWORDS *words,int bmpwidth_pixels);
+void ocrwords_int_scale(OCRWORDS *words,int ndiv);
+void ocrwords_concatenate(OCRWORDS *dst,OCRWORDS *src);
+void ocrwords_sort_by_position(OCRWORDS *ocrwords);
+void ocrwords_to_easyplot(OCRWORDS *words,char *filename,int append,int *yoffset);
+void ocrword_echo(OCRWORD *word,FILE *out,int count,int index,int writebmp);
+void ocrwords_echo(OCRWORDS *ocrwords,FILE *out,int count,int writebmp);
+WILLUSBITMAP *ocrword_bitmap_ptr(OCRWORD *word);
+void ocrword_bitmap_ensure(OCRWORD *word);
+void ocrword_bitmap_copy(OCRWORD *word,WILLUSBITMAP *bmp);
+void ocrword_bitmap8_copy_cropped(OCRWORD *word,WILLUSBITMAP *bmp8,int c1,int r1,
+                                  int c2,int r2);
+void ocrword_bitmap_free(OCRWORD *word);
+
+
+/* pdfwrite.c */
+typedef struct
+    {
+    size_t ptr[3];
+    int    flags;    /*
+                     ** 1 = new page
+                     ** 2 = needs parent reference
+                     ** 4 = outline head
+                     ** 8 = outline title
+                     ** 16 = page anchor
+                     */
+    } PDFOBJECT;
+
+typedef struct wpdfoutline_s
+    {
+    char *title;
+    int srcpage; /* 0 = first page */
+    int dstpage; /* 0 = first page */
+    struct wpdfoutline_s *next;
+    struct wpdfoutline_s *down;
+    } WPDFOUTLINE;
+
+typedef struct
+    {
+    PDFOBJECT *object; /* PDF reference number = index + 1 */
+    int n;
+    int na;
+    int imc;    // Image count
+    size_t pae; // Pointer into page type reference
+    FILE *f;
+    char filename[512];
+    } PDFFILE;
+
+FILE *pdffile_init(PDFFILE *pdf,char *filename,int pages_at_end);
+void pdffile_close(PDFFILE *pdf);
+int  pdffile_page_count(PDFFILE *pdf);
+void pdffile_add_outline(PDFFILE *pdf,WPDFOUTLINE *outline);
+void pdffile_add_bitmap(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,int quality,int halfsize);
+void pdffile_add_page_with_stream(PDFFILE *pdf,char *fonts,char *streamtext);
+void pdffile_add_bitmap_with_ocrwords(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,
+                                      int quality,int halfsize,OCRWORDS *ocrwords,
+                                      int ocr_render_flags);
+void pdffile_finish(PDFFILE *pdf,char *title,char *author,char *producer,char *cdate);
+int  pdf_numpages(char *filename);
+void ocrwords_box(OCRWORDS *ocrwords,WILLUSBITMAP *bmp);
+void wpdfoutline_init(WPDFOUTLINE *wpdfoutline);
+void wpdfoutline_free(WPDFOUTLINE *wpdfoutline);
+void wpdfoutline_append(WPDFOUTLINE *outline1,WPDFOUTLINE *outline2);
+void wpdfoutline_add_to_srcpages(WPDFOUTLINE *outline,int pagecount);
+void wpdfoutline_set_dstpage(WPDFOUTLINE *outline,int srcpage,int dstpage);
+int  wpdfoutline_includes_srcpage(WPDFOUTLINE *outline,int pageno,int level);
+void wpdfoutline_echo(WPDFOUTLINE *outline,int level,int count,FILE *out);
+void wpdfoutline_echo2(WPDFOUTLINE *outline,int level,FILE *out);
+int  wpdfoutline_fill_in_blank_dstpages(WPDFOUTLINE *outline,int pageno);
+WPDFOUTLINE *wpdfoutline_read_from_text_file(char *filename);
+int  wpdf_docenc_from_utf8(char *dst,char *src_utf8,int maxlen);
+/*
+** For pslib.c
+*/
+int wpdfoutline_num_anchors_recursive(WPDFOUTLINE *outline);
+int wpdfoutline_num_anchors_on_level(WPDFOUTLINE *outline,int *rcount);
+int wpdfoutline_index(WPDFOUTLINE *outline,WPDFOUTLINE *local);
+WPDFOUTLINE *wpdfoutline_by_index(WPDFOUTLINE *outline,int index);
+WPDFOUTLINE *wpdfoutline_previous(WPDFOUTLINE *outline,WPDFOUTLINE *local);
+WPDFOUTLINE *wpdfoutline_parent(WPDFOUTLINE *outline,WPDFOUTLINE *local);
+void pdf_utf8_out(FILE *f,char *text);
+void strbuf_cat_pdf_utf8(STRBUF *s,char *utf8);
 
 /* wfile.c */
 #define DIR_STRUCT_SIZE 4096
@@ -889,40 +1095,8 @@ FILE *wfile_fopen_utf8(char *filename,char *mode);
 int wfile_remove_utf8(char *filename);
 int wfile_rename_utf8(char *filename1,char *filename2);
 int wfile_read_ascii_to_buf(char **buf,char *filename);
-
-/* wzfile.c */
-typedef struct
-    {
-    void *f;
-    int   type;  /* 0 = regular, 1 = zlib file */
-    } WZFILE;
-WZFILE *wzopen_special(char *archfile,char *filename,char *tempname);
-int     wfile_is_binary(char *filename,int maxlen);
-WZFILE *wzopen(char *filename,char *mode);
-void    wzfile_date(char *filename,struct tm *date);
-int     wzclose(WZFILE *wz);
-char   *wzgets(char *buf,int maxlen,WZFILE *wz);
-int     wzgetc(WZFILE *wz);
-int     wzputc(WZFILE *wz,int c);
-int     wzread(WZFILE *wz,void *ptr,int length);
-int     wzwrite(WZFILE *wz,void *ptr,int length);
-#ifdef WILLUS_HAVE_FILE64
-int     wzseek(WZFILE *wz,long long position);
-int     wzseek2(WZFILE *wz,long long position,int type);
-long long wztell(WZFILE *wz);
-#else
-int     wzseek(WZFILE *wz,long position);
-int     wzseek2(WZFILE *wz,long position,int type);
-long    wztell(WZFILE *wz);
-#endif
-void    wzrewind(WZFILE *wz);
-int     wfile_is_gzfile(char *filename);
-int     wzbe_read(WZFILE *wz,void *ptr,int elsize,int nobj);
-int     wzbe_write(WZFILE *wz,void *ptr,int elsize,int nobj);
-int     wzerror(WZFILE *wz);
-int     wzprintf(WZFILE *wz,char *fmt,...);
-int     wzcompressed(WZFILE *wz);
-WZFILE *wzuncompressed(FILE *out);
+int wfile_files_match(char *file1,char *file2);
+int wfile_file_contains(char *filename,unsigned char *buf,int n);
 
 /* dtcompress.c */
 /* From Dirk Thierbach, 31-Dec-2013, avoids custom mod to Z-lib */
@@ -1030,6 +1204,11 @@ int win_has_own_window(void);
 int win_symlink(char *linkname,char *target,int maxlen,int *linksize);
 int win_textout(void *hdc,int x,int y,char *s);
 int win_textout_utf8(void *hdc,int x,int y,char *s);
+int win_textout_ascii(void *hdc,int x,int y,char *s);
+void win_textout_oneline_ascii_ansi(void *hdc,char *buf0,int x,int y);
+void win_effect_ansi_code(void *hdc,int code);
+int win_gettextextentpoint_ascii_ansi(void *hdc,char *s,int *dx,int *dy);
+int max_linelen_ascii_ansi(char *s,int *bytes);
 int win_gettextextentpoint_utf8(void *hdc,char *s,long *dx,long *dy);
 int win_close_handle(void *handle);
 void *win_shared_handle_utf8(char *filename);
@@ -1037,19 +1216,21 @@ int win_relaunch(char *cmdline,int iCmdShow);
 #endif
 
 /* winshell.c */
-#if (defined(HAVE_WIN32_API) && (!defined(__GNUC__) || __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)))
+#ifdef HAVE_WINSHELL_FUNCS
 int win_resolve_shortcut(void *shortcut,void *target,int maxlen,int wide);
 int winshell_get_foldername(char *foldername,char *title);
 int winshell_get_foldernamew(short *foldername,char *title);
 #endif
 
 /* winshellwapi.c */
-#if (defined(HAVE_WIN32_API) && (!defined(__GNUC__) || __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 8)))
+#ifdef HAVE_WINSHELL_FUNCS
 int willusgui_open_file_ex(char *filename);
 #endif
 
 /* winmbox.c */
 #ifdef HAVE_WIN32_API
+int  winmbox_get_win_pos(void *rect0);
+void winmbox_set_win_pos(void *rect0);
 int winmbox_message_box(void *parent,char *title,char *message,char *button1,
                         char *button2,char *button3,char *inbuf,int maxlen,
                         int fontsize_pixels,int maxwidth_pixels,int rgbcolor,
@@ -1065,6 +1246,12 @@ int winmbox_message_box_ex2(void *parent,char *title,char *message,
                         int maxwidth_pixels,int rgbcolor,void *myproc,
                         void **window,int *button_colors,void *aboutbox,
                         int modal);
+int winmbox_message_box_ex3(void *parent,char *title,char *message,
+                        char *button[],int nbuttons,
+                        char *inbuf,int maxlen,int fontsize_pixels,
+                        int maxwidth_pixels,int rgbcolor,void *myproc,
+                        void **window,int *button_colors,void *aboutbox,
+                        int modal);
 int winmbox_login_box(void *parent,char *title,
                       char *message,
                       char *username,int umaxlen,
@@ -1072,6 +1259,7 @@ int winmbox_login_box(void *parent,char *title,
                       int fontsize_pixels,int maxwidth_pixels,
                       int rgbcolor,int *button_colors);
 int winmbox_def_proc(void *hwnd,int iMsg,int wParam,void *lParam);
+int winmbox_get_default_button(void);
 void winmbox_destroy(void);
 void winmbox_message_box_display_message(char *message,int *ypos);
 void winmbox_checkbox_button_draw(void *hdc0,void *rect0,int state,void *hfont0,
@@ -1102,6 +1290,7 @@ int  bmp_show_bmp_ex(WILLUSBITMAP *bmp,void *handle,int x0,int y0,int update);
 void bmp_blit_to_hdc(WILLUSBITMAP *bmp,void *hdc,int x0,int y0);
 void bmp_blit_to_hdc_ex(WILLUSBITMAP *bmp,void *hdc,int x0,int y0,int width,int height,
                         int xs,int ys);
+void bmp_show_bmp_xparent(WILLUSBITMAP *bmp,void *handle,int x0,int y0,int tr,int tg,int tb);
 int  bmp_get_bmp(WILLUSBITMAP *bmp,void *handle,int x0,int y0);
 void bmp8_win32_palette_init(WILLUSBITMAP *bmp);
 void bmp8_win32_palette_set(WILLUSBITMAP *bmp);
@@ -1152,7 +1341,6 @@ int    wsys_get_envvar_ex(char *varname,char *value,int maxlen);
 int    wsys_file_lock(char *filename);
 int    wsys_file_unlock(char *filename,int fd);
 int    wsys_shell_command(char *cmd,char *stdoutfile,char *stderrfile);
-
 
 /* token.c */
 typedef struct
@@ -1217,6 +1405,7 @@ int filelist_name_index1(char *s);
 int filelist_name_index2(char *s);
 int filelist_span_days(FILELIST *fl);
 void filelist_remove_fast(FILELIST *fl,char *pattern);
+void filelist_chdir_fast(FILELIST *fl,char *folder);
 void filelist_keep_only_fast(FILELIST *fl,char *pattern);
 void filelist_keep_only(FILELIST *fl,char *pattern);
 void filelist_remove(FILELIST *fl,char *pattern);
@@ -1237,6 +1426,7 @@ int filelist_fill_from_archive_ex(FILELIST *fl,WZFILE *f,int append,int dirstoo,
 void filelist_write_zipstyle_list(FILELIST *fl,FILE *out);
 void filelist_write_7zstyle_list(FILELIST *fl,FILE *out);
 int filelist_add_entry(FILELIST *fl,FLENTRY *entry);
+int filelist_add_entry_ex(FILELIST *fl,FLENTRY *entry,char *namebuf);
 int filelist_write_to_file(FILELIST *fl,char *filename);
 int filelist_read_from_file(FILELIST *fl,char *filename);
 void filelist_new_entry_name(FILELIST *fl,int index,char *newname);
@@ -1246,6 +1436,7 @@ void filelist_add_dirs_only(FILELIST *fl,char *wildspec);
 void filelist_fill_from_dirs(FILELIST *fl,FILELIST *dirlist,char *wildspec);
 void filelist_delete_entry(FILELIST *fl,int index);
 void filelist_copy_entry(FILELIST *fl,int index,FLENTRY *entry);
+/* void filelist_alloc(FILELIST *fl,int entries,int cps); */
 void filelist_clear(FILELIST *fl);
 void filelist_init(FILELIST *fl);
 void filelist_free(FILELIST *fl);
@@ -1408,63 +1599,10 @@ void willusgs_close(void);
 #endif
 
 /* ocr.c */
-typedef struct
-    {
-    int r,c;   /* row,column position of left baseline of the word, e.g. the bottom left of */
-               /* most capital letters */
-    int w,h;   /* width and height of word in pixels */
-    double maxheight;  /* max height of any letter from baseline in pixels */
-    double lcheight;  /* height of a lowercase letter in pixels */
-    int rot;   /* rotation angle of word in degrees */
-    int n;     /* Number of chars in word */
-    char *text;  /* UTF-8 text of word */
-    /* The next three members store info for OCR-ing at a later time */
-    WILLUSBITMAP *bmp; /* If non-null, word has not been determined yet and this is the */
-               /* bitmap that should be used to determine the word.             */
-    double dpi; /* DPI of bitmap */
-    double bmpscale; /* Scale bmp pixels by this immediately after OCR */
-
-    /* Used by MuPDF */
-    double x0,y0; /* Position of top-left of first char of word rel. to top-left of
-                     rendered source page (pts) */
-    double w0,h0; /* Width and height of word in points */
-    double *cpos; /* Position of the right side of each character, horizontally, from the */
-                  /* beginning of the word, in points.  cpos[n-1] should be = w0.         */
-    double rot0_deg; /* Rotation of source document */
-    int pageno; /* Source page number */
-    } OCRWORD;
-
-typedef struct
-    {
-    OCRWORD *word;
-    int n,na;
-    } OCRWORDS;
-
-void ocrword_init(OCRWORD *word);
-void ocrword_free(OCRWORD *word);
-void ocrwords_init(OCRWORDS *words);
-int  ocrwords_num_queued(OCRWORDS *words);
 void ocrwords_queue_bitmap(OCRWORDS *words,WILLUSBITMAP *bmp8,int dpi,
                            int c1,int r1,int c2,int r2,int lcheight);
 double ocrwords_multithreaded_ocr(OCRWORDS *words,void **ocr_api,int nthreads,int type,int target_dpi);
-void ocrword_copy(OCRWORD *dst,OCRWORD *src);
-void ocrword_truncate(OCRWORD *word,int i1,int i2);
-int  ocrwords_to_textfile(OCRWORDS *words,char *filename,int append);
-void ocrwords_add_word(OCRWORDS *words,OCRWORD *word);
-void ocrwords_remove_words(OCRWORDS *words,int i1,int i2);
-void ocrwords_clear(OCRWORDS *words);
-void ocrwords_free(OCRWORDS *words);
-void ocrwords_sort_by_pageno(OCRWORDS *words);
-void ocrwords_offset(OCRWORDS *words,int dx,int dy);
-void ocrwords_scale(OCRWORDS *words,double srat);
-void ocrwords_rot90(OCRWORDS *words,int bmpwidth_pixels);
-void ocrwords_int_scale(OCRWORDS *words,int ndiv);
-void ocrwords_concatenate(OCRWORDS *dst,OCRWORDS *src);
 void ocr_text_proc(char *s,int allow_spaces);
-void ocrwords_sort_by_position(OCRWORDS *ocrwords);
-void ocrwords_to_easyplot(OCRWORDS *words,char *filename,int append,int *yoffset);
-void ocrword_echo(OCRWORD *word,FILE *out,int count,int index,int writebmp);
-void ocrwords_echo(OCRWORDS *ocrwords,FILE *out,int count,int writebmp);
 
 #ifdef HAVE_GOCR_LIB
 /* ocrgocr.c */
@@ -1539,84 +1677,33 @@ void ocrtesslangs_free(OCRTESSLANGS *otl);
 */
 #endif
 
-
-/* strbuf.c */
+/* pdffonts.c */
 typedef struct
     {
-    char *s;
-    int na;
-    } STRBUF;
-char *strbuf_lineno(STRBUF *buf,int line_index);
-void strbuf_init(STRBUF *sbuf);
-int  strbuf_len(STRBUF *sbuf);
-void strbuf_cat_ex(STRBUF *sbuf,char *s);
-void strbuf_cat(STRBUF *sbuf,char *s);
-void strbuf_cat_with_quotes(STRBUF *sbuf,char *s);
-void strbuf_cat_no_spaces(STRBUF *sbuf,char *s);
-void strbuf_cpy(STRBUF *sbuf,char *s);
-void strbuf_clear(STRBUF *sbuf);
-void strbuf_ensure(STRBUF *sbuf,int n);
-void strbuf_free(STRBUF *sbuf);
-void strbuf_sprintf(STRBUF *sbuf,char *fmt,...);
-void strbuf_dsprintf(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
-void strbuf_sprintf_no_space(STRBUF *sbuf,char *fmt,...);
-void strbuf_dsprintf_no_space(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...);
-
-/* pdfwrite.c */
+    int cid;    /* cid = 0xAAABB where 0xAAA is the font # and 0xBB is the CID */
+    int unicode;
+    } WILLUSCHARMAP;
+/*
+** Array of mapping from character ID's to unicode values.
+** Populated for each new page.
+*/
 typedef struct
     {
-    size_t ptr[3];
-    int    flags;    /*
-                     ** 1 = new page
-                     ** 2 = needs parent reference
-                     ** 4 = outline head
-                     ** 8 = outline title
-                     ** 16 = page anchor
-                     */
-    } PDFOBJECT;
-
-typedef struct wpdfoutline_s
-    {
-    char *title;
-    int srcpage; /* 0 = first page */
-    int dstpage; /* 0 = first page */
-    struct wpdfoutline_s *next;
-    struct wpdfoutline_s *down;
-    } WPDFOUTLINE;
-
-typedef struct
-    {
-    PDFOBJECT *object; /* PDF reference number = index + 1 */
+    WILLUSCHARMAP *cmap;
     int n;
     int na;
-    int imc;    // Image count
-    size_t pae; // Pointer into page type reference
-    FILE *f;
-    char filename[512];
-    } PDFFILE;
+    } WILLUSCHARMAPLIST;
 
-FILE *pdffile_init(PDFFILE *pdf,char *filename,int pages_at_end);
-void pdffile_close(PDFFILE *pdf);
-int  pdffile_page_count(PDFFILE *pdf);
-void pdffile_add_outline(PDFFILE *pdf,WPDFOUTLINE *outline);
-void pdffile_add_bitmap(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,int quality,int halfsize);
-void pdffile_add_bitmap_with_ocrwords(PDFFILE *pdf,WILLUSBITMAP *bmp,double dpi,
-                                      int quality,int halfsize,OCRWORDS *ocrwords,
-                                      int ocr_render_flags);
-void pdffile_finish(PDFFILE *pdf,char *title,char *author,char *producer,char *cdate);
-int  pdf_numpages(char *filename);
-void ocrwords_box(OCRWORDS *ocrwords,WILLUSBITMAP *bmp);
-void wpdfoutline_init(WPDFOUTLINE *wpdfoutline);
-void wpdfoutline_free(WPDFOUTLINE *wpdfoutline);
-void wpdfoutline_append(WPDFOUTLINE *outline1,WPDFOUTLINE *outline2);
-void wpdfoutline_add_to_srcpages(WPDFOUTLINE *outline,int pagecount);
-void wpdfoutline_set_dstpage(WPDFOUTLINE *outline,int srcpage,int dstpage);
-int  wpdfoutline_includes_srcpage(WPDFOUTLINE *outline,int pageno,int level);
-void wpdfoutline_echo(WPDFOUTLINE *outline,int level,int count,FILE *out);
-void wpdfoutline_echo2(WPDFOUTLINE *outline,int level,FILE *out);
-int  wpdfoutline_fill_in_blank_dstpages(WPDFOUTLINE *outline,int pageno);
-WPDFOUTLINE *wpdfoutline_read_from_text_file(char *filename);
-int  wpdf_docenc_from_utf8(char *dst,char *src_utf8,int maxlen);
+typedef struct
+    {
+    double abovebase;
+    double belowbase;
+    double x0;
+    double width;
+    double nextchar;
+    } WILLUSCHARINFO;
+
+
 
 /* wpdf.c */
 /* PDF file support functions--no dependence on MuPDF */
@@ -1720,7 +1807,6 @@ void wtextchars_to_strbuf_formatted(WTEXTCHARS *wtcs,STRBUF *sbuf);
 void wtextchars_scale_page(WTEXTCHARS *wtextchars,double scale_factor);
 void wtextchars_to_easyplot(WTEXTCHARS *wtcs,char *filename);
 
-
 /* bmpmupdf.c */
 /* Mupdf / bitmap functions */
 #ifdef HAVE_MUPDF_LIB
@@ -1748,7 +1834,8 @@ void wmupdf_utf8_strbuf_from_pdf(STRBUF *sbuf,char *pdffile0,int pageno0,
 /* wmupdfinfo.c */
 /* Mupdf support functions */
 #ifdef HAVE_MUPDF_LIB
-void wmupdfinfo_get(char *filename,int *pagelist,char **buf);
+double wmupdfinfo_get_max_bitmap_size_sqpix(char *filename,int pagenum);
+void   wmupdfinfo_get(char *filename,int *pagelist,char **buf);
 #endif
 
 #ifdef HAVE_DJVU_LIB
@@ -1870,6 +1957,8 @@ typedef struct
 
 typedef WILLUSGUICONTROL WILLUSGUIWINDOW;
 
+void willusgui_set_altkey_margin_inches(double inches);
+void willusgui_sbitmap_set_page(int pageno,int total_pages);
 int  willusgui_dprintf(char *fmt,...);
 void willusgui_init(void);
 void willusgui_close(void);
@@ -1960,6 +2049,8 @@ void willusgui_sbitmap_change_size(WILLUSGUICONTROL *control,int delsize);
 void willusgui_sbitmap_proc(void *handle,int message,int wparam,void *lparam);
 void willusgui_set_ime_notify(int status);
 int  willusgui_folder_select(char *foldername,int maxlen);
+int  willusgui_altkey_pressed(void);
+int  willusgui_shiftkey_state(void);
 
 /* Generic (cross-platform) message box functions */
 /* wleptonica.c */

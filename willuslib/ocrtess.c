@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2020  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -790,7 +790,8 @@ bmp_write(bmp,filename,stdout,100);
     memcpy(dst,src,bmp->width*bmp->height);
     bmp_free(bmp);
     endian_flip((char *)dst,pixGetWpl(pix)*pixGetHeight(pix));
-    pix->xres = pix->yres = dpi;
+    pixSetXRes(pix,dpi);
+    pixSetYRes(pix,dpi);
     tess_capi_get_ocr_multiword(api,pix,segmode<0 || segmode>10 ? 6 : segmode,
                                 &left,&top,&right,&bottom,&ybase,&text,&nw,out);
     pixDestroy(&pix);
@@ -832,8 +833,11 @@ printf("'%s', (%d,%d)-(%d,%d) base=%d\n",&text[it],left[i],top[i],right[i],botto
                                      &text[it]);
 */
         }
-    free(text);
-    free(left);
+    if (nw>0)
+        {
+        free(text);
+        free(left);
+        }
     }
 
 
@@ -877,7 +881,8 @@ void ocrtess_from_bmp8(void *api,char *text,int maxlen,WILLUSBITMAP *bmp8,
         memcpy(dst,src,w);
     endian_flip((char *)pixGetData(pix),pixGetWpl(pix)*pixGetHeight(pix));
     /* Tesseract 3.05.00 -- need to set a resolution */
-    pix->xres = pix->yres = dpi;
+    pixSetXRes(pix,dpi);
+    pixSetYRes(pix,dpi);
 /*
 {
 static int counter=0;

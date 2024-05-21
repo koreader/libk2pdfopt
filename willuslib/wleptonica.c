@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -71,9 +71,9 @@ static void wlept_bmp_from_pix(WILLUSBITMAP *bmp,PIX *pix)
     unsigned char *p;
     int i,pixbpl;
 
-    bmp->width=pix->w;
-    bmp->height=pix->h;
-    bmp->bpp=pix->d>8?24:8;
+    bmp->width=pixGetWidth(pix);
+    bmp->height=pixGetHeight(pix);
+    bmp->bpp=pixGetDepth(pix)>8?24:8;
     if (bmp->bpp==8)
         for (i=0;i<256;i++)
             bmp->red[i]=bmp->green[i]=bmp->blue[i]=i;
@@ -119,7 +119,7 @@ void wlept_bmp_dewarp(WILLUSBITMAP *src,WILLUSBITMAP *bmp1,WILLUSBITMAP *bmp2,in
 
     debug=(debugfile==NULL || debugfile[0]=='\0') ? NULL : debugfile;
     wlept_pix_from_bmp(&pix,src);
-    if (pix->d>8)
+    if (pixGetDepth(pix)>8)
         pixg=pixConvertRGBToGray(pix,.5,.3,.2);
     else
         pixg=pix;

@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2018  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -33,7 +33,7 @@
 #ifndef NOMEMDEBUG
 /* #define DEBUG */
 #ifdef DEBUG
-static void willus_mem_update(char *label,char *name,int memsize,void *ptr);
+static void willus_mem_update(char *label,char *name,size_t memsize,void *ptr);
 #define MAXPTRS 256000
 static void *ptrs[MAXPTRS];
 static long  sizealloced[MAXPTRS];
@@ -47,7 +47,7 @@ static int   willus_mem_inited=0;
 #endif
 #endif // NOMEMDEBUG
 
-static void mem_warn(char *name,int size,int exitcode);
+static void mem_warn(char *name,size_t size,int exitcode);
 
 
 void willus_mem_init(void)
@@ -85,19 +85,19 @@ void willus_mem_close(void)
     }
 
 
-int willus_mem_alloc_warn(void **ptr,int size,char *name,int exitcode)
+int willus_mem_alloc_warn(void **ptr,size_t size,char *name,int exitcode)
 
     {
     int status;
 
-    status = willus_mem_alloc((double **)ptr,(long)size,name);
+    status = willus_mem_alloc((double **)ptr,size,name);
     if (!status)
         mem_warn(name,size,exitcode);
     return(status);
     }
 
 
-int willus_mem_realloc_warn(void **ptr,int newsize,char *name,int exitcode)
+int willus_mem_realloc_warn(void **ptr,size_t newsize,char *name,int exitcode)
 
     {
     int status;
@@ -109,7 +109,7 @@ int willus_mem_realloc_warn(void **ptr,int newsize,char *name,int exitcode)
     }
 
 
-int willus_mem_realloc_robust_warn(void **ptr,int newsize,int oldsize,char *name,
+int willus_mem_realloc_robust_warn(void **ptr,size_t newsize,size_t oldsize,char *name,
                                 int exitcode)
 
     {
@@ -129,12 +129,12 @@ int willus_mem_realloc_robust_warn(void **ptr,int newsize,int oldsize,char *name
 ** compilers, like Turbo C, these are different.
 **
 */
-int willus_mem_alloc(double **ptr,long size,char *name)
+int willus_mem_alloc(double **ptr,size_t size,char *name)
 
     {
 #if (defined(HAVE_WIN32_API) && !defined(__DMC__))
-    unsigned long memsize;
-    memsize = (unsigned long)size;
+    size_t memsize;
+    memsize = (size_t)size;
 #ifdef USEGLOBAL
     (*ptr) = (memsize==size) ? (double *)GlobalAlloc(GPTR,memsize) : NULL;
 #else
@@ -190,14 +190,14 @@ fclose(f);
     }
 
 
-static void mem_warn(char *name,int size,int exitcode)
+static void mem_warn(char *name,size_t size,int exitcode)
 
     {
     static char buf[128];
 
     aprintf("\n" ANSI_RED "\aCannot allocate enough memory for "
             "function %s." ANSI_NORMAL "\n",name);
-    comma_print(buf,size);
+    comma_print(buf,(int)size);
     aprintf("    " ANSI_RED "(Needed %s bytes.)" ANSI_NORMAL "\n\n",buf);
     if (exitcode!=0)
         {
@@ -209,7 +209,7 @@ static void mem_warn(char *name,int size,int exitcode)
 
 #ifndef NOMEMDEBUG
 #ifdef DEBUG
-static void willus_mem_update(char *label,char *name,int memsize,void *ptr)
+static void willus_mem_update(char *label,char *name,size_t memsize,void *ptr)
 
     {
     int i;
@@ -270,11 +270,11 @@ void willus_mem_debug_update(char *s)
 #endif // NOMEMDEBUG
 
 
-int willus_mem_realloc(double **ptr,long newsize,char *name)
+int willus_mem_realloc(double **ptr,size_t newsize,char *name)
 
     {
 #if (defined(HAVE_WIN32_API) && !defined(__DMC__))
-    unsigned long memsize;
+    size_t  memsize;
     void *newptr;
 #else
     size_t  memsize;
@@ -282,7 +282,7 @@ int willus_mem_realloc(double **ptr,long newsize,char *name)
 #endif
 
 #if (defined(HAVE_WIN32_API) && !defined(__DMC__))
-    memsize=(unsigned long)newsize;
+    memsize=(size_t)newsize;
 #else
     memsize=(size_t)newsize;
 #endif
@@ -297,7 +297,7 @@ int willus_mem_realloc(double **ptr,long newsize,char *name)
         {
         printf("GlobalReAlloc fails:\n    %s\n",win_lasterror());
         printf("    Function:  %s\n",name);
-        printf("    Mem size requested:  %ld\n",newsize);
+        printf("    Mem size requested:  %ld\n",(long)newsize);
         }
 #else
     newptr = (void *)CoTaskMemRealloc((void *)(*ptr),memsize);
@@ -351,11 +351,11 @@ int willus_mem_realloc(double **ptr,long newsize,char *name)
     }
 
 
-int willus_mem_realloc_robust(double **ptr,long newsize,long oldsize,char *name)
+int willus_mem_realloc_robust(double **ptr,size_t newsize,size_t oldsize,char *name)
 
     {
 #if (defined(HAVE_WIN32_API) && !defined(__DMC__))
-    unsigned long memsize;
+    size_t memsize;
     void *newptr;
 #else
     size_t  memsize;
@@ -369,7 +369,7 @@ int willus_mem_realloc_robust(double **ptr,long newsize,long oldsize,char *name)
 #endif // NOMEMDEBUG
 
 #if (defined(HAVE_WIN32_API) && !defined(__DMC__))
-    memsize=(unsigned long)newsize;
+    memsize=(size_t)newsize;
 #else
     memsize=(size_t)newsize;
 #endif

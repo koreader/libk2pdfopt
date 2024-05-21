@@ -614,6 +614,22 @@ static void png_thread_new(png_structp png_ptr,unsigned char *data,int idx_start
 static void png_thread_close(png_structp png_ptr);
 static void bmp_read_png_from_memory(png_structp png_ptr,void *buf,int nbytes);
 static int png_thread_index(png_structp png_ptr);
+static void png_threads_check_init(void);
+
+
+static void png_threads_check_init(void)
+
+    {
+    static int png_inited=0;
+    int i;
+
+    if (png_inited)
+        return;
+    for (i=0;i<MAXPNGTHREADS;i++)
+        g_png_ptr[i]=NULL;
+    png_inited=1;
+    }
+
 
 static void png_thread_new(png_structp png_ptr,unsigned char *data,int idx_start)
 
@@ -659,6 +675,7 @@ static int png_thread_index(png_structp png_ptr)
     {
     int i;
 
+    png_threads_check_init();
     for (i=0;i<MAXPNGTHREADS;i++)
         if (g_png_ptr[i]==png_ptr)
             break;

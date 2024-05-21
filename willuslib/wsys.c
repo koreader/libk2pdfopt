@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2020  http://willus.com
+** Copyright (C) 2021  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -69,12 +69,13 @@ void wsys_system_version(char *system,char *_os,char *_chip,char *_compiler)
                                "Gnu C (RSXNT/EMX)","Intel C/C++","HPUX C++",
                                "Digital Mars C/C++","LCC","Watcom C/C++",
                                "Borland C/C++","Gnu C (Mingw32)",
-                               "Intel C++ for Linux","Gnu C (Mingw64)","Tiny CC"};
+                               "Intel C++ for Linux","Gnu C (Mingw64)","Tiny CC",
+                               "CLang (Mingw64)","CLang (Mingw32)","CLang"};
     static char *os[] = {"Unknown O/S","Unix","VMS","Unicos","SunOS","HPUX",
                          "MS-DOS","Win32","MS-DOS (32-bit)","OS/X",
                          "Linux","SuSE Linux","Win64"};
     static char *chip[] = {"Unknown architecture","CRAY2","CRAY","hppa 1.0",
-                           "hppa 1.1","sparc","i386","hppa 2.0","PPC","x64"};
+                           "hppa 1.1","sparc","i386","hppa 2.0","PPC","x64","ARM64"};
 
     ccode=0;
     oscode=0;
@@ -145,6 +146,8 @@ void wsys_system_version(char *system,char *_os,char *_chip,char *_compiler)
     chipcode=7;
 #elif (defined(__ppc__))
     chipcode=8;
+#elif (defined(__arm64__))
+    chipcode=10;
 #endif
 
     /* Specific compilers */
@@ -167,14 +170,27 @@ void wsys_system_version(char *system,char *_os,char *_chip,char *_compiler)
     ccode=8;
     gnu_compiler(compiler_version);
 #elif (defined(__MINGW64__))
+#if (defined(__clang__))
+    ccode=20;
+    sprintf(compiler_version,"v%d.%d.%d",__clang_major__,__clang_minor__,__clang_patchlevel__);
+#else
     ccode=18;
     gnu_compiler(compiler_version);
+#endif
 #elif (defined(__MINGW32__))
+#if (defined(__clang__))
+    ccode=21;
+    sprintf(compiler_version,"v%d.%d.%d",__clang_major__,__clang_minor__,__clang_patchlevel__);
+#else
     ccode=16;
     gnu_compiler(compiler_version);
+#endif
 #elif (defined(EMX))
     ccode=9;
     gnu_compiler(compiler_version);
+#elif (defined(__clang__))
+    ccode=22;
+    sprintf(compiler_version,"v%d.%d.%d",__clang_major__,__clang_minor__,__clang_patchlevel__);
 #elif (defined(__GNUC__))
     ccode=2;
     gnu_compiler(compiler_version);

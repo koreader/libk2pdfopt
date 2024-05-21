@@ -1,5 +1,29 @@
+// Copyright (C) 2004-2021 Artifex Software, Inc.
+//
+// This file is part of MuPDF.
+//
+// MuPDF is free software: you can redistribute it and/or modify it under the
+// terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version.
+//
+// MuPDF is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+// details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with MuPDF. If not, see <https://www.gnu.org/licenses/agpl-3.0.en.html>
+//
+// Alternative licensing terms are available from the licensor.
+// For commercial licensing, see <https://www.artifex.com/> or contact
+// Artifex Software, Inc., 1305 Grant Avenue - Suite 200, Novato,
+// CA 94945, U.S.A., +1(415)492-9861, for further information.
+
 #include "mupdf/fitz.h"
 #include "mupdf/ucdn.h"
+
+#include "glyphbox.h"
 
 #include <math.h>
 #include <float.h>
@@ -32,12 +56,12 @@ void fz_drop_layout(fz_context *ctx, fz_layout_block *block)
 		fz_drop_pool(ctx, block->pool);
 }
 
-void fz_add_layout_line(fz_context *ctx, fz_layout_block *block, float x, float y, float h, const char *p)
+void fz_add_layout_line(fz_context *ctx, fz_layout_block *block, float x, float y, float font_size, const char *p)
 {
 	fz_layout_line *line = fz_pool_alloc(ctx, block->pool, sizeof (fz_layout_line));
 	line->x = x;
 	line->y = y;
-	line->h = h;
+	line->font_size = font_size;
 	line->p = p;
 	line->text = NULL;
 	line->next = NULL;
@@ -46,11 +70,11 @@ void fz_add_layout_line(fz_context *ctx, fz_layout_block *block, float x, float 
 	block->text_tailp = &line->text;
 }
 
-void fz_add_layout_char(fz_context *ctx, fz_layout_block *block, float x, float w, const char *p)
+void fz_add_layout_char(fz_context *ctx, fz_layout_block *block, float x, float advance, const char *p)
 {
 	fz_layout_char *ch = fz_pool_alloc(ctx, block->pool, sizeof (fz_layout_char));
 	ch->x = x;
-	ch->w = w;
+	ch->advance = advance;
 	ch->p = p;
 	ch->next = NULL;
 	*block->text_tailp = ch;
@@ -83,6 +107,9 @@ const char *fz_stext_options_usage =
 	"\tpreserve-images: keep images in output\n"
 	"\tpreserve-ligatures: do not expand ligatures into constituent characters\n"
 	"\tpreserve-whitespace: do not convert all whitespace into space characters\n"
+	"\tpreserve-spans: do not merge spans on the same line\n"
+	"\tdehyphenate: attempt to join up hyphenated words\n"
+	"\tmediabox-clip=no: include characters outside mediabox\n"
 	"\n";
 
 fz_stext_page *
@@ -112,9 +139,17 @@ fz_drop_stext_page(fz_context *ctx, fz_stext_page *page)
 	if (page)
 	{
 		fz_stext_block *block;
+		fz_stext_line *line;
+		fz_stext_char *ch;
 		for (block = page->first_block; block; block = block->next)
+		{
 			if (block->type == FZ_STEXT_BLOCK_IMAGE)
 				fz_drop_image(ctx, block->u.i.image);
+			else
+				for (line = block->u.t.first_line; line; line = line->next)
+					for (ch = line->first_char; ch; ch = ch->next)
+						fz_drop_font(ctx, ch->font);
+		}
 		fz_drop_pool(ctx, page->pool);
 	}
 }
@@ -123,6 +158,7 @@ static fz_stext_block *
 add_block_to_page(fz_context *ctx, fz_stext_page *page)
 {
 	fz_stext_block *block = fz_pool_alloc(ctx, page->pool, sizeof *page->first_block);
+	block->bbox = fz_empty_rect; /* Fixes bug 703267. */
 	block->prev = page->last_block;
 	if (!page->first_block)
 		page->first_block = page->last_block = block;
@@ -190,7 +226,7 @@ add_char_to_line(fz_context *ctx, fz_stext_page *page, fz_stext_line *line, fz_m
 	ch->color = color;
 	ch->origin = *p;
 	ch->size = size;
-	ch->font = font; /* TODO: keep and drop */
+	ch->font = fz_keep_font(ctx, font);
 
 	if (line->wmode == 0)
 	{
@@ -201,9 +237,8 @@ add_char_to_line(fz_context *ctx, fz_stext_page *page, fz_stext_line *line, fz_m
 	}
 	else
 	{
-		fz_rect bbox = fz_font_bbox(ctx, font);
-		a.x = bbox.x1;
-		d.x = bbox.x0;
+		a.x = 1;
+		d.x = 0;
 		a.y = 0;
 		d.y = 0;
 	}
@@ -216,6 +251,27 @@ add_char_to_line(fz_context *ctx, fz_stext_page *page, fz_stext_line *line, fz_m
 	ch->quad.ur = fz_make_point(q->x + a.x, q->y + a.y);
 
 	return ch;
+}
+
+static void
+remove_last_char(fz_context *ctx, fz_stext_line *line)
+{
+	if (line && line->first_char)
+	{
+		fz_stext_char *prev = NULL;
+		fz_stext_char *ch = line->first_char;
+		while (ch->next)
+		{
+			prev = ch;
+			ch = ch->next;
+		}
+		if (prev)
+		{
+			/* the characters are pool allocated, so we don't actually leak the removed node */
+			line->last_char = prev;
+			line->last_char->next = NULL;
+		}
+	}
 }
 
 static int
@@ -251,6 +307,12 @@ direction_from_bidi_class(int bidiclass, int curdir)
 	}
 }
 
+static int is_hyphen(int c)
+{
+	/* check for: hyphen-minus, soft hyphen, hyphen, and non-breaking hyphen */
+	return (c == '-' || c == 0xAD || c == 0x2010 || c == 0x2011);
+}
+
 static float
 vec_dot(const fz_point *a, const fz_point *b)
 {
@@ -258,7 +320,7 @@ vec_dot(const fz_point *a, const fz_point *b)
 }
 
 static void
-fz_add_stext_char_imp(fz_context *ctx, fz_stext_device *dev, fz_font *font, int c, int glyph, fz_matrix trm, float adv, int wmode)
+fz_add_stext_char_imp(fz_context *ctx, fz_stext_device *dev, fz_font *font, int c, int glyph, fz_matrix trm, float adv, int wmode, int force_new_line)
 {
 	fz_stext_page *page = dev->page;
 	fz_stext_block *cur_block;
@@ -272,7 +334,6 @@ fz_add_stext_char_imp(fz_context *ctx, fz_stext_device *dev, fz_font *font, int 
 	fz_point delta;
 	float spacing = 0;
 	float base_offset = 0;
-	int rtl = 0;
 
 	dev->curdir = direction_from_bidi_class(ucdn_get_bidi_class(c), dev->curdir);
 
@@ -396,10 +457,12 @@ fz_add_stext_char_imp(fz_context *ctx, fz_stext_device *dev, fz_font *font, int 
 			else
 			{
 				new_line = 0;
+#if 0 /* TODO: handle RTL visual/logical ordering */
 				if (spacing > size * SPACE_DIST || spacing < 0)
 					rtl = 0; /* backward (or big jump to 'right' side) means logical order */
 				else
 					rtl = 1; /* visual order, we need to reverse in a post process pass */
+#endif
 			}
 		}
 
@@ -428,8 +491,14 @@ fz_add_stext_char_imp(fz_context *ctx, fz_stext_device *dev, fz_font *font, int 
 		cur_line = cur_block->u.t.last_line;
 	}
 
+	if (new_line && (dev->flags & FZ_STEXT_DEHYPHENATE) && is_hyphen(dev->lastchar))
+	{
+		remove_last_char(ctx, cur_line);
+		new_line = 0;
+	}
+
 	/* Start a new line */
-	if (new_line || !cur_line)
+	if (new_line || !cur_line || force_new_line)
 	{
 		cur_line = add_line_to_block(ctx, page, cur_block, &ndir, wmode);
 		dev->start = p;
@@ -448,7 +517,7 @@ fz_add_stext_char_imp(fz_context *ctx, fz_stext_device *dev, fz_font *font, int 
 }
 
 static void
-fz_add_stext_char(fz_context *ctx, fz_stext_device *dev, fz_font *font, int c, int glyph, fz_matrix trm, float adv, int wmode)
+fz_add_stext_char(fz_context *ctx, fz_stext_device *dev, fz_font *font, int c, int glyph, fz_matrix trm, float adv, int wmode, int force_new_line)
 {
 	/* ignore when one unicode character maps to multiple glyphs */
 	if (c == -1)
@@ -459,31 +528,31 @@ fz_add_stext_char(fz_context *ctx, fz_stext_device *dev, fz_font *font, int c, i
 		switch (c)
 		{
 		case 0xFB00: /* ff */
-			fz_add_stext_char_imp(ctx, dev, font, 'f', glyph, trm, adv, wmode);
-			fz_add_stext_char_imp(ctx, dev, font, 'f', -1, trm, 0, wmode);
+			fz_add_stext_char_imp(ctx, dev, font, 'f', glyph, trm, adv, wmode, force_new_line);
+			fz_add_stext_char_imp(ctx, dev, font, 'f', -1, trm, 0, wmode, 0);
 			return;
 		case 0xFB01: /* fi */
-			fz_add_stext_char_imp(ctx, dev, font, 'f', glyph, trm, adv, wmode);
-			fz_add_stext_char_imp(ctx, dev, font, 'i', -1, trm, 0, wmode);
+			fz_add_stext_char_imp(ctx, dev, font, 'f', glyph, trm, adv, wmode, force_new_line);
+			fz_add_stext_char_imp(ctx, dev, font, 'i', -1, trm, 0, wmode, 0);
 			return;
 		case 0xFB02: /* fl */
-			fz_add_stext_char_imp(ctx, dev, font, 'f', glyph, trm, adv, wmode);
-			fz_add_stext_char_imp(ctx, dev, font, 'l', -1, trm, 0, wmode);
+			fz_add_stext_char_imp(ctx, dev, font, 'f', glyph, trm, adv, wmode, force_new_line);
+			fz_add_stext_char_imp(ctx, dev, font, 'l', -1, trm, 0, wmode, 0);
 			return;
 		case 0xFB03: /* ffi */
-			fz_add_stext_char_imp(ctx, dev, font, 'f', glyph, trm, adv, wmode);
-			fz_add_stext_char_imp(ctx, dev, font, 'f', -1, trm, 0, wmode);
-			fz_add_stext_char_imp(ctx, dev, font, 'i', -1, trm, 0, wmode);
+			fz_add_stext_char_imp(ctx, dev, font, 'f', glyph, trm, adv, wmode, force_new_line);
+			fz_add_stext_char_imp(ctx, dev, font, 'f', -1, trm, 0, wmode, 0);
+			fz_add_stext_char_imp(ctx, dev, font, 'i', -1, trm, 0, wmode, 0);
 			return;
 		case 0xFB04: /* ffl */
-			fz_add_stext_char_imp(ctx, dev, font, 'f', glyph, trm, adv, wmode);
-			fz_add_stext_char_imp(ctx, dev, font, 'f', -1, trm, 0, wmode);
-			fz_add_stext_char_imp(ctx, dev, font, 'l', -1, trm, 0, wmode);
+			fz_add_stext_char_imp(ctx, dev, font, 'f', glyph, trm, adv, wmode, force_new_line);
+			fz_add_stext_char_imp(ctx, dev, font, 'f', -1, trm, 0, wmode, 0);
+			fz_add_stext_char_imp(ctx, dev, font, 'l', -1, trm, 0, wmode, 0);
 			return;
 		case 0xFB05: /* long st */
 		case 0xFB06: /* st */
-			fz_add_stext_char_imp(ctx, dev, font, 's', glyph, trm, adv, wmode);
-			fz_add_stext_char_imp(ctx, dev, font, 't', -1, trm, 0, wmode);
+			fz_add_stext_char_imp(ctx, dev, font, 's', glyph, trm, adv, wmode, force_new_line);
+			fz_add_stext_char_imp(ctx, dev, font, 't', -1, trm, 0, wmode, 0);
 			return;
 		}
 	}
@@ -515,7 +584,7 @@ fz_add_stext_char(fz_context *ctx, fz_stext_device *dev, fz_font *font, int c, i
 		}
 	}
 
-	fz_add_stext_char_imp(ctx, dev, font, c, glyph, trm, adv, wmode);
+	fz_add_stext_char_imp(ctx, dev, font, c, glyph, trm, adv, wmode, force_new_line);
 }
 
 static void
@@ -530,10 +599,6 @@ fz_stext_extract(fz_context *ctx, fz_stext_device *dev, fz_text_span *span, fz_m
 	if (span->len == 0)
 		return;
 
-	tm.e = 0;
-	tm.f = 0;
-	trm = fz_concat(tm, ctm);
-
 	for (i = 0; i < span->len; i++)
 	{
 		/* Calculate new pen location and delta */
@@ -541,13 +606,23 @@ fz_stext_extract(fz_context *ctx, fz_stext_device *dev, fz_text_span *span, fz_m
 		tm.f = span->items[i].y;
 		trm = fz_concat(tm, ctm);
 
+		if (dev->flags & FZ_STEXT_MEDIABOX_CLIP)
+			if (fz_glyph_entirely_outside_box(ctx, &ctm, span, &span->items[i], &dev->page->mediabox))
+				continue;
+
 		/* Calculate bounding box and new pen position based on font metrics */
 		if (span->items[i].gid >= 0)
 			adv = fz_advance_glyph(ctx, font, span->items[i].gid, span->wmode);
 		else
 			adv = 0;
 
-		fz_add_stext_char(ctx, dev, font, span->items[i].ucs, span->items[i].gid, trm, adv, span->wmode);
+		fz_add_stext_char(ctx, dev, font,
+			span->items[i].ucs,
+			span->items[i].gid,
+			trm,
+			adv,
+			span->wmode,
+			(i == 0) && (dev->flags & FZ_STEXT_PRESERVE_SPANS));
 	}
 }
 
@@ -679,7 +754,7 @@ fz_new_image_from_shade(fz_context *ctx, fz_shade *shade, fz_matrix *in_out_ctm,
 			fz_fill_pixmap_with_color(ctx, pix, shade->colorspace, shade->background, color_params);
 		else
 			fz_clear_pixmap(ctx, pix);
-		fz_paint_shade(ctx, shade, NULL, ctm, pix, color_params, bbox, NULL);
+		fz_paint_shade(ctx, shade, NULL, ctm, pix, color_params, bbox, NULL, NULL);
 		img = fz_new_image_from_pixmap(ctx, pix, NULL);
 	}
 	fz_always(ctx)
@@ -763,6 +838,18 @@ fz_parse_stext_options(fz_context *ctx, fz_stext_options *opts, const char *stri
 		opts->flags |= FZ_STEXT_PRESERVE_IMAGES;
 	if (fz_has_option(ctx, string, "inhibit-spaces", &val) && fz_option_eq(val, "yes"))
 		opts->flags |= FZ_STEXT_INHIBIT_SPACES;
+	if (fz_has_option(ctx, string, "dehyphenate", &val) && fz_option_eq(val, "yes"))
+		opts->flags |= FZ_STEXT_DEHYPHENATE;
+	if (fz_has_option(ctx, string, "preserve-spans", &val) && fz_option_eq(val, "yes"))
+		opts->flags |= FZ_STEXT_PRESERVE_SPANS;
+
+	opts->flags |= FZ_STEXT_MEDIABOX_CLIP;
+	if (fz_has_option(ctx, string, "mediabox-clip", &val) && fz_option_eq(val, "no"))
+		opts->flags ^= FZ_STEXT_MEDIABOX_CLIP;
+
+	opts->scale = 1;
+	if (fz_has_option(ctx, string, "resolution", &val))
+		opts->scale = fz_atof(val) / 96.0f; /* HTML base resolution is 96ppi */
 
 	return opts;
 }
