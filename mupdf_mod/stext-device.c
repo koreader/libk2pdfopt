@@ -17,8 +17,8 @@
 //
 // Alternative licensing terms are available from the licensor.
 // For commercial licensing, see <https://www.artifex.com/> or contact
-// Artifex Software, Inc., 1305 Grant Avenue - Suite 200, Novato,
-// CA 94945, U.S.A., +1(415)492-9861, for further information.
+// Artifex Software, Inc., 39 Mesa Street, Suite 108A, San Francisco,
+// CA 94129, USA, for further information.
 
 #include "mupdf/fitz.h"
 #include "mupdf/ucdn.h"
@@ -86,6 +86,7 @@ void fz_add_layout_char(fz_context *ctx, fz_layout_block *block, float x, float 
 #define PARAGRAPH_DIST 1.5f
 #define SPACE_DIST 0.15f
 #define SPACE_MAX_DIST 0.8f
+#define BASE_MAX_DIST 0.8f
 
 typedef struct
 {
@@ -267,7 +268,9 @@ remove_last_char(fz_context *ctx, fz_stext_line *line)
 		}
 		if (prev)
 		{
-			/* the characters are pool allocated, so we don't actually leak the removed node */
+			/* The characters are pool allocated, so we don't actually leak the removed node. */
+			/* We do need to drop the char's font reference though. */
+			fz_drop_font(ctx, prev->next->font);
 			line->last_char = prev;
 			line->last_char->next = NULL;
 		}
@@ -317,6 +320,75 @@ static float
 vec_dot(const fz_point *a, const fz_point *b)
 {
 	return a->x * b->x + a->y * b->y;
+}
+
+static void
+prepend_line_if_possible(fz_context *ctx, fz_stext_page *page, fz_stext_block *cur_block, fz_matrix trm, fz_font *font, float size, int c, fz_point *pen, int color, int no_space)
+{
+	fz_stext_line *cur_line;
+	fz_stext_line *line;
+	fz_point ndir;
+	float cur_size;
+	fz_point p;
+	fz_point delta;
+	float spacing, perp;
+
+	if (cur_block == NULL || cur_block->type != FZ_STEXT_BLOCK_TEXT)
+		return;
+
+	cur_line = cur_block->u.t.last_line;
+	if (cur_line == NULL)
+		return;
+
+	line = cur_line->prev;
+	if (line == NULL)
+		return;
+
+	if (line->wmode != cur_line->wmode)
+		return;
+
+	ndir = cur_line->dir;
+	cur_size = cur_line->last_char->size;
+	p = line->first_char->origin;
+	delta.x = p.x - pen->x;
+	delta.y = p.y - pen->y;
+
+	spacing = ndir.x * delta.x + ndir.y * delta.y;
+	perp = ndir.x * delta.y - ndir.y * delta.x;
+
+	/* If cur_line overlaps line by more than a small amount, can't prepend it. */
+	if (spacing < -size * SPACE_DIST)
+		return;
+	/* If cur_line is a long way behind line, can't prepend it. */
+	if (spacing >= size * SPACE_MAX_DIST)
+		return;
+	/* If cur_line is not pretty much in line with line, can't prepend it. */
+	if (fabsf(perp) >= size * BASE_MAX_DIST)
+		return;
+
+	/* So we can prepend. Do we need to add a space? Match the sizing logic
+	 * that would happend with normal character addition. */
+	if (spacing >= cur_size * SPACE_DIST && cur_line->last_char->c != ' ' && cur_line->wmode == 0 && !no_space)
+	{
+		/* We need to add a space onto the end of the prepended line. */
+		add_char_to_line(ctx, page, cur_line, trm, font, size, ' ', pen, &p, color);
+	}
+
+	/* cur_line plausibly finishes at the start of line. */
+	/* Move all the chars from cur_line onto the start of line */
+	cur_line->last_char->next = line->first_char;
+	line->first_char = cur_line->first_char;
+	cur_line->first_char = NULL;
+	cur_line->last_char = NULL;
+
+	/* Merge the bboxes */
+	line->bbox = fz_union_rect(line->bbox, cur_line->bbox);
+
+	/* Unlink cur_line from the block. */
+	cur_block->u.t.last_line = cur_block->u.t.last_line->prev;
+	cur_block->u.t.last_line->next = NULL;
+
+	/* Can't bin the line storage as it's from a pool. */
 }
 
 static void
@@ -424,7 +496,7 @@ fz_add_stext_char_imp(fz_context *ctx, fz_stext_device *dev, fz_font *font, int 
 		base_offset = -ndir.y * delta.x + ndir.x * delta.y;
 
 		/* Only a small amount off the baseline - we'll take this */
-		if (fabsf(base_offset) < size * 0.8f)
+		if (fabsf(base_offset) < size * BASE_MAX_DIST)
 		{
 			/* LTR or neutral character */
 			if (dev->curdir >= 0)
@@ -497,6 +569,14 @@ fz_add_stext_char_imp(fz_context *ctx, fz_stext_device *dev, fz_font *font, int 
 		new_line = 0;
 	}
 
+	if (new_line)
+	{
+		/* We are about to start a new line. This means we've finished with this
+		 * one. Can this be prepended to a previous line in this block? */
+		/* dev->pen records the previous stopping point - so where cur_line ends. */
+		prepend_line_if_possible(ctx, page, cur_block, trm, font, size, ' ', &dev->pen, dev->color, (dev->flags & FZ_STEXT_INHIBIT_SPACES));
+	}
+
 	/* Start a new line */
 	if (new_line || !cur_line || force_new_line)
 	{
@@ -514,6 +594,18 @@ fz_add_stext_char_imp(fz_context *ctx, fz_stext_device *dev, fz_font *font, int 
 
 	dev->new_obj = 0;
 	dev->trm = trm;
+}
+
+static void
+flush_text(fz_context *ctx, fz_stext_device *dev)
+{
+	fz_stext_page *page = dev->page;
+
+	float size = fz_matrix_expansion(dev->trm);
+
+	/* Find current position to enter new text. */
+	if (dev->lasttext && dev->lasttext->tail)
+		prepend_line_if_possible(ctx, page, page->last_block, dev->trm, dev->lasttext->tail->font, size, ' ', &dev->pen, dev->color, (dev->flags & FZ_STEXT_INHIBIT_SPACES));
 }
 
 static void
@@ -794,6 +886,8 @@ fz_stext_close_device(fz_context *ctx, fz_device *dev)
 	fz_stext_line *line;
 	fz_stext_char *ch;
 
+	flush_text(ctx, tdev);
+
 	for (block = page->first_block; block; block = block->next)
 	{
 		if (block->type != FZ_STEXT_BLOCK_TEXT)
@@ -875,11 +969,11 @@ fz_new_stext_device(fz_context *ctx, fz_stext_page *page, const fz_stext_options
 		dev->super.fill_image_mask = fz_stext_fill_image_mask;
 	}
 
-    /* willus mod -- add "else dev->flags=0" */
 	if (opts)
 		dev->flags = opts->flags;
-    else
-        dev->flags = 0;
+/* willus mod */
+else dev->flags=0;
+
 	dev->page = page;
 	dev->pen.x = 0;
 	dev->pen.y = 0;

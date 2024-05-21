@@ -27,7 +27,7 @@
 
 #ifndef JCONFIG_INCLUDED        /* in case jinclude.h already did */
 #define JPEG_LIB_VERSION 80
-#define LIBJPEG_TURBO_VERSION 214
+#define LIBJPEG_TURBO_VERSION 215
 
 #define C_ARITH_CODING_SUPPORTED
 #define D_ARITH_CODING_SUPPORTED
@@ -36,7 +36,7 @@
 #cmakedefine WITH_SIMD
 */
 
-#define BITS_IN_JSAMPLE  8                      /* use 8 or 12 */
+#define BITS_IN_JSAMPLE  8
 
 #define HAVE_STDDEF_H
 #define HAVE_STDLIB_H
@@ -61,7 +61,7 @@ typedef short INT16;
 typedef signed int INT32;
 #endif
 #define XMD_H                   /* prevent jmorecfg.h from redefining it */
-#endif // !JCONFIG_INCLUDED
+#endif
 /*
  * jmorecfg.h
  *

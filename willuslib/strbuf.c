@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2022  http://willus.com
+** Copyright (C) 2023  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -323,6 +323,7 @@ void strbuf_sprintf_no_space(STRBUF *sbuf,char *fmt,...)
             {
             strbuf_ensure(sbuf,(sbuf->s==NULL?0:strlen(sbuf->s))+strlen(buf)+2);
             strcat(sbuf->s,buf);
+            sbuf->len=strlen(sbuf->s);
             }
         willus_mem_free((double **)&buf,funcname);
         }
@@ -349,11 +350,13 @@ void strbuf_dsprintf_no_space(STRBUF *sbuf,STRBUF *sbuf2,char *fmt,...)
                 {
                 strbuf_ensure(sbuf,(sbuf->s==NULL?0:strlen(sbuf->s))+strlen(buf)+2);
                 strcat(sbuf->s,buf);
+                sbuf->len=strlen(sbuf->s);
                 }
             if (sbuf2!=NULL)
                 {
                 strbuf_ensure(sbuf2,(sbuf2->s==NULL?0:strlen(sbuf2->s))+strlen(buf)+2);
                 strcat(sbuf2->s,buf);
+                sbuf2->len=strlen(sbuf2->s);
                 }
             }
         willus_mem_free((double **)&buf,funcname);

@@ -591,6 +591,14 @@ destroy_system_font_list(void)
 	memset(&fontlistMS, 0, sizeof(fontlistMS));
 }
 
+static int qs_stricmp(const void *s1,const void *s2);
+static int qs_stricmp(const void *s1,const void *s2)
+
+    {
+    return(_stricmp((char *)s1,(char *)s2));
+    }
+
+
 static void
 create_system_font_list(fz_context *ctx)
 {
@@ -625,7 +633,7 @@ create_system_font_list(fz_context *ctx)
 #endif
 
 	// sort the font list, so that it can be searched binarily
-	qsort(fontlistMS.fontmap, fontlistMS.len, sizeof(pdf_fontmapMS), _stricmp);
+	qsort(fontlistMS.fontmap, fontlistMS.len, sizeof(pdf_fontmapMS), qs_stricmp);
 
 #ifdef DEBUG
 	// allow to overwrite system fonts for debugging purposes
@@ -641,7 +649,7 @@ create_system_font_list(fz_context *ctx)
 			if (entry)
 				*entry = fontlistMS.fontmap[i];
 		}
-		qsort(fontlistMS.fontmap, fontlistMS.len, sizeof(pdf_fontmapMS), _stricmp);
+		qsort(fontlistMS.fontmap, fontlistMS.len, sizeof(pdf_fontmapMS), qs_stricmp);
 	}
 #endif
 

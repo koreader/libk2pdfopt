@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2020  http://willus.com
+** Copyright (C) 2023  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -1733,7 +1733,14 @@ static WPDFOUTLINE *wpdfoutline_convert_from_fitz_outline(fz_outline *fzoutline)
     */
     if (fzoutline->uri==NULL)
         x->srcpage=-1;
-    else if (fzoutline->uri[0]=='#')
+    /*
+    ** Update 24 Dec 2023--correctly parse page num out of uri string.
+    ** MuPDF change this from "#<pagenum>..." to "#page=<pagenum>..." somewhere
+    ** between v1.17 and v1.21.
+    */
+    else if (!strnicmp(fzoutline->uri,"#page=",6))
+        x->srcpage=atoi(&fzoutline->uri[6])-1;
+    else if (fzoutline->uri[0]=='#' && fzoutline->uri[1]>='0' && fzoutline->uri[1]<='9')
         x->srcpage=atoi(&fzoutline->uri[1])-1;
     else if (atoi(fzoutline->uri)>0)
         x->srcpage=atoi(fzoutline->uri)-1;

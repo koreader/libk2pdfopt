@@ -17,8 +17,8 @@
 //
 // Alternative licensing terms are available from the licensor.
 // For commercial licensing, see <https://www.artifex.com/> or contact
-// Artifex Software, Inc., 1305 Grant Avenue - Suite 200, Novato,
-// CA 94945, U.S.A., +1(415)492-9861, for further information.
+// Artifex Software, Inc., 39 Mesa Street, Suite 108A, San Francisco,
+// CA 94129, USA, for further information.
 
 #include "mupdf/fitz.h"
 #include "mupdf/pdf.h"
@@ -42,7 +42,6 @@ static time_t timegm(struct tm *date)
     return(t);
     }
 #endif
-
 
 
 #define isdigit(c) (c >= '0' && c <= '9')
@@ -182,7 +181,20 @@ pdf_parse_date(fz_context *ctx, const char *s)
 
 	if (s[0] == 'Z')
 	{
-		s += 1;
+		if (s[1] == '0' && s[2] == '0')
+		{
+			s += 3;
+			if (s[0] == '\'' && s[1] == '0' && s[2] == '0')
+			{
+				s += 3;
+				if (s[0] == '\'')
+					s += 1;
+			}
+		}
+		else
+		{
+			s += 1;
+		}
 	}
 	else if ((s[0] == '-' || s[0] == '+') && isdigit(s[1]) && isdigit(s[2]))
 	{

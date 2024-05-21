@@ -10,15 +10,6 @@
 #endif
 #endif
 
-#ifdef __AVX512F__
-#ifndef AVX512F
-#define AVX512F
-#endif
-#ifndef HAVE_AVX512F
-#define HAVE_AVX512F
-#endif
-#endif // __AVX512F__
-
 #ifdef __AVX__
 #ifndef AVX
 #define AVX

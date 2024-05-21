@@ -1,8 +1,8 @@
-char *k2pdfopt_version = "v2.54";
+char *k2pdfopt_version = "v2.55";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
-** Copyright (C) 2022  http://willus.com
+** Copyright (C) 2023  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -20,12 +20,33 @@ char *k2pdfopt_version = "v2.54";
 **
 ** VERSION HISTORY
 **
+** v2.55     26 DEC 2023
+**           ENHANCEMENTS
+**           -Windows version compiled with MinGW, gcc v13.2.0 on Windows 11
+**            core i9-9900 CPU.
+**           -Mac arm-64 version compiled with clang 17 on macOS 14 Sonoma
+**           -Mac x64 version cross-compiled on M1-CPU Mac mini with clang 17
+**            on macOS 14 Sonoma
+**           -Linux version compiled with gcc 13.2.1 on Fedora 39 (virtual box)
+**           -Library updates:  Tesseract 5.3.3, Leptonica 1.83, Mupdf 1.23.7,
+**                              Freetype 2.13.2, libpng 1.6.40, jpeg-turbo 2.1.5.1,
+**                              openjpeg 2.5.0, jbig2dec 0.20, zlib 1.3
+**           BUG FIXES
+**           -Bookmarks / TOC page numbering fixed in wmupdf.c (broke in v2.54
+**            due to change in mupdf library).
+**
 ** v2.54     6 JAN 2023
 **           ENHANCEMENTS
-**           -Compiled with gcc v12.2.0 in MS Windows
+**           -Windows version compiled with MinGW, gcc v12.2.0
+**           -Mac arm-64 version compiled with gcc 12.2 on Ventura
+**           -Mac x64 version cross-compiled on arm-based Mac min with clang 14
+**            on Ventura
+**           -Linux version compiled with gcc 12.2 on Fedora 37
 **           -Library updates:  Tesseract 5.3.0, Leptonica 1.83, Mupdf 1.21,
 **                              Freetype 2.12.1, libpng 1.6.39, jpeg-turbo 2.1.4,
 **                              openjpeg 2.5.0, jbig2dec 0.19, zlib 1.2.13
+**           -The Tesseract 5.3 library runs 20% - 50% faster than Tesseract 4.1
+**            on English training files.
 **           BUG FIXES
 **           -ocrword library updated to fix possible memory leak from not
 **            freeing bitmaps used by the data structure.

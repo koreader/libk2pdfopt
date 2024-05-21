@@ -16,7 +16,7 @@
 ///////////////////////////////////////////////////////////////////////
 
 #if !defined(__SSE4_1__)
-/* willus mod -- don't throw an error -- just skip */
+/* willus mode -- don't throw an error -- just skip */
 /*
 #  if defined(__i686__) || defined(__x86_64__)
 #    error Implementation only for SSE 4.1 capable architectures
