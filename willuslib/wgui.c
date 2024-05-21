@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2020  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -43,6 +43,10 @@ LRESULT CALLBACK willusgui_edit2_proc(HWND hWnd,UINT message,WPARAM wParam,LPARA
 LRESULT CALLBACK willusgui_edit3_proc(HWND hWnd,UINT message,WPARAM wParam,LPARAM lParam);
 #endif
 
+static int sbmp_page_no=-1;
+static int sbmp_total_pages=-1;
+static double willusgui_altkey_margin_inches=0.1;
+
 typedef struct
     {
     void *oshandle;
@@ -74,6 +78,23 @@ static void winhandlepairs_sort(WINHANDLEPAIRS *pairs);
 
 
 static int ime_notify_status=0;
+
+
+void willusgui_set_altkey_margin_inches(double x)
+
+    {
+    willusgui_altkey_margin_inches=x;
+    }
+
+
+void willusgui_sbitmap_set_page(int pageno,int total_pages)
+
+    {
+    sbmp_page_no=pageno;
+    sbmp_total_pages=total_pages;
+    }
+
+
 void willusgui_set_ime_notify(int status)
 
     {
@@ -2638,6 +2659,7 @@ ct=curstype;
 }
 */
             /* Check for button just lifted */
+            /* Use timer routine to catch button lifts that happen outside the window */
             if (crop)
                 {
                 if ((!(down&128) && control->labeljust==1)
@@ -2692,7 +2714,12 @@ printf("Just clicked, curstype=%d\n",curstype);
                     if (p.x<x0 || p.x>x0+w0-1 || p.y<y0 || p.y>y0+h0-1)
                         return(0);
                     /* Start an anchor */
-                    control->anchor.left=p.x;
+                    if (willusgui_altkey_pressed())
+                        /* Update:  Leave margin */
+                        control->anchor.left=(w0-control->bmp.width)/2 
+                                   + (int)(control->dpi_rendered*willusgui_altkey_margin_inches);
+                    else
+                        control->anchor.left=p.x;
                     control->anchor.top=p.y;
                     /* Use label justification as type -- left or right-dragged */
                     control->labeljust = (down&128) ? 1 : 2;
@@ -2722,7 +2749,12 @@ printf("Just clicked, curstype=%d\n",curstype);
                 switch (control->anchor.right)
                     {
                     case 0:
-                        control->rectmarked.left   = p.x;
+                        if (willusgui_altkey_pressed())
+                            /* Update--leave margin */
+                            control->rectmarked.left   = w0 - (w0-control->bmp.width)/2 
+                                     - (int)(willusgui_altkey_margin_inches*control->dpi_rendered);
+                        else
+                            control->rectmarked.left   = p.x;
                         control->rectmarked.right  = control->anchor.left;
                         control->rectmarked.top    = p.y;
                         control->rectmarked.bottom = control->anchor.top;
@@ -2790,7 +2822,13 @@ printf("Just clicked, curstype=%d\n",curstype);
                             control->rectmarked.top=y0+h0-1-dy;
                             control->rectmarked.bottom=y0+h0-1;
                             }
-                        control->anchor.left = p.x;
+                        if (willusgui_altkey_pressed())
+                            /* Update:  Leave margin */
+                            control->anchor.left=(w0-control->bmp.width)/2 
+                                  + (int)(control->dpi_rendered*willusgui_altkey_margin_inches);
+
+                        else
+                            control->anchor.left = p.x;
                         control->anchor.top = p.y;
                         break;
                         }
@@ -2830,8 +2868,13 @@ printf("Just clicked, curstype=%d\n",curstype);
                 willusguirect_bound(&control->rectmarked,&rect0);
                 willusgui_window_draw_rect_outline(control,&control->rectmarked,-1);
                 control->rdcount++;
+                if (sbmp_page_no>0 && sbmp_total_pages>0)
+                    sprintf(buf,"Page %d of %d, ",sbmp_page_no,sbmp_total_pages);
+                else
+                    buf[0]='\0';
                 if (control->dpi_rendered>0.)
-                    sprintf(buf,"%04d,%04d %04d x %04d (%05.2fin,%05.2fin %05.2fin x %05.2fin)",
+                    sprintf(&buf[strlen(buf)],
+                             "%04d,%04d %04d x %04d (%05.2fin,%05.2fin %05.2fin x %05.2fin)",
                                 control->rectmarked.left,
                                 control->rectmarked.top,
                                 control->rectmarked.right-control->rectmarked.left+1,
@@ -2843,7 +2886,7 @@ printf("Just clicked, curstype=%d\n",curstype);
                                 (control->rectmarked.bottom-control->rectmarked.top+1)
                                       / control->dpi_rendered);
                 else
-                    sprintf(buf,"%04d,%04d %04d x %04d",
+                    sprintf(&buf[strlen(buf)],"%04d,%04d %04d x %04d",
                                 control->rectmarked.left,
                                 control->rectmarked.top,
                                 control->rectmarked.right-control->rectmarked.left+1,
@@ -2860,12 +2903,16 @@ printf("Just clicked, curstype=%d\n",curstype);
                     control->crosshair.left=p.x;
                     control->crosshair.top=p.y;
                     willusgui_window_draw_crosshair(control,p.x,p.y,-1);
+                    if (sbmp_page_no>0 && sbmp_total_pages>0)
+                        sprintf(buf,"Page %d of %d, ",sbmp_page_no,sbmp_total_pages);
+                    else
+                        buf[0]='\0';
                     if (control->dpi_rendered>0.)
-                        sprintf(buf,"%04d x %04d (%05.2f in x %05.2f in)",
+                        sprintf(&buf[strlen(buf)],"%04d x %04d (%05.2f in x %05.2f in)",
                                     (int)p.x,(int)p.y,p.x/control->dpi_rendered,
                                                       p.y/control->dpi_rendered);
                     else
-                        sprintf(buf,"%04d x %04d",(int)p.x,(int)p.y);
+                        sprintf(&buf[strlen(buf)],"%04d x %04d",(int)p.x,(int)p.y);
                     SetWindowText((HWND)control->parent->handle,buf);
                     }
                 }
@@ -2957,6 +3004,7 @@ printf("sbitmap MOUSEMOVE.\n");
                         {
                         lcdown=lsdown=0;
                         SendMessage((HWND)control->parent->handle,WM_COMMAND,12,lParam);
+                        control->labeljust=0;
                         return(0);
                         }
                     }
@@ -3035,6 +3083,7 @@ printf("sbitmap MOUSEMOVE.\n");
                         {
                         rcdown=rsdown=0;
                         SendMessage((HWND)control->parent->handle,WM_COMMAND,13,lParam);
+                        control->labeljust=0;
                         return(0);
                         }
                     }
@@ -3058,6 +3107,26 @@ printf("sbitmap MOUSEMOVE.\n");
         }
     return(DefWindowProc(hwnd,message,wParam,lParam));
     }
+
+
+int willusgui_altkey_pressed(void)
+
+    {
+    return(GetKeyState(VK_MENU)<0);
+    }
+
+
+int willusgui_shiftkey_state(void)
+
+    {
+    return(
+           (GetKeyState(VK_LSHIFT)<0 ? 1 : 0)
+         | (GetKeyState(VK_RSHIFT)<0 ? 2 : 0)
+         | (GetKeyState(VK_LCONTROL)<0 ? 4 : 0)
+         | (GetKeyState(VK_RCONTROL)<0 ? 8 : 0)
+          );
+    }
+
 
 
 /*

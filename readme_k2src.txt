@@ -1,7 +1,7 @@
 K2pdfopt build help.
 http://willus.com
 Original: 7 September 2012
-Last updated:  18 Jul 2020 (v2.53)
+Last updated:  6 Jan 2023 (v2.54)
 
 This "read me" file describes the source code distribution for k2pdfopt.
 
@@ -19,7 +19,7 @@ K2pdfopt Source Files
    library dependencies (HAVE_XXX_LIB) and whether or not the MS Windows
    GUI is compiled in (HAVE_K2GUI).
 
-3. willus.com general-purpose C library (39 C files + 1 header file) in
+3. willus.com general-purpose C library (41 C files + 1 header file) in
    willuslib subfolder.
    Compile all C files in this subfolder and build them into libwillus.a.
    Near the top of willus.h are #defines which control third-party
@@ -36,28 +36,29 @@ NOTE 4 below).
 
     REQUIRED
     --------
-    1.  Z-lib 1.2.11 (zlib.net)
-    2.  libpng 1.6.37 (www.libpng.org)
-    3.  Turbo JPEG lib 2.0.4 (sourceforge.net/projects/libjpeg-turbo/)
+    1.  Z-lib 1.2.13 (zlib.net)
+    2.  libpng 1.6.39 (www.libpng.org)
+    3.  Turbo JPEG lib 2.1.4 (sourceforge.net/projects/libjpeg-turbo/)
 
     TO INCLUDE MuPDF LIBRARY (search for HAVE_MUPDF in k2pdfopt.c)
     --------------------------------------------------------------
-    4.  JBIG2Dec 0.11 (jbig2dec.sourceforge.net)
-    5.  OpenJPEG 2.3.1 (www.openjpeg.org)
-    6.  FreeType 2.10.2 (freetype.sourceforge.net/index2.html)
-    7.  lcms 2.9 (Artifex fork included w/MuPDF 1.17 distro)
-    8.  Mupdf 1.17 (mupdf.com) -- SEE NOTE 1.
+    4.  JBIG2Dec 0.19 (jbig2dec.sourceforge.net)
+    5.  OpenJPEG 2.5.0 (www.openjpeg.org)
+    6.  FreeType 2.12.1 (freetype.sourceforge.net/index2.html)
+    7.  lcms from MuPDF 1.21 distro
+    8.  gumbo from MuPDF v1.21 distro
+    9.  Mupdf 1.21 (mupdf.com) -- SEE NOTE 1.
 
     TO INCLUDE DjVuLibre LIBRARY (search for HAVE_DJVU in k2pdfopt.c)
     -----------------------------------------------------------------
-    9.  DJVULibre 3.5.25.3 (C++) (djvu.sourceforge.net)
+    10.  DJVULibre 3.5.25.3 (C++) (djvu.sourceforge.net)
 
     FOR OCR VERSIONS OF K2PDFOPT (search for HAVE_OCR in k2pdfopt.c)
     ----------------------------------------------------------------
-    10.  GOCR 0.50 (sourceforge.net/jocr/)
-    12. Leptonica 1.79.0 (leptonica.com)
-    12. Tesseract 4.1.1 (C++) (code.google.com/tesseract-ocr/) -- SEE NOTE 2.
-    13. POSIX threads support (pretty standard with gcc implementations)
+    11.  GOCR 0.50 (sourceforge.net/jocr/)
+    12. Leptonica 1.83.0 (leptonica.com)
+    13. Tesseract 5.3.0 (C++) (code.google.com/tesseract-ocr/) -- SEE NOTE 2.
+    14. POSIX threads support (pretty standard with gcc implementations)
 
     If you don't include MuPDF, DjVuLibre, or OCR, then k2pdfopt will
     look for an installation of Ghostscript.
@@ -98,10 +99,11 @@ Notes
    originally from Dirk Thierbach to help with Linux builds.  He also contributed
    the config.h.in file and the dtcompress.c file (in willus lib).  It is
    possible to build the project without using these files (I do not use them).
+   I have not confirmed that this file still works on the latest build.
    
 
-Build Steps for k2pdfopt on Windows 10 (gcc 9.3.1)
---------------------------------------------------
+Build Steps for k2pdfopt on Windows 11 (gcc 12.2.0)
+---------------------------------------------------
 My compile steps with gcc (MinGW) are as follows (assuming all the libraries are built
 to libxxx.a files in d:\3rdparty_lib and headers are in d:\3rdparty_include):
 
@@ -113,7 +115,7 @@ to libxxx.a files in d:\3rdparty_lib and headers are in d:\3rdparty_include):
 
     3. gcc -Ofast -m64 -Wall -c -Id:\3rdparty_include k2pdfopt.c
 
-    4. g++ -Ofast -m64 -Wall -o k2pdfopt.exe k2pdfopt.o resfile.o -static-libgcc -static-libstdc++ d:\mingw\x64\lib\crt_noglob.o -Ld:\3rdparty_lib -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread -lgdi32 -luuid -lole32 -lcomdlg32 -lshlwapi
+    4. g++ -Ofast -m64 -Wall -o k2pdfopt.exe k2pdfopt.o resfile.o -static-libgcc -static-libstdc++ d:\mingw\x64\lib\crt_noglob.o -Ld:\3rdparty_lib -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -llcms -lgumbo -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread -lgdi32 -luuid -lole32 -lcomdlg32 -lshlwapi
 
 
     32-bit
@@ -124,18 +126,18 @@ to libxxx.a files in d:\3rdparty_lib and headers are in d:\3rdparty_include):
 
     3. gcc -Ofast -m32 -Wall -c -Id:\3rdparty_include k2pdfopt.c
 
-    4. g++ -Ofast -m32 -Wall -o k2pdfopt.exe k2pdfopt.o resfile.o -static-libgcc -static-libstdc++ d:\mingw\i386\lib\crt_noglob.o -Ld:\3rdparty_lib -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread -lgdi32 -luuid -lole32 -lcomdlg32 -lshlwapi
+    4. g++ -Ofast -m32 -Wall -o k2pdfopt.exe k2pdfopt.o resfile.o -static-libgcc -static-libstdc++ d:\mingw\i386\lib\crt_noglob.o -Ld:\3rdparty_lib -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -llcms -lgumbo -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread -lgdi32 -luuid -lole32 -lcomdlg32 -lshlwapi
 
 
-Build Steps on Linux (64-bit, gcc 8.2.0, compiled on Fedora 29)
----------------------------------------------------------------
+Build Steps on Linux (64-bit, gcc 12.2.0, compiled on Fedora 37)
+----------------------------------------------------------------
 1. gcc -Wall -Ofast -m64 -o k2pdfopt.o -c k2pdfopt.c
 
-2. g++ -Ofast -m64 -o k2pdfopt k2pdfopt.o -static -static-libgcc -static-libstdc++ -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread -lstdc++ -lc -lm
+2. g++ $CFLAGS -m64 -o k2pdfopt k2pdfopt.o -static -static-libgcc -static-libstdc++ -L$LIBDIR -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -llcms -lgumbo -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread
 
 
-Build Steps on OS/X (64-bit, gcc 8.2.0, compiled on OSX 10.12 Sierra)
-----------------------------------------------------------------------
-1. gcc -Ofast -Wall -m64 -o k2pdfopt.o -c k2pdfopt.c
+Build Steps on OS/X (64-bit, homebrew gcc 12.2.0, built on M1 CPU mac min under Ventura)
+----------------------------------------------------------------------------------------
+1. gcc-12 -Ofast -Wall -m64 -o k2pdfopt.o -c k2pdfopt.c
 
-2. g++ -Ofast -m64 -o k2pdfopt k2pdfopt.o -static-libgcc -static-libstdc++ -lk2pdfopt -lwillus -lgocr -ltesseract -lleptonica -ldjvu -lmupdf -lfreetype -ljbig2 -ljpeglib -lopenjpeg -lpng -lzlib -lpthread
+2. g++-12 -Ofast -Wall -o k2pdfopt k2pdfopt.o -static-libgcc -static-libstdc++ -I$C_INCLUDE_PATH -L$C_LIBRARY_PATH -lk2pdfopt -lmupdf -llcms -lgumbo -lfreetype -lopenjpeg -ljbig2 -ljpeglib -lpng -lwillus -lzlib -ltesseract -lleptonica -ldjvu -lgocr

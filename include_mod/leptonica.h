@@ -29,7 +29,7 @@
 
 
 #define LIBLEPT_MAJOR_VERSION   1
-#define LIBLEPT_MINOR_VERSION   79
+#define LIBLEPT_MINOR_VERSION   83
 #define LIBLEPT_PATCH_VERSION   0
 
 /*====================================================================*
@@ -138,20 +138,36 @@ typedef unsigned int uintptr_t;
 
 #endif /* _MSC_VER */
 
-/* Windows specifics */
-#ifdef _WIN32
-  /* DLL EXPORTS and IMPORTS */
-  #if defined(LIBLEPT_EXPORTS)
-    #define LEPT_DLL __declspec(dllexport)
-  #elif defined(LIBLEPT_IMPORTS)
-    #define LEPT_DLL __declspec(dllimport)
-  #else
+#if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L) && !defined(__STDC_NO_ATOMICS__)
+#include <stdatomic.h>
+typedef atomic_int l_atomic;
+#else
+typedef int l_atomic;
+#endif
+
+#ifndef LEPT_DLL
+  /* Windows specifics */
+  #ifdef _WIN32
+    /* DLL EXPORTS and IMPORTS */
+    #if defined(LIBLEPT_EXPORTS)
+      #define LEPT_DLL __declspec(dllexport)
+    #elif defined(LIBLEPT_IMPORTS)
+      #define LEPT_DLL __declspec(dllimport)
+    #else
+      #define LEPT_DLL
+    #endif
+  #else  /* non-Windows specifics */
     #define LEPT_DLL
-  #endif
-#else  /* non-Windows specifics */
+  #endif  /* _WIN32 */
+#endif  /* LEPT_DLL */
+
+#ifndef _WIN32  /* non-Windows specifics */
   #include <stdint.h>
-  #define LEPT_DLL
 #endif  /* _WIN32 */
+
+#ifdef __APPLE__
+  #include <Availability.h>
+#endif /* __APPLE__ */
 
 typedef intptr_t l_intptr_t;
 typedef uintptr_t l_uintptr_t;
@@ -230,32 +246,38 @@ typedef uintptr_t l_uintptr_t;
 
 
 /*-------------------------------------------------------------------------*
- * On linux systems, you can do I/O between Pix and memory.  Specifically,
- * you can compress (write compressed data to memory from a Pix) and
- * uncompress (read from compressed data in memory to a Pix).
- * For jpeg, png, jp2k, gif, pnm and bmp, these use the non-posix GNU
- * functions fmemopen() and open_memstream().  These functions are not
- * available on other systems.
- * To use these functions in linux, you must define HAVE_FMEMOPEN to 1.
- * To use them on MacOS, which does not support these functions, set it to 0.
+ * On linux, BSD, macOS (> 10.12), android (sdk >= 23) and iOS(>= 11.0),
+ * you can redirect writing data from a filestream to memory using
+ * open_memstream() and redirect reading data from a filestream to
+ * reading from memory using fmemopen().
+ * Specifically, you can compress (write compressed data to memory
+ * from raster data in a Pix) and uncompress (read from compressed data
+ * in memory to raster data in a Pix).
+ * For png, tiff and webp, data is compressed and uncompressed directly
+ * to memory without the use of the POSIX.1 (2008) functions fmemopen()
+ * and open_memstream().
+ * For jpeg, jp2k, gif, pnm and bmp, these functions are used on systems
+ * that support them, and for those we define HAVE_FMEMOPEN to 1.
  *-------------------------------------------------------------------------*/
-#if !defined(HAVE_CONFIG_H) && !defined(ANDROID_BUILD) && !defined(OS_IOS) && \
+#if !defined(HAVE_CONFIG_H) && \
+    (!defined(ANDROID_BUILD) || __ANDROID_API__ >= 23) && \
+    (!defined(__IPHONE_OS_VERSION_MIN_REQUIRED) || \
+              __IPHONE_OS_VERSION_MIN_REQUIRED >= 110000) && \
+    (!defined(__MAC_OS_X_VERSION_MIN_REQUIRED) || \
+              __MAC_OS_X_VERSION_MIN_REQUIRED > 101200) && \
     !defined(_WIN32)
-#define  HAVE_FMEMOPEN    1
+#define  HAVE_FMEMOPEN    0
 #endif  /* ! HAVE_CONFIG_H etc. */
-/* willus mod */
-#ifdef HAVE_FMEMOPEN
-#undef HAVE_FMEMOPEN
-#endif
-#define HAVE_FMEMOPEN 0
 
 /*-------------------------------------------------------------------------*
  * fstatat() is defined by POSIX, but some systems do not support it.      *
  * One example is older macOS systems (pre-10.10).                         *
- * Play it safe and set the default value to 0.                            *
+ * Also, dirfd() is required by fstatat().                                 *
+ * Play it safe and set the default values to 0.                           *
  *-------------------------------------------------------------------------*/
 #if !defined(HAVE_CONFIG_H)
 #define  HAVE_FSTATAT     0
+#define  HAVE_DIRFD       0
 #endif /* ! HAVE_CONFIG_H */
 
 /*--------------------------------------------------------------------*
@@ -399,15 +421,36 @@ typedef struct L_WallTimer  L_WALLTIMER;
 /*------------------------------------------------------------------------*
  *                      Standard memory allocation                        *
  *                                                                        *
- *  These specify the memory management functions that are used           *
- *  on all heap data except for Pix.  Memory management for Pix           *
- *  also defaults to malloc and free.  See pix1.c for details.            *
+ *  All default heap allocation is through the system malloc and free.    *
+ *                                                                        *
+ *  Leptonica also provides non-default allocation in two situations:     *
+ *                                                                        *
+ *  (1) A special allocator/deallocator pair can be provided for the      *
+ *      pix image data array.  This might be useful to prevent memory     *
+ *      fragmentation when large images are repeatedly allocated and      *
+ *      freed.  See the PixMemoryManager in pix1.c for details,           *
+ *      where the default is defined.                                     *
+ *                                                                        *
+ *  (2) Special allocator/deallocators can be provided for ALL heap       *
+ *      allocation if required, for example, for embedded systems.        *
+ *      For such builds, define LEPTONICA_INTERCEPT_ALLOC, and provide    *
+ *      custom leptonica_{malloc, calloc, realloc, free} functions.       *
  *------------------------------------------------------------------------*/
-#define LEPT_MALLOC(blocksize)           malloc(blocksize)
-#define LEPT_CALLOC(numelem, elemsize)   calloc(numelem, elemsize)
-#define LEPT_REALLOC(ptr, blocksize)     realloc(ptr, blocksize)
-#define LEPT_FREE(ptr)                   free(ptr)
-
+#ifdef LEPTONICA_INTERCEPT_ALLOC
+  #define LEPT_MALLOC(blocksize)           leptonica_malloc(blocksize)
+  #define LEPT_CALLOC(numelem, elemsize)   leptonica_calloc(numelem, elemsize)
+  #define LEPT_REALLOC(ptr, blocksize)     leptonica_realloc(ptr, blocksize)
+  #define LEPT_FREE(ptr)                   leptonica_free(ptr)
+  void *leptonica_malloc(size_t blocksize);
+  void *leptonica_calloc(size_t numelem, size_t elemsize);
+  void *leptonica_realloc(void *ptr, size_t blocksize);
+  void leptonica_free(void *ptr);
+#else
+  #define LEPT_MALLOC(blocksize)           malloc(blocksize)
+  #define LEPT_CALLOC(numelem, elemsize)   calloc(numelem, elemsize)
+  #define LEPT_REALLOC(ptr, blocksize)     realloc(ptr, blocksize)
+  #define LEPT_FREE(ptr)                   free(ptr)
+#endif   /* LEPTONICA_INTERCEPT_ALLOC */
 
 /*------------------------------------------------------------------------*
  *         Control printing of error, warning, and info messages          *
@@ -671,19 +714,30 @@ LEPT_DLL extern l_int32  LeptMsgSeverity;
  * \file array.h
  *
  * <pre>
- *  Contains the following structs:
- *      struct Numa
+ *  This file has typedefs for the following array structs:
+ *      struct Numa          array of floats
  *      struct Numaa
- *      struct L_Dna
+ *      struct L_Dna         array of doubles
  *      struct L_Dnaa
- *      struct L_DnaHash
- *      struct Sarray
- *      struct L_Bytea
+ *      struct L_Dnahash
+ *      struct Sarray        array of C-strings
+ *      struct L_Bytea       array of bytes
  *
- *  Contains definitions for:
+ *  It contains definitions for:
  *      Numa interpolation flags
- *      Numa and FPix border flags
+ *      Numa border flags
  *      Numa data type conversion to string
+ *
+ *  Here are the non-image-related arrays in leptonica:
+ *  * Numa, L_Dna, L_Ptra, Sarray:
+ *    These have most of the typical operations of vectors, such as add,
+ *    insert, remove and replace.
+ *  * Numaa, L_Dnaa, L_Ptraa:
+ *    These are arrays of float, double and generic pointer arrays.
+ *  * L_Bytea:
+ *    This is an array of bytes, analogous to a C++ string.
+ *  * L_Dnahash:
+ *    This is a simple hashing for integers, used in the jbig2 classifier.
  * </pre>
  */
 
@@ -691,85 +745,25 @@ LEPT_DLL extern l_int32  LeptMsgSeverity;
 /*------------------------------------------------------------------------*
  *                             Array Structs                              *
  *------------------------------------------------------------------------*/
-
-/*! Numa version for serialization */
-#define  NUMA_VERSION_NUMBER     1
-
     /*! Number array: an array of floats */
-struct Numa
-{
-    l_int32          nalloc;    /*!< size of allocated number array      */
-    l_int32          n;         /*!< number of numbers saved             */
-    l_int32          refcount;  /*!< reference count (1 if no clones)    */
-    l_float32        startx;    /*!< x value assigned to array[0]        */
-    l_float32        delx;      /*!< change in x value as i --> i + 1    */
-    l_float32       *array;     /*!< number array                        */
-};
 typedef struct Numa  NUMA;
 
     /*! Array of number arrays */
-struct Numaa
-{
-    l_int32          nalloc;    /*!< size of allocated ptr array          */
-    l_int32          n;         /*!< number of Numa saved                 */
-    struct Numa    **numa;      /*!< array of Numa                        */
-};
 typedef struct Numaa  NUMAA;
 
-/*! Dna version for serialization */
-#define  DNA_VERSION_NUMBER     1
-
     /*! Double number array: an array of doubles */
-struct L_Dna
-{
-    l_int32          nalloc;    /*!< size of allocated number array      */
-    l_int32          n;         /*!< number of numbers saved             */
-    l_int32          refcount;  /*!< reference count (1 if no clones)    */
-    l_float64        startx;    /*!< x value assigned to array[0]        */
-    l_float64        delx;      /*!< change in x value as i --> i + 1    */
-    l_float64       *array;     /*!< number array                        */
-};
 typedef struct L_Dna  L_DNA;
 
     /*! Array of double number arrays */
-struct L_Dnaa
-{
-    l_int32          nalloc;    /*!< size of allocated ptr array          */
-    l_int32          n;         /*!< number of L_Dna saved                */
-    struct L_Dna   **dna;       /*!< array of L_Dna                       */
-};
 typedef struct L_Dnaa  L_DNAA;
 
-    /*! A hash table of Dnas */
-struct L_DnaHash
-{
-    l_int32          nbuckets;
-    l_int32          initsize;   /*!< initial size of each dna that is made  */
-    struct L_Dna   **dna;        /*!< array of L_Dna                       */
-};
+    /*! Array of double number arrays, used as a simple hash */
 typedef struct L_DnaHash L_DNAHASH;
 
-/*! Sarray version for serialization */
-#define  SARRAY_VERSION_NUMBER     1
-
     /*! String array: an array of C strings */
-struct Sarray
-{
-    l_int32          nalloc;    /*!< size of allocated ptr array         */
-    l_int32          n;         /*!< number of strings allocated         */
-    l_int32          refcount;  /*!< reference count (1 if no clones)    */
-    char           **array;     /*!< string array                        */
-};
 typedef struct Sarray SARRAY;
 
     /*! Byte array (analogous to C++ "string") */
-struct L_Bytea
-{
-    size_t           nalloc;    /*!< number of bytes allocated in data array  */
-    size_t           size;      /*!< number of bytes presently used           */
-    l_int32          refcount;  /*!< reference count (1 if no clones)         */
-    l_uint8         *data;      /*!< data array                               */
-};
 typedef struct L_Bytea L_BYTEA;
 
 
@@ -782,7 +776,7 @@ enum {
     L_QUADRATIC_INTERP = 2      /*!< quadratic  */
 };
 
-/*! Border Adding */
+/*! Numa Border Adding */
 enum {
     L_CONTINUED_BORDER = 1,    /*!< extended with same value                  */
     L_SLOPE_BORDER = 2,        /*!< extended with constant normal derivative  */
@@ -856,6 +850,140 @@ typedef struct L_ByteBuffer L_BBUFFER;
 
 
 #endif  /* LEPTONICA_BBUFFER_H */
+/*====================================================================*
+ -  Copyright (C) 2001 Leptonica.  All rights reserved.
+ -
+ -  Redistribution and use in source and binary forms, with or without
+ -  modification, are permitted provided that the following conditions
+ -  are met:
+ -  1. Redistributions of source code must retain the above copyright
+ -     notice, this list of conditions and the following disclaimer.
+ -  2. Redistributions in binary form must reproduce the above
+ -     copyright notice, this list of conditions and the following
+ -     disclaimer in the documentation and/or other materials
+ -     provided with the distribution.
+ -
+ -  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ -  ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ -  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ -  A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL ANY
+ -  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ -  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ -  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ -  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ -  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ -  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ -  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *====================================================================*/
+
+#ifndef  LEPTONICA_HASHMAP_H
+#define  LEPTONICA_HASHMAP_H
+
+/*
+ * \file hashmap.h
+ *
+ * <pre>
+ *  Contains the following structs:
+ *      struct L_Hashmap
+ *      struct L_Hashitem
+ *
+ *  Goal:
+ *      You have a set of objects (integers, strings, pts, whatever),
+ *      and you want to store them in a data structure (L_Hashmap) that allows
+ *      O(1) to find, insert and count the occurrences of such an object.
+ *      The tool is a hash map.  This is not ordered, unlike the O(log n)
+ *      ordered map (L_Amap), which is implemented by an rbtree.
+ *
+ *  In slightly more detail:
+ *      Store the set of objects in an array, which in general can be
+ *      held in a pointer array (L_Ptra).  You need a hash function that
+ *      will generate a unique uint64 key from each object.  For our simple
+ *      built-in arrays, such as float, double and Pta (points), these hash
+ *      functions are in utils1.c.  Then for each object in the array,
+ *      you store the key and the index to the array of objects (the val)
+ *      in a list of hashitems in the hash table, where the specific
+ *      list is determined by the key (specifically, the mod of the key
+ *      with the size of the hashtable).
+ *
+ *  In yet more detail:
+ *  (1) The design loosely follows the design of a hashmap in "The Practice
+ *      of Programming by Brian Kernighan and Rob Pike, Addison Wesley, 1999.
+ *  (2) The L_Hashmap contains a hashtable with a prime number of pointers
+ *      to lists of hashitems.  The lookup function takes a key and a value,
+ *      which are both 64-bit unsigned integers.  The key has been generated
+ *      by hashing the input object in a way that avoids collisions between
+ *      different objects. The value is an integer that identifies the
+ *      object; typically it is the index into an array of objects.
+ *      The hashtable size is a prime number, and an index into the table
+ *      is made from the key by taking its mod with the hashtable size.
+ *      The index points to a list of hashitems, which have all been hashed
+ *      by the mod function into the same index in the table.
+ *      Because the key is expected to be randomly distributed in uint64,
+ *      the table indices should be uniformly distributed, resulting in
+ *      approximately the same number of items being placed in each of
+ *      these lists.  The list of hashitems is traversed, comparing the
+ *      input uint64 key in the lookup() function with the key stored in
+ *      each hashitem.  If a hashitem is found with a matching key,
+ *      return a pointer to that hashitem.  If not found and the op is
+ *      L_HASH_CREATE, make a new hash item, add it to the list, and
+ *      return a pointer to it.
+ *  (3) The count field in the hashitem gives the number of times the
+ *      key has been seen when storing key/value pairs.
+ *  (4) The val field is the index into an array of the objects.  When
+ *      the hashmap is initially made, it is the index of the first item
+ *      seen with its key.
+ *  (5) For the hashmap to work efficiently, the lists must not become too
+ *      long.  Because in general you do not know the number of objects
+ *      in advance, it is important to be able to dynamically resize
+ *      the hashtable as it grows.  The hashmap is initialized with
+ *      room for some number of hashitems and the maximum average list
+ *      size.  These two numbers determine the size of the hashtable,
+ *      which is constrained to be a prime number.  As the hashtable grows,
+ *      if the average occupancy exceeds the input %maxocc, the hashtable
+ *      size is approximately doubled and the existing items are re-hashed
+ *      into it, mod the new (prime number) table size.
+ * </pre>
+ */
+
+/*------------------------------------------------------------------------*
+ *                           Hash map structs                             *
+ *------------------------------------------------------------------------*/
+/*! General hash map */
+struct L_Hashmap
+{
+    l_int32              nitems;    /*!< number of stored items              */
+    l_int32              ntogo;     /*!< number of items to be stored        */
+                                    /*!< before resizing the hashmap         */
+    l_int32              maxocc;    /*!< max average occupancy allowed       */
+    struct L_Hashitem  **hashtab;   /*!< array of hash item ptrs             */
+    l_int32              tabsize;   /*!< size of array of hash item ptrs     */
+};
+typedef struct L_Hashmap  L_HASHMAP;
+
+/*! Hash item, containing storage for the key, value and count.  The key
+    is a l_uint64, which is hashed by the mod function to find the index
+    into the hashtab. */
+struct L_Hashitem
+{
+    l_uint64            key;    /*!< key is hashed into index into hashtab   */
+    l_uint64            val;    /*!< number stored associated with the key   */
+    l_int32             count;  /*!< number of elements seen with this key   */
+    struct L_Hashitem  *next;   /*!< ptr to the next in the list             */
+};
+typedef struct L_Hashitem  L_HASHITEM;
+
+
+/*------------------------------------------------------------------------*
+ *                            Hashmap flags                               *
+ *------------------------------------------------------------------------*/
+/*! Hashmap Lookup */
+enum {
+    L_UNDEFINED = 0,         /*!< invalid operation                         */
+    L_HMAP_CHECK = 1,        /*!< check if this key/val has been stored     */
+    L_HMAP_CREATE = 2        /*!< create and store a hashitem if not found  */
+};
+
+#endif  /* LEPTONICA_HASHMAP_H */
 /*====================================================================*
  -  Copyright (C) 2001 Leptonica.  All rights reserved.
  -
@@ -1077,6 +1205,8 @@ typedef struct DoubleLinkedList    DLLIST;
  * </pre>
  */
 
+    /* Bound on max initial ptra size */
+LEPT_DLL extern const l_uint32  MaxInitPtraSize;
 
 /*------------------------------------------------------------------------*
  *                     Generic Ptr Array Structs                          *
@@ -1735,10 +1865,18 @@ typedef struct L_Bmf L_BMF;
  * \file ccbord.h
  *
  * <pre>
- *           CCBord:   represents a single connected component
- *           CCBorda:  an array of CCBord
+ *
+ *    This is the public interface for representing all foreground pixels
+ *    in an image by the border pixels of connected components.  It contains
+ *    typedefs for data structures and enums for function inputs.
  * </pre>
  */
+
+/*! A single CCBord for a connected component */
+typedef struct CCBord CCBORD;
+
+/*! Array of CCBord */
+typedef struct CCBorda CCBORDA;
 
     /*! Use in ccbaStepChainsToPixCoords() */
 /*! CCB Coords */
@@ -1754,75 +1892,75 @@ enum {
       CCB_SAVE_TURNING_PTS = 2
 };
 
-
-    /*!
-     * <pre>
-     * CCBord contains:
-     *
-     *    (1) a minimally-clipped bitmap of the component (pix),
-     *    (2) a boxa consisting of:
-     *          for the primary component:
-     *                (xul, yul) pixel location in global coords
-     *                (w, h) of the bitmap
-     *          for the hole components:
-     *                (x, y) in relative coordinates in primary component
-     *                (w, h) of the hole border (which is 2 pixels
-     *                       larger in each direction than the hole itself)
-     *    (3) a pta ('start') of the initial border pixel location for each
-     *        closed curve, all in relative coordinates of the primary
-     *        component.  This is given for the primary component,
-     *        followed by the hole components, if any.
-     *    (4) a refcount of the ccbord; used internally when a ccbord
-     *        is accessed from a ccborda (array of ccbord)
-     *    (5) a ptaa for the chain code for the border in relative
-     *        coordinates, where the first pta is the exterior border
-     *        and all other pta are for interior borders (holes)
-     *    (6) a ptaa for the global pixel loc rendition of the border,
-     *        where the first pta is the exterior border and all other
-     *        pta are for interior borders (holes).
-     *        This is derived from the local or step chain code.
-     *    (7) a numaa for the chain code for the border as orientation
-     *        directions between successive border pixels, where
-     *        the first numa is the exterior border and all other
-     *        numa are for interior borders (holes).  This is derived
-     *        from the local chain code.  The 8 directions are 0 - 7.
-     *    (8) a pta for a single chain for each c.c., comprised of outer
-     *        and hole borders, plus cut paths between them, all in
-     *        local coords.
-     *    (9) a pta for a single chain for each c.c., comprised of outer
-     *        and hole borders, plus cut paths between them, all in
-     *        global coords.
-     * </pre>
-     */
-struct CCBord
-{
-    struct Pix          *pix;          /*!< component bitmap (min size)      */
-    struct Boxa         *boxa;         /*!< regions of each closed curve     */
-    struct Pta          *start;        /*!< initial border pixel locations   */
-    l_int32              refcount;     /*!< number of handles; start at 1    */
-    struct Ptaa         *local;        /*!< ptaa of chain pixels (local)     */
-    struct Ptaa         *global;       /*!< ptaa of chain pixels (global)    */
-    struct Numaa        *step;         /*!< numaa of chain code (step dir)   */
-    struct Pta          *splocal;      /*!< pta of single chain (local)      */
-    struct Pta          *spglobal;     /*!< pta of single chain (global)     */
-};
-typedef struct CCBord CCBORD;
-
-/*! Array of CCBord */
-struct CCBorda
-{
-    struct Pix          *pix;          /*!< input pix (may be null)          */
-    l_int32              w;            /*!< width of pix                     */
-    l_int32              h;            /*!< height of pix                    */
-    l_int32              n;            /*!< number of ccbord in ptr array    */
-    l_int32              nalloc;       /*!< number of ccbord ptrs allocated  */
-    struct CCBord      **ccb;          /*!< ccb ptr array                    */
-};
-typedef struct CCBorda CCBORDA;
-
-
 #endif  /* LEPTONICA_CCBORD_H */
 
+/*====================================================================*
+ -  Copyright (C) 2001 Leptonica.  All rights reserved.
+ -
+ -  Redistribution and use in source and binary forms, with or without
+ -  modification, are permitted provided that the following conditions
+ -  are met:
+ -  1. Redistributions of source code must retain the above copyright
+ -     notice, this list of conditions and the following disclaimer.
+ -  2. Redistributions in binary form must reproduce the above
+ -     copyright notice, this list of conditions and the following
+ -     disclaimer in the documentation and/or other materials
+ -     provided with the distribution.
+ -
+ -  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+ -  ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+ -  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+ -  A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL ANY
+ -  CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ -  EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ -  PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ -  PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ -  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ -  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ -  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *====================================================================*/
+
+#ifndef  LEPTONICA_COLORFILL_H
+#define  LEPTONICA_COLORFILL_H
+
+/*!
+ * \file colorfill.h
+ *
+ * <pre>
+ *  Contains the following struct
+ *      struct L_Colorfill
+ *
+ *  This accumulates color information, linked to location, within a
+ *  set of tiles that (mostly) covers an input RGB image.
+ * </pre>
+ */
+
+
+/*------------------------------------------------------------------------*
+ *                            Colorfill data                              *
+ *------------------------------------------------------------------------*/
+/*! Colorfill data */
+struct L_Colorfill
+{
+    struct Pix     *pixs;        /*!< clone of source pix                    */
+    struct Pix     *pixst;       /*!< source pix, after optional transform   */
+    l_int32         nx;          /*!< number of tiles in each tile row       */
+    l_int32         ny;          /*!< number of tiles in each tile column    */
+    l_int32         tw;          /*!< width of each tile                     */
+    l_int32         th;          /*!< height of each tile                    */
+    l_int32         minarea;     /*!< min number of pixels in a color region */
+    struct Boxa    *boxas;       /*!< tile locations                         */
+    struct Pixa    *pixas;       /*!< tiles from source pix                  */
+    struct Pixa    *pixam;       /*!< mask tiles with components covering    */
+                                 /*!< regions with similar color             */
+    struct Numaa   *naa;         /*!< sizes of color regions (in pixels)     */
+    struct L_Dnaa  *dnaa;        /*!< average color in each region           */
+    struct Pixa    *pixadb;      /*!< debug reconstruction from segmentation */
+};
+typedef struct L_Colorfill  L_COLORFILL;
+
+
+#endif  /* LEPTONICA_COLORFILL_H */
 /*====================================================================*
  -  Copyright (C) 2001 Leptonica.  All rights reserved.
  -
@@ -2233,7 +2371,6 @@ enum {
 /* --------------------------------------------------------------- *
  *                         Format header ids                       *
  * --------------------------------------------------------------- */
-
 /*! Header Ids */
 enum {
     BMP_ID             = 0x4d42,     /*!< BM - for bitmaps    */
@@ -2245,18 +2382,27 @@ enum {
 /* --------------------------------------------------------------- *
  *                Hinting bit flags in jpeg reader                 *
  * --------------------------------------------------------------- */
-
 /*! Jpeg Hints */
+/* The default behavior is now to fail on data corruption. */
 enum {
-    L_JPEG_READ_LUMINANCE = 1,   /*!< only want luminance data; no chroma */
-    L_JPEG_FAIL_ON_BAD_DATA = 2  /*!< don't return possibly damaged pix */
+    L_JPEG_READ_LUMINANCE = 1,    /*!< only want luminance data; no chroma */
+    L_JPEG_CONTINUE_WITH_BAD_DATA = 2  /*!< return possibly damaged pix */
+};
+
+
+/* --------------------------------------------------------------- *
+ *                            Jp2k codecs                          *
+ * --------------------------------------------------------------- */
+/*! Jp2k Codecs */
+enum {
+    L_J2K_CODEC = 1,    /*!< codestream                 */
+    L_JP2_CODEC = 2     /*!< file format with 'ihdr'    */
 };
 
 
 /* --------------------------------------------------------------- *
  *                    Pdf formatted encoding types                 *
  * --------------------------------------------------------------- */
-
 /*! Pdf Encoding */
 enum {
     L_DEFAULT_ENCODE  = 0,  /*!< use default encoding based on image        */
@@ -2307,7 +2453,6 @@ typedef struct L_Compressed_Data  L_COMP_DATA;
 /* ------------------------------------------------------------------------- *
  *                           Pdf multi image flags                           *
  * ------------------------------------------------------------------------- */
-
 /*! Pdf MultiImage */
 enum {
     L_FIRST_IMAGE   = 1,    /*!< first image to be used                      */
@@ -2351,7 +2496,6 @@ struct L_Pdf_Data
     l_int32            xrefloc;      /*!< location of xref                    */
 };
 typedef struct L_Pdf_Data  L_PDF_DATA;
-
 
 #endif  /* LEPTONICA_IMAGEIO_H */
 /*====================================================================*
@@ -2547,7 +2691,6 @@ enum {
  *      grayscale morphology selection flags
  *      distance function b.c. flags
  *      image comparison flags
- *      color content flags
  * </pre>
  */
 
@@ -2602,7 +2745,6 @@ typedef struct L_Kernel  L_KERNEL;
  *  The global variable MORPH_BC takes on one of these two values.         *
  *  See notes in morph.c for usage.                                        *
  *-------------------------------------------------------------------------*/
-
 /*! Morph Boundary */
 enum {
     SYMMETRIC_MORPH_BC = 0,
@@ -2612,7 +2754,6 @@ enum {
 /*-------------------------------------------------------------------------*
  *                        Structuring element vals                         *
  *-------------------------------------------------------------------------*/
-
 /*! SEL Vals */
 enum {
     SEL_DONT_CARE  = 0,
@@ -2623,7 +2764,6 @@ enum {
 /*-------------------------------------------------------------------------*
  *                  Runlength flags for granulometry                       *
  *-------------------------------------------------------------------------*/
-
 /*! Runlength Polarity */
 enum {
     L_RUN_OFF = 0,
@@ -2634,7 +2774,6 @@ enum {
  *         Direction flags for grayscale morphology, granulometry,         *
  *                 composable Sels, convolution, etc.                      *
  *-------------------------------------------------------------------------*/
-
 /*! Direction Flags */
 enum {
     L_HORIZ            = 1,
@@ -2645,7 +2784,6 @@ enum {
 /*-------------------------------------------------------------------------*
  *                   Morphological operation flags                         *
  *-------------------------------------------------------------------------*/
-
 /*! Morph Operator */
 enum {
     L_MORPH_DILATE    = 1,
@@ -2658,7 +2796,6 @@ enum {
 /*-------------------------------------------------------------------------*
  *                    Grayscale intensity scaling flags                    *
  *-------------------------------------------------------------------------*/
-
 /*! Pixel Value Scaling */
 enum {
     L_LINEAR_SCALE  = 1,
@@ -2668,7 +2805,6 @@ enum {
 /*-------------------------------------------------------------------------*
  *                      Morphological tophat flags                         *
  *-------------------------------------------------------------------------*/
-
 /*! Morph Tophat */
 enum {
     L_TOPHAT_WHITE = 0,
@@ -2679,7 +2815,6 @@ enum {
  *                Arithmetic and logical operator flags                    *
  *                 (use on grayscale images and Numas)                     *
  *-------------------------------------------------------------------------*/
-
 /*! ArithLogical Ops */
 enum {
     L_ARITH_ADD       = 1,
@@ -2695,7 +2830,6 @@ enum {
 /*-------------------------------------------------------------------------*
  *                        Min/max selection flags                          *
  *-------------------------------------------------------------------------*/
-
 /*! MinMax Selection */
 enum {
     L_CHOOSE_MIN = 1,         /* useful in a downscaling "erosion"       */
@@ -2708,7 +2842,6 @@ enum {
 /*-------------------------------------------------------------------------*
  *            Exterior value b.c. for distance function flags              *
  *-------------------------------------------------------------------------*/
-
 /*! Exterior Value */
 enum {
     L_BOUNDARY_BG = 1,  /* assume bg outside image */
@@ -2718,23 +2851,11 @@ enum {
 /*-------------------------------------------------------------------------*
  *                         Image comparison flags                          *
  *-------------------------------------------------------------------------*/
-
 /*! Image Comparison */
 enum {
     L_COMPARE_XOR = 1,
     L_COMPARE_SUBTRACT = 2,
     L_COMPARE_ABS_DIFF = 3
-};
-
-/*-------------------------------------------------------------------------*
- *                          Color content flags                            *
- *-------------------------------------------------------------------------*/
-
-/*! Color Content */
-enum {
-    L_MAX_DIFF_FROM_AVERAGE_2 = 1,
-    L_MAX_MIN_DIFF_FROM_2 = 2,
-    L_MAX_DIFF = 3
 };
 
 /*-------------------------------------------------------------------------*
@@ -2795,7 +2916,8 @@ static const l_int32  ADDED_BORDER = 32;   /*!< pixels, not bits */
  *
  *   Contents:
  *
- *   (1) This file defines most of the image-related structs used in leptonica:
+ *   (1) This file has typedefs for most of the image-related structs
+ *       used in leptonica:
  *         struct Pix
  *         struct PixColormap
  *         struct RGBA_Quad
@@ -2826,6 +2948,7 @@ static const l_int32  ADDED_BORDER = 32;   /*!< pixels, not bits */
  *         Graphics pixel setting flags
  *         Size and location filter flags
  *         Color component selection flags
+ *         Color content flags
  *         16-bit conversion flags
  *         Rotation and shear flags
  *         Affine transform order flags
@@ -2869,60 +2992,183 @@ static const l_int32  ADDED_BORDER = 32;   /*!< pixels, not bits */
  *   (3) This file has typedefs for the pix allocator and deallocator functions
  *         alloc_fn()
  *         dealloc_fn().
+ *
+ *   -------------------------------------------------------------------
+ *   Notes on the pixels in the raster image.  This information can also
+ *   be found in pix_internal.h.
+ *
+ *       (1) The image data is stored in a single contiguous
+ *           array of l_uint32, into which the pixels are packed.
+ *           By "packed" we mean that there are no unused bits
+ *           between pixels, except for end-of-line padding to
+ *           satisfy item (2) below.
+ *
+ *       (2) Every image raster line begins on a 32-bit word
+ *           boundary within this array.
+ *
+ *       (3) Pix image data is stored in 32-bit units, with the
+ *           pixels ordered from left to right in the image being
+ *           stored in order from the MSB to LSB within the word,
+ *           for both big-endian and little-endian machines.
+ *           This is the natural ordering for big-endian machines,
+ *           as successive bytes are stored and fetched progressively
+ *           to the right.  However, for little-endians, when storing
+ *           we re-order the bytes from this byte stream order, and
+ *           reshuffle again for byte access on 32-bit entities.
+ *           So if the bytes come in sequence from left to right, we
+ *           store them on little-endians in byte order:
+ *                3 2 1 0 7 6 5 4 ...
+ *           This MSB to LSB ordering allows left and right shift
+ *           operations on 32 bit words to move the pixels properly.
+ *
+ *       (4) We use 32 bit pixels for both RGB and RGBA color images.
+ *           The A (alpha) byte is ignored in most leptonica functions
+ *           operating on color images.  Within each 4 byte pixel, the
+ *           color samples are ordered from MSB to LSB, as follows:
+ *
+ *                |  MSB  |  2nd MSB  |  3rd MSB  |  LSB  |
+ *                   red      green       blue      alpha
+ *                    0         1           2         3   (big-endian)
+ *                    3         2           1         0   (little-endian)
+ *
+ *           Because we use MSB to LSB ordering within the 32-bit word,
+ *           the individual 8-bit samples can be accessed with
+ *           GET_DATA_BYTE and SET_DATA_BYTE macros, using the
+ *           (implicitly big-ending) ordering
+ *                 red:    byte 0  (MSB)
+ *                 green:  byte 1  (2nd MSB)
+ *                 blue:   byte 2  (3rd MSB)
+ *                 alpha:  byte 3  (LSB)
+ *
+ *           The specific color assignment is made in this file,
+ *           through the definitions of COLOR_RED, etc.  Then the R, G
+ *           B and A sample values can be retrieved using
+ *                 redval = GET_DATA_BYTE(&pixel, COLOR_RED);
+ *                 greenval = GET_DATA_BYTE(&pixel, COLOR_GREEN);
+ *                 blueval = GET_DATA_BYTE(&pixel, COLOR_BLUE);
+ *                 alphaval = GET_DATA_BYTE(&pixel, L_ALPHA_CHANNEL);
+ *           and they can be set with
+ *                 SET_DATA_BYTE(&pixel, COLOR_RED, redval);
+ *                 SET_DATA_BYTE(&pixel, COLOR_GREEN, greenval);
+ *                 SET_DATA_BYTE(&pixel, COLOR_BLUE, blueval);
+ *                 SET_DATA_BYTE(&pixel, L_ALPHA_CHANNEL, alphaval);
+ *
+ *           More efficiently, these components can be extracted directly
+ *           by shifting and masking, explicitly using the values in
+ *           L_RED_SHIFT, etc.:
+ *                 (pixel32 >> L_RED_SHIFT) & 0xff;         (red)
+ *                 (pixel32 >> L_GREEN_SHIFT) & 0xff;       (green)
+ *                 (pixel32 >> L_BLUE_SHIFT) & 0xff;        (blue)
+ *                 (pixel32 >> L_ALPHA_SHIFT) & 0xff;       (alpha)
+ *           The functions extractRGBValues() and extractRGBAValues() are
+ *           provided to do this.  Likewise, the pixels can be set
+ *           directly by shifting, using composeRGBPixel() and
+ *           composeRGBAPixel().
+ *
+ *           All these operations work properly on both big- and little-endians.
+ *
+ *       (5) A reference count is held within each pix, giving the
+ *           number of ptrs to the pix.  When a pixClone() call
+ *           is made, the ref count is increased by 1, and
+ *           when a pixDestroy() call is made, the reference count
+ *           of the pix is decremented.  The pix is only destroyed
+ *           when the reference count goes to zero.
+ *
+ *       (6) Version numbers are used in the serialization of image-related
+ *           data structures.  They are placed in the files, and rarely
+ *           (if ever) change.
+ *
+ *       (7) The serialization dependencies are as follows:
+ *               pixaa  :  pixa  :  boxa
+ *               boxaa  :  boxa
+ *           So, for example, pixaa and boxaa can be changed without
+ *           forcing a change in pixa or boxa.  However, if pixa is
+ *           changed, it forces a change in pixaa, and if boxa is
+ *           changed, if forces a change in the other three.
  * </pre>
  */
-
 
 /*-------------------------------------------------------------------------*
  *                              Basic Pix                                  *
  *-------------------------------------------------------------------------*/
-    /* The 'special' field is by default 0, but it can hold integers
-     * that direct non-default actions, e.g., in png and jpeg I/O. */
-
 /*! Basic Pix */
-struct Pix
-{
-    l_uint32             w;         /*!< width in pixels                   */
-    l_uint32             h;         /*!< height in pixels                  */
-    l_uint32             d;         /*!< depth in bits (bpp)               */
-    l_uint32             spp;       /*!< number of samples per pixel       */
-    l_uint32             wpl;       /*!< 32-bit words/line                 */
-    l_uint32             refcount;  /*!< reference count (1 if no clones)  */
-    l_int32              xres;      /*!< image res (ppi) in x direction    */
-                                    /*!< (use 0 if unknown)                */
-    l_int32              yres;      /*!< image res (ppi) in y direction    */
-                                    /*!< (use 0 if unknown)                */
-    l_int32              informat;  /*!< input file format, IFF_*          */
-    l_int32              special;   /*!< special instructions for I/O, etc */
-    char                *text;      /*!< text string associated with pix   */
-    struct PixColormap  *colormap;  /*!< colormap (may be null)            */
-    l_uint32            *data;      /*!< the image data                    */
-};
 typedef struct Pix PIX;
 
 /*! Colormap of a Pix */
-struct PixColormap
-{
-    void            *array;   /*!< colormap table (array of RGBA_QUAD)     */
-    l_int32          depth;   /*!< of pix (1, 2, 4 or 8 bpp)               */
-    l_int32          nalloc;  /*!< number of color entries allocated       */
-    l_int32          n;       /*!< number of color entries used            */
-};
 typedef struct PixColormap  PIXCMAP;
-
 
     /*! Colormap table entry (after the BMP version).
      * Note that the BMP format stores the colormap table exactly
      * as it appears here, with color samples being stored sequentially,
      * in the order (b,g,r,a). */
-struct RGBA_Quad
-{
-    l_uint8     blue;         /*!< blue value */
-    l_uint8     green;        /*!< green value */
-    l_uint8     red;          /*!< red value */
-    l_uint8     alpha;        /*!< alpha value */
-};
 typedef struct RGBA_Quad  RGBA_QUAD;
+
+/*-------------------------------------------------------------------------*
+ *                               Pix arrays                                *
+ *-------------------------------------------------------------------------*/
+/*! Array of pix */
+typedef struct Pixa PIXA;
+
+/*! Array of arrays of pix */
+typedef struct Pixaa PIXAA;
+
+/*-------------------------------------------------------------------------*
+ *                    Basic rectangle and rectangle arrays                 *
+ *-------------------------------------------------------------------------*/
+/*! Basic rectangle */
+typedef struct Box    BOX;
+
+/*! Array of Box */
+typedef struct Boxa  BOXA;
+
+/*! Array of Boxa */
+typedef struct Boxaa  BOXAA;
+
+/*-------------------------------------------------------------------------*
+ *                              Arrays of points                           *
+ *-------------------------------------------------------------------------*/
+/*! Array of points */
+typedef struct Pta PTA;
+
+/*! Array of Pta */
+typedef struct Ptaa PTAA;
+
+/*-------------------------------------------------------------------------*
+ *                       Pix accumulator container                         *
+ *-------------------------------------------------------------------------*/
+/*! Pix accumulator container */
+typedef struct Pixacc PIXACC;
+
+/*-------------------------------------------------------------------------*
+ *                              Pix tiling                                 *
+ *-------------------------------------------------------------------------*/
+/*! Pix tiling */
+typedef struct PixTiling PIXTILING;
+
+/*-------------------------------------------------------------------------*
+ *                       FPix: pix with float array                        *
+ *-------------------------------------------------------------------------*/
+/*! Pix with float array */
+typedef struct FPix FPIX;
+
+/*! Array of FPix */
+typedef struct FPixa FPIXA;
+
+/*-------------------------------------------------------------------------*
+ *                       DPix: pix with double array                       *
+ *-------------------------------------------------------------------------*/
+/*! Pix with double array */
+typedef struct DPix DPIX;
+
+/*-------------------------------------------------------------------------*
+ *                       Compressed pix and arrays                         *
+ *-------------------------------------------------------------------------*/
+/*! Compressed Pix */
+typedef struct PixComp PIXC;
+
+/*! Array of compressed pix */
+typedef struct PixaComp PIXAC;
+
 
 
 /*-------------------------------------------------------------------------*
@@ -3009,8 +3255,8 @@ enum {
 /*------------------------------------------------------------------------*
  *!
  * <pre>
- * The following operation bit flags have been modified from
- * Sun's pixrect.h.
+ * The following operation bit flags have been modified from Sun's
+ * original "bitblt" (bit block transfer) operations (from the 1980s).
  *
  * The 'op' in 'rasterop' is represented by an integer
  * composed with Boolean functions using the set of five integers
@@ -3033,24 +3279,14 @@ enum {
  *      #define   PIX_CLR      0x0
  *      #define   PIX_SET      0xf
  *
- * These definitions differ from Sun's, in that Sun left-shifted
+ * [These definitions differ from Sun's, in that Sun left-shifted
  * each value by 1 pixel, and used the least significant bit as a
  * flag for the "pseudo-operation" of clipping.  We don't need
  * this bit, because it is both efficient and safe ALWAYS to clip
  * the rectangles to the src and dest images, which is what we do.
- * See the notes in rop.h on the general choice of these bit flags.
+ * See the notes in rop.h on the general choice of these bit flags.]
  *
- * [If for some reason you need compatibility with Sun's xview package,
- * you can adopt the original Sun definitions to avoid redefinition conflicts:
- *
- *      #define   PIX_SRC      (0xc << 1)
- *      #define   PIX_DST      (0xa << 1)
- *      #define   PIX_NOT(op)  ((op) ^ 0x1e)
- *      #define   PIX_CLR      (0x0 << 1)
- *      #define   PIX_SET      (0xf << 1)
- * ]
- *
- * We have, for reference, the following 16 unique op flags:
+ * Here are the 16 unique op flags:
  *
  *      PIX_CLR                           0000             0x0
  *      PIX_SET                           1111             0xf
@@ -3083,334 +3319,6 @@ enum {
 #define   PIX_SUBTRACT (PIX_DST & PIX_NOT(PIX_SRC)) /*!< subtract =           */
                                                     /*!<    src & !dst        */
 #define   PIX_XOR      (PIX_SRC ^ PIX_DST)        /*!< xor = src ^ dst        */
-
-
-/*-------------------------------------------------------------------------*
- * <pre>
- *   Important Notes:
- *
- *       (1) The image data is stored in a single contiguous
- *           array of l_uint32, into which the pixels are packed.
- *           By "packed" we mean that there are no unused bits
- *           between pixels, except for end-of-line padding to
- *           satisfy item (2) below.
- *
- *       (2) Every image raster line begins on a 32-bit word
- *           boundary within this array.
- *
- *       (3) Pix image data is stored in 32-bit units, with the
- *           pixels ordered from left to right in the image being
- *           stored in order from the MSB to LSB within the word,
- *           for both big-endian and little-endian machines.
- *           This is the natural ordering for big-endian machines,
- *           as successive bytes are stored and fetched progressively
- *           to the right.  However, for little-endians, when storing
- *           we re-order the bytes from this byte stream order, and
- *           reshuffle again for byte access on 32-bit entities.
- *           So if the bytes come in sequence from left to right, we
- *           store them on little-endians in byte order:
- *                3 2 1 0 7 6 5 4 ...
- *           This MSB to LSB ordering allows left and right shift
- *           operations on 32 bit words to move the pixels properly.
- *
- *       (4) We use 32 bit pixels for both RGB and RGBA color images.
- *           The A (alpha) byte is ignored in most leptonica functions
- *           operating on color images.  Within each 4 byte pixel, the
- *           color samples are ordered from MSB to LSB, as follows:
- *
- *                |  MSB  |  2nd MSB  |  3rd MSB  |  LSB  |
- *                   red      green       blue      alpha
- *                    0         1           2         3   (big-endian)
- *                    3         2           1         0   (little-endian)
- *
- *           Because we use MSB to LSB ordering within the 32-bit word,
- *           the individual 8-bit samples can be accessed with
- *           GET_DATA_BYTE and SET_DATA_BYTE macros, using the
- *           (implicitly big-ending) ordering
- *                 red:    byte 0  (MSB)
- *                 green:  byte 1  (2nd MSB)
- *                 blue:   byte 2  (3rd MSB)
- *                 alpha:  byte 3  (LSB)
- *
- *           The specific color assignment is made in this file,
- *           through the definitions of COLOR_RED, etc.  Then the R, G
- *           B and A sample values can be retrieved using
- *                 redval = GET_DATA_BYTE(&pixel, COLOR_RED);
- *                 greenval = GET_DATA_BYTE(&pixel, COLOR_GREEN);
- *                 blueval = GET_DATA_BYTE(&pixel, COLOR_BLUE);
- *                 alphaval = GET_DATA_BYTE(&pixel, L_ALPHA_CHANNEL);
- *           and they can be set with
- *                 SET_DATA_BYTE(&pixel, COLOR_RED, redval);
- *                 SET_DATA_BYTE(&pixel, COLOR_GREEN, greenval);
- *                 SET_DATA_BYTE(&pixel, COLOR_BLUE, blueval);
- *                 SET_DATA_BYTE(&pixel, L_ALPHA_CHANNEL, alphaval);
- *
- *           More efficiently, these components can be extracted directly
- *           by shifting and masking, explicitly using the values in
- *           L_RED_SHIFT, etc.:
- *                 (pixel32 >> L_RED_SHIFT) & 0xff;         (red)
- *                 (pixel32 >> L_GREEN_SHIFT) & 0xff;       (green)
- *                 (pixel32 >> L_BLUE_SHIFT) & 0xff;        (blue)
- *                 (pixel32 >> L_ALPHA_SHIFT) & 0xff;       (alpha)
- *           The functions extractRGBValues() and extractRGBAValues() are
- *           provided to do this.  Likewise, the pixels can be set
- *           directly by shifting, using composeRGBPixel() and
- *           composeRGBAPixel().
- *
- *           All these operations work properly on both big- and little-endians.
- *
- *       (5) A reference count is held within each pix, giving the
- *           number of ptrs to the pix.  When a pixClone() call
- *           is made, the ref count is increased by 1, and
- *           when a pixDestroy() call is made, the reference count
- *           of the pix is decremented.  The pix is only destroyed
- *           when the reference count goes to zero.
- *
- *       (6) The version numbers (below) are used in the serialization
- *           of these data structures.  They are placed in the files,
- *           and rarely (if ever) change.  Provision is currently made for
- *           backward compatibility in reading from boxaa version 2.
- *
- *       (7) The serialization dependencies are as follows:
- *               pixaa  :  pixa  :  boxa
- *               boxaa  :  boxa
- *           So, for example, pixaa and boxaa can be changed without
- *           forcing a change in pixa or boxa.  However, if pixa is
- *           changed, it forces a change in pixaa, and if boxa is
- *           changed, if forces a change in the other three.
- *           We define four version numbers:
- *               PIXAA_VERSION_NUMBER
- *               PIXA_VERSION_NUMBER
- *               BOXAA_VERSION_NUMBER
- *               BOXA_VERSION_NUMBER
- * </pre>
- *-------------------------------------------------------------------------*/
-
-
-
-/*-------------------------------------------------------------------------*
- *                              Array of pix                               *
- *-------------------------------------------------------------------------*/
-
-    /*  Serialization for primary data structures */
-#define  PIXAA_VERSION_NUMBER      2  /*!< Version for Pixaa serialization */
-#define  PIXA_VERSION_NUMBER       2  /*!< Version for Pixa serialization  */
-#define  BOXA_VERSION_NUMBER       2  /*!< Version for Boxa serialization  */
-#define  BOXAA_VERSION_NUMBER      3  /*!< Version for Boxaa serialization */
-
-/*! Array of pix */
-struct Pixa
-{
-    l_int32             n;          /*!< number of Pix in ptr array        */
-    l_int32             nalloc;     /*!< number of Pix ptrs allocated      */
-    l_uint32            refcount;   /*!< reference count (1 if no clones)  */
-    struct Pix        **pix;        /*!< the array of ptrs to pix          */
-    struct Boxa        *boxa;       /*!< array of boxes                    */
-};
-typedef struct Pixa PIXA;
-
-/*! Array of arrays of pix */
-struct Pixaa
-{
-    l_int32             n;          /*!< number of Pixa in ptr array       */
-    l_int32             nalloc;     /*!< number of Pixa ptrs allocated     */
-    struct Pixa       **pixa;       /*!< array of ptrs to pixa             */
-    struct Boxa        *boxa;       /*!< array of boxes                    */
-};
-typedef struct Pixaa PIXAA;
-
-
-/*-------------------------------------------------------------------------*
- *                    Basic rectangle and rectangle arrays                 *
- *-------------------------------------------------------------------------*/
-
-/*! Basic rectangle */
-struct Box
-{
-    l_int32            x;           /*!< left coordinate                   */
-    l_int32            y;           /*!< top coordinate                    */
-    l_int32            w;           /*!< box width                         */
-    l_int32            h;           /*!< box height                        */
-    l_uint32           refcount;    /*!< reference count (1 if no clones)  */
-};
-typedef struct Box    BOX;
-
-/*! Array of Box */
-struct Boxa
-{
-    l_int32            n;           /*!< number of box in ptr array        */
-    l_int32            nalloc;      /*!< number of box ptrs allocated      */
-    l_uint32           refcount;    /*!< reference count (1 if no clones)  */
-    struct Box       **box;         /*!< box ptr array                     */
-};
-typedef struct Boxa  BOXA;
-
-/*! Array of Boxa */
-struct Boxaa
-{
-    l_int32            n;           /*!< number of boxa in ptr array       */
-    l_int32            nalloc;      /*!< number of boxa ptrs allocated     */
-    struct Boxa      **boxa;        /*!< boxa ptr array                    */
-};
-typedef struct Boxaa  BOXAA;
-
-
-/*-------------------------------------------------------------------------*
- *                               Array of points                           *
- *-------------------------------------------------------------------------*/
-#define  PTA_VERSION_NUMBER      1  /*!< Version for Pta serialization     */
-
-/*! Array of points */
-struct Pta
-{
-    l_int32            n;           /*!< actual number of pts              */
-    l_int32            nalloc;      /*!< size of allocated arrays          */
-    l_uint32           refcount;    /*!< reference count (1 if no clones)  */
-    l_float32         *x, *y;       /*!< arrays of floats                  */
-};
-typedef struct Pta PTA;
-
-
-/*-------------------------------------------------------------------------*
- *                              Array of Pta                               *
- *-------------------------------------------------------------------------*/
-
-/*! Array of Pta */
-struct Ptaa
-{
-    l_int32              n;         /*!< number of pta in ptr array        */
-    l_int32              nalloc;    /*!< number of pta ptrs allocated      */
-    struct Pta         **pta;       /*!< pta ptr array                     */
-};
-typedef struct Ptaa PTAA;
-
-
-/*-------------------------------------------------------------------------*
- *                       Pix accumulator container                         *
- *-------------------------------------------------------------------------*/
-
-/*! Pix accumulator container */
-struct Pixacc
-{
-    l_int32             w;          /*!< array width                       */
-    l_int32             h;          /*!< array height                      */
-    l_int32             offset;     /*!< used to allow negative            */
-                                    /*!< intermediate results              */
-    struct Pix         *pix;        /*!< the 32 bit accumulator pix        */
-};
-typedef struct Pixacc PIXACC;
-
-
-/*-------------------------------------------------------------------------*
- *                              Pix tiling                                 *
- *-------------------------------------------------------------------------*/
-
-/*! Pix tiling */
-struct PixTiling
-{
-    struct Pix          *pix;       /*!< input pix (a clone)               */
-    l_int32              nx;        /*!< number of tiles horizontally      */
-    l_int32              ny;        /*!< number of tiles vertically        */
-    l_int32              w;         /*!< tile width                        */
-    l_int32              h;         /*!< tile height                       */
-    l_int32              xoverlap;  /*!< overlap on left and right         */
-    l_int32              yoverlap;  /*!< overlap on top and bottom         */
-    l_int32              strip;     /*!< strip for paint; default is TRUE  */
-};
-typedef struct PixTiling PIXTILING;
-
-
-/*-------------------------------------------------------------------------*
- *                       FPix: pix with float array                        *
- *-------------------------------------------------------------------------*/
-#define  FPIX_VERSION_NUMBER      2 /*!< Version for FPix serialization    */
-
-/*! Pix with float array */
-struct FPix
-{
-    l_int32              w;         /*!< width in pixels                   */
-    l_int32              h;         /*!< height in pixels                  */
-    l_int32              wpl;       /*!< 32-bit words/line                 */
-    l_uint32             refcount;  /*!< reference count (1 if no clones)  */
-    l_int32              xres;      /*!< image res (ppi) in x direction    */
-                                    /*!< (use 0 if unknown)                */
-    l_int32              yres;      /*!< image res (ppi) in y direction    */
-                                    /*!< (use 0 if unknown)                */
-    l_float32           *data;      /*!< the float image data              */
-};
-typedef struct FPix FPIX;
-
-/*! Array of FPix */
-struct FPixa
-{
-    l_int32             n;          /*!< number of fpix in ptr array       */
-    l_int32             nalloc;     /*!< number of fpix ptrs allocated     */
-    l_uint32            refcount;   /*!< reference count (1 if no clones)  */
-    struct FPix       **fpix;       /*!< the array of ptrs to fpix         */
-};
-typedef struct FPixa FPIXA;
-
-
-/*-------------------------------------------------------------------------*
- *                       DPix: pix with double array                       *
- *-------------------------------------------------------------------------*/
-#define  DPIX_VERSION_NUMBER      2 /*!< Version for DPix serialization    */
-
-/*! Pix with double array */
-struct DPix
-{
-    l_int32              w;         /*!< width in pixels                   */
-    l_int32              h;         /*!< height in pixels                  */
-    l_int32              wpl;       /*!< 32-bit words/line                 */
-    l_uint32             refcount;  /*!< reference count (1 if no clones)  */
-    l_int32              xres;      /*!< image res (ppi) in x direction    */
-                                    /*!< (use 0 if unknown)                */
-    l_int32              yres;      /*!< image res (ppi) in y direction    */
-                                    /*!< (use 0 if unknown)                */
-    l_float64           *data;      /*!< the double image data             */
-};
-typedef struct DPix DPIX;
-
-
-/*-------------------------------------------------------------------------*
- *                        PixComp: compressed pix                          *
- *-------------------------------------------------------------------------*/
-
-/*! Compressed Pix */
-struct PixComp
-{
-    l_int32              w;         /*!< width in pixels                   */
-    l_int32              h;         /*!< height in pixels                  */
-    l_int32              d;         /*!< depth in bits                     */
-    l_int32              xres;      /*!< image res (ppi) in x direction    */
-                                    /*!<   (use 0 if unknown)              */
-    l_int32              yres;      /*!< image res (ppi) in y direction    */
-                                    /*!<   (use 0 if unknown)              */
-    l_int32              comptype;  /*!< compressed format (IFF_TIFF_G4,   */
-                                    /*!<   IFF_PNG, IFF_JFIF_JPEG)         */
-    char                *text;      /*!< text string associated with pix   */
-    l_int32              cmapflag;  /*!< flag (1 for cmap, 0 otherwise)    */
-    l_uint8             *data;      /*!< the compressed image data         */
-    size_t               size;      /*!< size of the data array            */
-};
-typedef struct PixComp PIXC;
-
-
-/*-------------------------------------------------------------------------*
- *                     PixaComp: array of compressed pix                   *
- *-------------------------------------------------------------------------*/
-#define  PIXACOMP_VERSION_NUMBER 2  /*!< Version for PixaComp serialization */
-
-/*! Array of compressed pix */
-struct PixaComp
-{
-    l_int32              n;         /*!< number of PixComp in ptr array    */
-    l_int32              nalloc;    /*!< number of PixComp ptrs allocated  */
-    l_int32              offset;    /*!< indexing offset into ptr array    */
-    struct PixComp     **pixc;      /*!< the array of ptrs to PixComp      */
-    struct Boxa         *boxa;      /*!< array of boxes                    */
-};
-typedef struct PixaComp PIXAC;
 
 
 /*-------------------------------------------------------------------------*
@@ -3457,7 +3365,6 @@ typedef struct PixaComp PIXAC;
  *  of that string.
  * </pre>
  */
-
 /*! Object Access */
 enum {
     L_NOCOPY = 0,     /*!< do not copy the object; do not delete the ptr  */
@@ -3467,7 +3374,6 @@ enum {
     L_COPY_CLONE = 3  /*!< make a new array object (e.g., pixa) and fill  */
                       /*!< the array with clones (e.g., pix)              */
 };
-
 
 /*----------------------------------------------------------------------------*
  *                              Sort flags                                    *
@@ -3499,7 +3405,6 @@ enum {
     L_SORT_BY_ASPECT_RATIO = 11  /*!< sort box or c.c. by width/height ratio  */
 };
 
-
 /*---------------------------------------------------------------------------*
  *                             Blend flags                                   *
  *---------------------------------------------------------------------------*/
@@ -3519,7 +3424,6 @@ enum {
     L_PAINT_DARK = 2              /*!< colorize non-white pixels             */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                        Graphics pixel setting                           *
  *-------------------------------------------------------------------------*/
@@ -3529,7 +3433,6 @@ enum {
     L_CLEAR_PIXELS = 2,         /*!< set all bits in each pixel to 0       */
     L_FLIP_PIXELS = 3           /*!< flip all bits in each pixel           */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                     Size and location filter flags                      *
@@ -3571,7 +3474,6 @@ enum {
     L_CHECK_BOTH = 3            /*!< check and possibly modify both        */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                    Color component selection flags                      *
  *-------------------------------------------------------------------------*/
@@ -3584,9 +3486,19 @@ enum {
     L_SELECT_MAX = 5,           /*!< use max color component               */
     L_SELECT_AVERAGE = 6,       /*!< use average of color components       */
     L_SELECT_HUE = 7,           /*!< use hue value (in HSV color space)    */
-    L_SELECT_SATURATION = 8     /*!< use saturation value (in HSV space)   */
+    L_SELECT_SATURATION = 8,    /*!< use saturation value (in HSV space)   */
+    L_SELECT_WEIGHTED = 9       /*!< use weighted average of color comps   */
 };
 
+/*-------------------------------------------------------------------------*
+ *                          Color content flags                            *
+ *-------------------------------------------------------------------------*/
+/*! Color Content */
+enum {
+    L_INTERMED_DIFF = 1,        /*!< intermediate of diff component values */
+    L_AVE_MAX_DIFF_2 = 2,       /*!< diff average closest comps to third   */
+    L_MAX_DIFF = 3              /*!< maximum diff of component values      */
+};
 
 /*-------------------------------------------------------------------------*
  *                         16-bit conversion flags                         *
@@ -3601,7 +3513,6 @@ enum {
     L_MS_TWO_BYTES = 6,         /*!< use two MSB                           */
     L_CLIP_TO_FFFF = 7          /*!< use max(val, 65535)                   */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                        Rotate and shear flags                           *
@@ -3625,7 +3536,6 @@ enum {
     L_SHEAR_ABOUT_CENTER = 2   /*!< shear image about center               */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                     Affine transform order flags                        *
  *-------------------------------------------------------------------------*/
@@ -3639,7 +3549,6 @@ enum {
     L_SC_TR_RO = 6             /*!< scale, translate, rotate               */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                       Grayscale filling flags                           *
  *-------------------------------------------------------------------------*/
@@ -3648,7 +3557,6 @@ enum {
     L_FILL_WHITE = 1,         /*!< fill white pixels (e.g, in fg map)      */
     L_FILL_BLACK = 2          /*!< fill black pixels (e.g., in bg map)     */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                   Flags for setting to white or black                   *
@@ -3659,7 +3567,6 @@ enum {
     L_SET_BLACK = 2          /*!< set pixels to black                      */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                  Flags for getting white or black value                 *
  *-------------------------------------------------------------------------*/
@@ -3669,7 +3576,6 @@ enum {
     L_GET_BLACK_VAL = 2      /*!< get black pixel value                    */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                  Flags for 8 bit and 16 bit pixel sums                  *
  *-------------------------------------------------------------------------*/
@@ -3678,7 +3584,6 @@ enum {
     L_WHITE_IS_MAX = 1, /*!< white pixels are 0xff or 0xffff; black are 0  */
     L_BLACK_IS_MAX = 2  /*!< black pixels are 0xff or 0xffff; white are 0  */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                           Dither parameters                             *
@@ -3693,7 +3598,6 @@ enum {
     DEFAULT_CLIP_UPPER_2 = 5   /*!< dist to black with no prop; 2 bpp      */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                          Distance type flags                            *
  *-------------------------------------------------------------------------*/
@@ -3702,7 +3606,6 @@ enum {
     L_MANHATTAN_DISTANCE = 1,  /*!< L1 distance (e.g., in color space)     */
     L_EUCLIDEAN_DISTANCE = 2   /*!< L2 distance                            */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                         Distance Value flags                            *
@@ -3716,7 +3619,6 @@ enum {
     L_ZERO = 5,          /*!< values = 0                                   */
     L_ALL = 6            /*!< all values                                   */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                         Statistical measures                            *
@@ -3732,7 +3634,6 @@ enum {
     L_VARIANCE = 7             /*!< variance of values                     */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                       Set index selection flags                         *
  *-------------------------------------------------------------------------*/
@@ -3741,7 +3642,6 @@ enum {
     L_CHOOSE_CONSECUTIVE = 1,  /*!< select 'n' consecutive                 */
     L_CHOOSE_SKIP_BY = 2       /*!< select at intervals of 'n'             */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                         Text orientation flags                          *
@@ -3755,7 +3655,6 @@ enum {
     L_TEXT_ORIENT_RIGHT = 4    /*!< landscape, text up to right            */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                         Edge orientation flags                          *
  *-------------------------------------------------------------------------*/
@@ -3765,7 +3664,6 @@ enum {
     L_VERTICAL_EDGES = 1,     /*!< filters for vertical edges              */
     L_ALL_EDGES = 2           /*!< filters for all edges                   */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                         Line orientation flags                          *
@@ -3779,7 +3677,6 @@ enum {
     L_OBLIQUE_LINE = 4       /*!< neither horizontal nor vertical */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                         Image orientation flags                         *
  *-------------------------------------------------------------------------*/
@@ -3788,7 +3685,6 @@ enum {
     L_PORTRAIT_MODE = 0,   /*!< typical: page is viewed with height > width  */
     L_LANDSCAPE_MODE = 1   /*!< page is viewed at 90 deg to portrait mode    */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                           Scan direction flags                          *
@@ -3805,7 +3701,6 @@ enum {
     L_SCAN_HORIZONTAL = 7,   /*!< horizontal scan (direction unimportant)  */
     L_SCAN_VERTICAL = 8      /*!< vertical scan (direction unimportant)    */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                Box size adjustment and location flags                   *
@@ -3831,7 +3726,6 @@ enum {
     L_GET_BOT = 16               /*!< get bottom side location             */
 };
 
-
 /*-------------------------------------------------------------------------*
  *          Flags for modifying box boundaries using a second box          *
  *-------------------------------------------------------------------------*/
@@ -3845,7 +3739,6 @@ enum {
     L_USE_CAPPED_MAX = 6         /*!< modify boundary with capped max      */
 };
 
-
 /*-------------------------------------------------------------------------*
  *              Handling overlapping bounding boxes in boxa                *
  *-------------------------------------------------------------------------*/
@@ -3854,7 +3747,6 @@ enum {
     L_COMBINE = 1,         /*!< resize to bounding region; remove smaller  */
     L_REMOVE_SMALL = 2     /*!< only remove smaller                        */
 };
-
 
 /*-------------------------------------------------------------------------*
  *        Selecting or making a box from two (intersecting) boxes          *
@@ -3867,7 +3759,6 @@ enum {
     L_SMALLEST_AREA = 4            /*!< use box with smallest area         */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                    Flags for replacing invalid boxes                    *
  *-------------------------------------------------------------------------*/
@@ -3876,7 +3767,6 @@ enum {
     L_USE_ALL_BOXES = 1,         /*!< consider all boxes in the sequence   */
     L_USE_SAME_PARITY_BOXES = 2  /*!< consider boxes with the same parity  */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                    Flags for box corners and center                     *
@@ -3889,7 +3779,6 @@ enum {
     L_LOWER_RIGHT = 4,        /*!< LR corner                               */
     L_BOX_CENTER = 5          /*!< center                                  */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                            Horizontal warp                              *
@@ -3906,7 +3795,6 @@ enum {
     L_QUADRATIC_WARP = 2   /*!< stretch or contraction grows quadratically */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                      Pixel selection for resampling                     *
  *-------------------------------------------------------------------------*/
@@ -3915,7 +3803,6 @@ enum {
     L_INTERPOLATED = 1,    /*!< linear interpolation from src pixels       */
     L_SAMPLED = 2          /*!< nearest src pixel sampling only            */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                             Thinning flags                              *
@@ -3926,7 +3813,6 @@ enum {
     L_THIN_BG = 2              /*!< thin background of 1 bpp image         */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                            Runlength flags                              *
  *-------------------------------------------------------------------------*/
@@ -3936,7 +3822,6 @@ enum {
     L_VERTICAL_RUNS = 1      /*!< determine runlengths of vertical runs    */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                          Edge filter flags                              *
  *-------------------------------------------------------------------------*/
@@ -3945,7 +3830,6 @@ enum {
     L_SOBEL_EDGE = 1,        /*!< Sobel edge filter                        */
     L_TWO_SIDED_EDGE = 2     /*!< Two-sided edge filter                    */
 };
-
 
 /*-------------------------------------------------------------------------*
  *             Subpixel color component ordering in LCD display            *
@@ -3958,7 +3842,6 @@ enum {
     L_SUBPIXEL_ORDER_VBGR = 4   /*!< sensor order top-to-bottom BGR        */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                          HSV histogram flags                            *
  *-------------------------------------------------------------------------*/
@@ -3969,7 +3852,6 @@ enum {
     L_SV_HISTO = 3             /*!< Use saturation-value histogram         */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                HSV Region flags (inclusion, exclusion)                  *
  *-------------------------------------------------------------------------*/
@@ -3978,7 +3860,6 @@ enum {
     L_INCLUDE_REGION = 1,      /*!< Use pixels with specified HSV region   */
     L_EXCLUDE_REGION = 2       /*!< Use pixels outside HSV region          */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                Location flags for adding text to a pix                  *
@@ -3995,7 +3876,6 @@ enum {
     L_ADD_AT_RIGHT = 8         /*!< Add text over right side of the image  */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                       Flags for plotting on a pix                       *
  *-------------------------------------------------------------------------*/
@@ -4009,7 +3889,6 @@ enum {
     L_PLOT_AT_RIGHT = 6        /*!< Plot vertically at right               */
 };
 
-
 /*-------------------------------------------------------------------------*
  *                    Flags for making simple masks                        *
  *-------------------------------------------------------------------------*/
@@ -4018,7 +3897,6 @@ enum {
     L_USE_INNER = 1,           /*!< Select the interior part               */
     L_USE_OUTER = 2            /*!< Select the outer part (e.g., a frame)  */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                   Flags for selecting display program                   *
@@ -4043,7 +3921,6 @@ enum {
     L_NO_CHROMA_SAMPLING_JPEG = 1   /*!< Write full resolution chroma      */
 };
 
-
 /*-------------------------------------------------------------------------*
  *          Handling negative values in conversion to unsigned int         *
  *-------------------------------------------------------------------------*/
@@ -4052,7 +3929,6 @@ enum {
     L_CLIP_TO_ZERO = 1,      /*!< Clip negative values to 0                */
     L_TAKE_ABSVAL = 2        /*!< Convert to positive using L_ABS()        */
 };
-
 
 /*-------------------------------------------------------------------------*
  *                        Relative to zero flags                           *
@@ -4064,7 +3940,6 @@ enum {
     L_GREATER_THAN_ZERO = 3  /*!< Choose values greater than zero          */
 };
 
-
 /*-------------------------------------------------------------------------*
  *         Flags for adding or removing trailing slash from string         *
  *-------------------------------------------------------------------------*/
@@ -4074,7 +3949,6 @@ enum {
     L_REMOVE_TRAIL_SLASH = 2   /*!< Remove trailing slash from string      */
 };
 
-
 /*-------------------------------------------------------------------------*
  *               Pix allocator and deallocator function types              *
  *-------------------------------------------------------------------------*/
@@ -4083,7 +3957,6 @@ typedef void *(*alloc_fn)(size_t);
 
 /*! Deallocator function type */
 typedef void (*dealloc_fn)(void *);
-
 
 #endif  /* LEPTONICA_PIX_H */
 /*====================================================================*
@@ -4729,9 +4602,6 @@ LEPT_DLL extern PIX * pixGlobalNormNoSatRGB ( PIX *pixd, PIX *pixs, l_int32 rval
 LEPT_DLL extern l_ok pixThresholdSpreadNorm ( PIX *pixs, l_int32 filtertype, l_int32 edgethresh, l_int32 smoothx, l_int32 smoothy, l_float32 gamma, l_int32 minval, l_int32 maxval, l_int32 targetthresh, PIX **ppixth, PIX **ppixb, PIX **ppixd );
 LEPT_DLL extern PIX * pixBackgroundNormFlex ( PIX *pixs, l_int32 sx, l_int32 sy, l_int32 smoothx, l_int32 smoothy, l_int32 delta );
 LEPT_DLL extern PIX * pixContrastNorm ( PIX *pixd, PIX *pixs, l_int32 sx, l_int32 sy, l_int32 mindiff, l_int32 smoothx, l_int32 smoothy );
-LEPT_DLL extern l_ok pixMinMaxTiles ( PIX *pixs, l_int32 sx, l_int32 sy, l_int32 mindiff, l_int32 smoothx, l_int32 smoothy, PIX **ppixmin, PIX **ppixmax );
-LEPT_DLL extern l_ok pixSetLowContrast ( PIX *pixs1, PIX *pixs2, l_int32 mindiff );
-LEPT_DLL extern PIX * pixLinearTRCTiled ( PIX *pixd, PIX *pixs, l_int32 sx, l_int32 sy, PIX *pixmin, PIX *pixmax );
 LEPT_DLL extern PIX * pixAffineSampledPta ( PIX *pixs, PTA *ptad, PTA *ptas, l_int32 incolor );
 LEPT_DLL extern PIX * pixAffineSampled ( PIX *pixs, l_float32 *vc, l_int32 incolor );
 LEPT_DLL extern PIX * pixAffinePta ( PIX *pixs, PTA *ptad, PTA *ptas, l_int32 incolor );
@@ -4817,8 +4687,10 @@ LEPT_DLL extern PIX * pixOtsuThreshOnBackgroundNorm ( PIX *pixs, PIX *pixim, l_i
 LEPT_DLL extern PIX * pixMaskedThreshOnBackgroundNorm ( PIX *pixs, PIX *pixim, l_int32 sx, l_int32 sy, l_int32 thresh, l_int32 mincount, l_int32 smoothx, l_int32 smoothy, l_float32 scorefract, l_int32 *pthresh );
 LEPT_DLL extern l_ok pixSauvolaBinarizeTiled ( PIX *pixs, l_int32 whsize, l_float32 factor, l_int32 nx, l_int32 ny, PIX **ppixth, PIX **ppixd );
 LEPT_DLL extern l_ok pixSauvolaBinarize ( PIX *pixs, l_int32 whsize, l_float32 factor, l_int32 addborder, PIX **ppixm, PIX **ppixsd, PIX **ppixth, PIX **ppixd );
+LEPT_DLL extern PIX * pixSauvolaOnContrastNorm ( PIX *pixs, l_int32 mindiff, PIX **ppixn, PIX **ppixth );
+LEPT_DLL extern PIX * pixThreshOnDoubleNorm ( PIX *pixs, l_int32 mindiff );
 LEPT_DLL extern l_ok pixThresholdByConnComp ( PIX *pixs, PIX *pixm, l_int32 start, l_int32 end, l_int32 incr, l_float32 thresh48, l_float32 threshdiff, l_int32 *pglobthresh, PIX **ppixd, l_int32 debugflag );
-LEPT_DLL extern l_ok pixThresholdByHisto ( PIX *pixs, l_int32 factor, l_int32 halfw, l_float32 delta, l_int32 *pthresh, PIX **ppixd, PIX **ppixhisto );
+LEPT_DLL extern l_ok pixThresholdByHisto ( PIX *pixs, l_int32 factor, l_int32 halfw, l_int32 skip, l_int32 *pthresh, PIX **ppixd, NUMA **pnahisto, PIX **ppixhisto );
 LEPT_DLL extern PIX * pixExpandBinaryReplicate ( PIX *pixs, l_int32 xfact, l_int32 yfact );
 LEPT_DLL extern PIX * pixExpandBinaryPower2 ( PIX *pixs, l_int32 factor );
 LEPT_DLL extern PIX * pixReduceBinary2 ( PIX *pixs, l_uint8 *intab );
@@ -4862,20 +4734,18 @@ LEPT_DLL extern BOX * boxCreateValid ( l_int32 x, l_int32 y, l_int32 w, l_int32 
 LEPT_DLL extern BOX * boxCopy ( BOX *box );
 LEPT_DLL extern BOX * boxClone ( BOX *box );
 LEPT_DLL extern void boxDestroy ( BOX **pbox );
-LEPT_DLL extern l_ok boxGetGeometry ( BOX *box, l_int32 *px, l_int32 *py, l_int32 *pw, l_int32 *ph );
+LEPT_DLL extern l_ok boxGetGeometry ( const BOX *box, l_int32 *px, l_int32 *py, l_int32 *pw, l_int32 *ph );
 LEPT_DLL extern l_ok boxSetGeometry ( BOX *box, l_int32 x, l_int32 y, l_int32 w, l_int32 h );
-LEPT_DLL extern l_ok boxGetSideLocations ( BOX *box, l_int32 *pl, l_int32 *pr, l_int32 *pt, l_int32 *pb );
+LEPT_DLL extern l_ok boxGetSideLocations ( const BOX *box, l_int32 *pl, l_int32 *pr, l_int32 *pt, l_int32 *pb );
 LEPT_DLL extern l_ok boxSetSideLocations ( BOX *box, l_int32 l, l_int32 r, l_int32 t, l_int32 b );
-LEPT_DLL extern l_int32 boxGetRefcount ( BOX *box );
-LEPT_DLL extern l_ok boxChangeRefcount ( BOX *box, l_int32 delta );
 LEPT_DLL extern l_ok boxIsValid ( BOX *box, l_int32 *pvalid );
 LEPT_DLL extern BOXA * boxaCreate ( l_int32 n );
 LEPT_DLL extern BOXA * boxaCopy ( BOXA *boxa, l_int32 copyflag );
 LEPT_DLL extern void boxaDestroy ( BOXA **pboxa );
 LEPT_DLL extern l_ok boxaAddBox ( BOXA *boxa, BOX *box, l_int32 copyflag );
 LEPT_DLL extern l_ok boxaExtendArray ( BOXA *boxa );
-LEPT_DLL extern l_ok boxaExtendArrayToSize ( BOXA *boxa, l_int32 size );
-LEPT_DLL extern l_int32 boxaGetCount ( BOXA *boxa );
+LEPT_DLL extern l_ok boxaExtendArrayToSize ( BOXA *boxa, size_t size );
+LEPT_DLL extern l_int32 boxaGetCount ( const BOXA *boxa );
 LEPT_DLL extern l_int32 boxaGetValidCount ( BOXA *boxa );
 LEPT_DLL extern BOX * boxaGetBox ( BOXA *boxa, l_int32 index, l_int32 accessflag );
 LEPT_DLL extern BOX * boxaGetValidBox ( BOXA *boxa, l_int32 index, l_int32 accessflag );
@@ -4944,8 +4814,8 @@ LEPT_DLL extern BOX * boxaGetNearestToPt ( BOXA *boxa, l_int32 x, l_int32 y );
 LEPT_DLL extern BOX * boxaGetNearestToLine ( BOXA *boxa, l_int32 x, l_int32 y );
 LEPT_DLL extern l_ok boxaFindNearestBoxes ( BOXA *boxa, l_int32 dist_select, l_int32 range, NUMAA **pnaaindex, NUMAA **pnaadist );
 LEPT_DLL extern l_ok boxaGetNearestByDirection ( BOXA *boxa, l_int32 i, l_int32 dir, l_int32 dist_select, l_int32 range, l_int32 *pindex, l_int32 *pdist );
-LEPT_DLL extern l_ok boxGetCenter ( BOX *box, l_float32 *pcx, l_float32 *pcy );
-LEPT_DLL extern l_ok boxIntersectByLine ( BOX *box, l_int32 x, l_int32 y, l_float32 slope, l_int32 *px1, l_int32 *py1, l_int32 *px2, l_int32 *py2, l_int32 *pn );
+LEPT_DLL extern l_ok boxGetCenter ( const BOX *box, l_float32 *pcx, l_float32 *pcy );
+LEPT_DLL extern l_ok boxIntersectByLine ( const BOX *box, l_int32 x, l_int32 y, l_float32 slope, l_int32 *px1, l_int32 *py1, l_int32 *px2, l_int32 *py2, l_int32 *pn );
 LEPT_DLL extern BOX * boxClipToRectangle ( BOX *box, l_int32 wi, l_int32 hi );
 LEPT_DLL extern l_ok boxClipToRectangleParams ( BOX *box, l_int32 w, l_int32 h, l_int32 *pxstart, l_int32 *pystart, l_int32 *pxend, l_int32 *pyend, l_int32 *pbw, l_int32 *pbh );
 LEPT_DLL extern BOX * boxRelocateOneSide ( BOX *boxd, BOX *boxs, l_int32 loc, l_int32 sideflag );
@@ -5031,11 +4901,8 @@ LEPT_DLL extern PIX * boxaDisplayTiled ( BOXA *boxas, PIXA *pixa, l_int32 first,
 LEPT_DLL extern BOXA * boxaSmoothSequenceMedian ( BOXA *boxas, l_int32 halfwin, l_int32 subflag, l_int32 maxdiff, l_int32 extrapixels, l_int32 debug );
 LEPT_DLL extern BOXA * boxaWindowedMedian ( BOXA *boxas, l_int32 halfwin, l_int32 debug );
 LEPT_DLL extern BOXA * boxaModifyWithBoxa ( BOXA *boxas, BOXA *boxam, l_int32 subflag, l_int32 maxdiff, l_int32 extrapixels );
-LEPT_DLL extern BOXA * boxaConstrainSize ( BOXA *boxas, l_int32 width, l_int32 widthflag, l_int32 height, l_int32 heightflag );
-LEPT_DLL extern BOXA * boxaReconcileEvenOddHeight ( BOXA *boxas, l_int32 sides, l_int32 delh, l_int32 op, l_float32 factor, l_int32 start );
 LEPT_DLL extern BOXA * boxaReconcilePairWidth ( BOXA *boxas, l_int32 delw, l_int32 op, l_float32 factor, NUMA *na );
-LEPT_DLL extern l_ok boxaSizeConsistency1 ( BOXA *boxas, l_int32 type, l_float32 threshp, l_float32 threshm, l_float32 *pfvarp, l_float32 *pfvarm, l_int32 *psame );
-LEPT_DLL extern l_ok boxaSizeConsistency2 ( BOXA *boxas, l_float32 *pfdevw, l_float32 *pfdevh, l_int32 debug );
+LEPT_DLL extern l_ok boxaSizeConsistency ( BOXA *boxas, l_int32 type, l_float32 threshp, l_float32 threshm, l_float32 *pfvarp, l_float32 *pfvarm, l_int32 *psame );
 LEPT_DLL extern BOXA * boxaReconcileAllByMedian ( BOXA *boxas, l_int32 select1, l_int32 select2, l_int32 thresh, l_int32 extra, PIXA *pixadb );
 LEPT_DLL extern BOXA * boxaReconcileSidesByMedian ( BOXA *boxas, l_int32 select, l_int32 thresh, l_int32 extra, PIXA *pixadb );
 LEPT_DLL extern BOXA * boxaReconcileSizeByMedian ( BOXA *boxas, l_int32 type, l_float32 dfract, l_float32 sfract, l_float32 factor, NUMA **pnadelw, NUMA **pnadelh, l_float32 *pratiowh );
@@ -5060,13 +4927,7 @@ LEPT_DLL extern l_ok l_byteaSplit ( L_BYTEA *ba1, size_t splitloc, L_BYTEA **pba
 LEPT_DLL extern l_ok l_byteaFindEachSequence ( L_BYTEA *ba, const l_uint8 *sequence, size_t seqlen, L_DNA **pda );
 LEPT_DLL extern l_ok l_byteaWrite ( const char *fname, L_BYTEA *ba, size_t startloc, size_t nbytes );
 LEPT_DLL extern l_ok l_byteaWriteStream ( FILE *fp, L_BYTEA *ba, size_t startloc, size_t nbytes );
-LEPT_DLL extern CCBORDA * ccbaCreate ( PIX *pixs, l_int32 n );
 LEPT_DLL extern void ccbaDestroy ( CCBORDA **pccba );
-LEPT_DLL extern CCBORD * ccbCreate ( PIX *pixs );
-LEPT_DLL extern void ccbDestroy ( CCBORD **pccb );
-LEPT_DLL extern l_ok ccbaAddCcb ( CCBORDA *ccba, CCBORD *ccb );
-LEPT_DLL extern l_int32 ccbaGetCount ( CCBORDA *ccba );
-LEPT_DLL extern CCBORD * ccbaGetCcb ( CCBORDA *ccba, l_int32 index );
 LEPT_DLL extern CCBORDA * pixGetAllCCBorders ( PIX *pixs );
 LEPT_DLL extern PTAA * pixGetOuterBordersPtaa ( PIX *pixs );
 LEPT_DLL extern l_ok pixGetOuterBorder ( CCBORD *ccb, PIX *pixs, BOX *box );
@@ -5075,7 +4936,6 @@ LEPT_DLL extern l_ok ccbaGenerateStepChains ( CCBORDA *ccba );
 LEPT_DLL extern l_ok ccbaStepChainsToPixCoords ( CCBORDA *ccba, l_int32 coordtype );
 LEPT_DLL extern l_ok ccbaGenerateSPGlobalLocs ( CCBORDA *ccba, l_int32 ptsflag );
 LEPT_DLL extern l_ok ccbaGenerateSinglePath ( CCBORDA *ccba );
-LEPT_DLL extern PTA * getCutPathForHole ( PIX *pix, PTA *pta, BOX *boxinner, l_int32 *pdir, l_int32 *plen );
 LEPT_DLL extern PIX * ccbaDisplayBorder ( CCBORDA *ccba );
 LEPT_DLL extern PIX * ccbaDisplaySPBorder ( CCBORDA *ccba );
 LEPT_DLL extern PIX * ccbaDisplayImage1 ( CCBORDA *ccba );
@@ -5085,13 +4945,12 @@ LEPT_DLL extern l_ok ccbaWriteStream ( FILE *fp, CCBORDA *ccba );
 LEPT_DLL extern CCBORDA * ccbaRead ( const char *filename );
 LEPT_DLL extern CCBORDA * ccbaReadStream ( FILE *fp );
 LEPT_DLL extern l_ok ccbaWriteSVG ( const char *filename, CCBORDA *ccba );
-LEPT_DLL extern char * ccbaWriteSVGString ( const char *filename, CCBORDA *ccba );
+LEPT_DLL extern char * ccbaWriteSVGString ( CCBORDA *ccba );
 LEPT_DLL extern PIXA * pixaThinConnected ( PIXA *pixas, l_int32 type, l_int32 connectivity, l_int32 maxiters );
 LEPT_DLL extern PIX * pixThinConnected ( PIX *pixs, l_int32 type, l_int32 connectivity, l_int32 maxiters );
 LEPT_DLL extern PIX * pixThinConnectedBySet ( PIX *pixs, l_int32 type, SELA *sela, l_int32 maxiters );
 LEPT_DLL extern SELA * selaMakeThinSets ( l_int32 index, l_int32 debug );
 LEPT_DLL extern l_ok pixFindCheckerboardCorners ( PIX *pixs, l_int32 size, l_int32 dilation, l_int32 nsels, PIX **ppix_corners, PTA **ppta_corners, PIXA *pixadb );
-LEPT_DLL extern SELA * makeCheckerboardCornerSela ( l_int32 size, l_int32 dilation, l_int32 nsels, PIXA *pixadb );
 LEPT_DLL extern l_ok jbCorrelation ( const char *dirin, l_float32 thresh, l_float32 weight, l_int32 components, const char *rootname, l_int32 firstpage, l_int32 npages, l_int32 renderflag );
 LEPT_DLL extern l_ok jbRankHaus ( const char *dirin, l_int32 size, l_float32 rank, l_int32 components, const char *rootname, l_int32 firstpage, l_int32 npages, l_int32 renderflag );
 LEPT_DLL extern JBCLASSER * jbWordsInTextlines ( const char *dirin, l_int32 reduction, l_int32 maxwidth, l_int32 maxheight, l_float32 thresh, l_float32 weight, NUMA **pnatl, l_int32 firstpage, l_int32 npages );
@@ -5102,21 +4961,27 @@ LEPT_DLL extern NUMAA * boxaExtractSortedPattern ( BOXA *boxa, NUMA *na );
 LEPT_DLL extern l_ok numaaCompareImagesByBoxes ( NUMAA *naa1, NUMAA *naa2, l_int32 nperline, l_int32 nreq, l_int32 maxshiftx, l_int32 maxshifty, l_int32 delx, l_int32 dely, l_int32 *psame, l_int32 debugflag );
 LEPT_DLL extern l_ok pixColorContent ( PIX *pixs, l_int32 rref, l_int32 gref, l_int32 bref, l_int32 mingray, PIX **ppixr, PIX **ppixg, PIX **ppixb );
 LEPT_DLL extern PIX * pixColorMagnitude ( PIX *pixs, l_int32 rref, l_int32 gref, l_int32 bref, l_int32 type );
+LEPT_DLL extern l_ok pixColorFraction ( PIX *pixs, l_int32 darkthresh, l_int32 lightthresh, l_int32 diffthresh, l_int32 factor, l_float32 *ppixfract, l_float32 *pcolorfract );
+LEPT_DLL extern PIX * pixColorShiftWhitePoint ( PIX *pixs, l_int32 rref, l_int32 gref, l_int32 bref );
 LEPT_DLL extern PIX * pixMaskOverColorPixels ( PIX *pixs, l_int32 threshdiff, l_int32 mindist );
 LEPT_DLL extern PIX * pixMaskOverGrayPixels ( PIX *pixs, l_int32 maxlimit, l_int32 satlimit );
 LEPT_DLL extern PIX * pixMaskOverColorRange ( PIX *pixs, l_int32 rmin, l_int32 rmax, l_int32 gmin, l_int32 gmax, l_int32 bmin, l_int32 bmax );
-LEPT_DLL extern l_ok pixColorFraction ( PIX *pixs, l_int32 darkthresh, l_int32 lightthresh, l_int32 diffthresh, l_int32 factor, l_float32 *ppixfract, l_float32 *pcolorfract );
 LEPT_DLL extern l_ok pixFindColorRegions ( PIX *pixs, PIX *pixm, l_int32 factor, l_int32 lightthresh, l_int32 darkthresh, l_int32 mindiff, l_int32 colordiff, l_float32 edgefract, l_float32 *pcolorfract, PIX **pcolormask1, PIX **pcolormask2, PIXA *pixadb );
 LEPT_DLL extern l_ok pixNumSignificantGrayColors ( PIX *pixs, l_int32 darkthresh, l_int32 lightthresh, l_float32 minfract, l_int32 factor, l_int32 *pncolors );
 LEPT_DLL extern l_ok pixColorsForQuantization ( PIX *pixs, l_int32 thresh, l_int32 *pncolors, l_int32 *piscolor, l_int32 debug );
 LEPT_DLL extern l_ok pixNumColors ( PIX *pixs, l_int32 factor, l_int32 *pncolors );
-LEPT_DLL extern PIX * pixConvertRGBToCmap ( PIX *pixs );
+LEPT_DLL extern PIX * pixConvertRGBToCmapLossless ( PIX *pixs );
 LEPT_DLL extern l_ok pixGetMostPopulatedColors ( PIX *pixs, l_int32 sigbits, l_int32 factor, l_int32 ncolors, l_uint32 **parray, PIXCMAP **pcmap );
 LEPT_DLL extern PIX * pixSimpleColorQuantize ( PIX *pixs, l_int32 sigbits, l_int32 factor, l_int32 ncolors );
 LEPT_DLL extern NUMA * pixGetRGBHistogram ( PIX *pixs, l_int32 sigbits, l_int32 factor );
 LEPT_DLL extern l_ok makeRGBIndexTables ( l_uint32 **prtab, l_uint32 **pgtab, l_uint32 **pbtab, l_int32 sigbits );
 LEPT_DLL extern l_ok getRGBFromIndex ( l_uint32 index, l_int32 sigbits, l_int32 *prval, l_int32 *pgval, l_int32 *pbval );
-LEPT_DLL extern l_ok pixHasHighlightRed ( PIX *pixs, l_int32 factor, l_float32 fract, l_float32 fthresh, l_int32 *phasred, l_float32 *pratio, PIX **ppixdb );
+LEPT_DLL extern l_ok pixHasHighlightRed ( PIX *pixs, l_int32 factor, l_float32 minfract, l_float32 fthresh, l_int32 *phasred, l_float32 *pratio, PIX **ppixdb );
+LEPT_DLL extern L_COLORFILL * l_colorfillCreate ( PIX *pixs, l_int32 nx, l_int32 ny );
+LEPT_DLL extern void l_colorfillDestroy ( L_COLORFILL **pcf );
+LEPT_DLL extern l_ok pixColorContentByLocation ( L_COLORFILL *cf, l_int32 rref, l_int32 gref, l_int32 bref, l_int32 minmax, l_int32 maxdiff, l_int32 minarea, l_int32 smooth, l_int32 debug );
+LEPT_DLL extern PIX * pixColorFill ( PIX *pixs, l_int32 minmax, l_int32 maxdiff, l_int32 smooth, l_int32 minarea, l_int32 debug );
+LEPT_DLL extern PIXA * makeColorfillTestData ( l_int32 w, l_int32 h, l_int32 nseeds, l_int32 range );
 LEPT_DLL extern PIX * pixColorGrayRegions ( PIX *pixs, BOXA *boxa, l_int32 type, l_int32 thresh, l_int32 rval, l_int32 gval, l_int32 bval );
 LEPT_DLL extern l_ok pixColorGray ( PIX *pixs, BOX *box, l_int32 type, l_int32 thresh, l_int32 rval, l_int32 gval, l_int32 bval );
 LEPT_DLL extern PIX * pixColorGrayMasked ( PIX *pixs, PIX *pixm, l_int32 type, l_int32 thresh, l_int32 rval, l_int32 gval, l_int32 bval );
@@ -5126,13 +4991,14 @@ LEPT_DLL extern PIX * pixLinearMapToTargetColor ( PIX *pixd, PIX *pixs, l_uint32
 LEPT_DLL extern l_ok pixelLinearMapToTargetColor ( l_uint32 scolor, l_uint32 srcmap, l_uint32 dstmap, l_uint32 *pdcolor );
 LEPT_DLL extern PIX * pixShiftByComponent ( PIX *pixd, PIX *pixs, l_uint32 srcval, l_uint32 dstval );
 LEPT_DLL extern l_ok pixelShiftByComponent ( l_int32 rval, l_int32 gval, l_int32 bval, l_uint32 srcval, l_uint32 dstval, l_uint32 *ppixel );
-LEPT_DLL extern l_ok pixelFractionalShift ( l_int32 rval, l_int32 gval, l_int32 bval, l_float32 fraction, l_uint32 *ppixel );
+LEPT_DLL extern l_ok pixelFractionalShift ( l_int32 rval, l_int32 gval, l_int32 bval, l_float32 fract, l_uint32 *ppixel );
+LEPT_DLL extern PIX * pixMapWithInvariantHue ( PIX *pixd, PIX *pixs, l_uint32 srcval, l_float32 fract );
 LEPT_DLL extern PIXCMAP * pixcmapCreate ( l_int32 depth );
 LEPT_DLL extern PIXCMAP * pixcmapCreateRandom ( l_int32 depth, l_int32 hasblack, l_int32 haswhite );
 LEPT_DLL extern PIXCMAP * pixcmapCreateLinear ( l_int32 d, l_int32 nlevels );
 LEPT_DLL extern PIXCMAP * pixcmapCopy ( const PIXCMAP *cmaps );
 LEPT_DLL extern void pixcmapDestroy ( PIXCMAP **pcmap );
-LEPT_DLL extern l_ok pixcmapIsValid ( const PIXCMAP *cmap, l_int32 *pvalid );
+LEPT_DLL extern l_ok pixcmapIsValid ( const PIXCMAP *cmap, PIX *pix, l_int32 *pvalid );
 LEPT_DLL extern l_ok pixcmapAddColor ( PIXCMAP *cmap, l_int32 rval, l_int32 gval, l_int32 bval );
 LEPT_DLL extern l_ok pixcmapAddRGBA ( PIXCMAP *cmap, l_int32 rval, l_int32 gval, l_int32 bval, l_int32 aval );
 LEPT_DLL extern l_ok pixcmapAddNewColor ( PIXCMAP *cmap, l_int32 rval, l_int32 gval, l_int32 bval, l_int32 *pindex );
@@ -5154,6 +5020,7 @@ LEPT_DLL extern l_ok pixcmapSetAlpha ( PIXCMAP *cmap, l_int32 index, l_int32 ava
 LEPT_DLL extern l_int32 pixcmapGetIndex ( PIXCMAP *cmap, l_int32 rval, l_int32 gval, l_int32 bval, l_int32 *pindex );
 LEPT_DLL extern l_ok pixcmapHasColor ( PIXCMAP *cmap, l_int32 *pcolor );
 LEPT_DLL extern l_ok pixcmapIsOpaque ( PIXCMAP *cmap, l_int32 *popaque );
+LEPT_DLL extern l_ok pixcmapNonOpaqueColorsInfo ( PIXCMAP *cmap, l_int32 *pntrans, l_int32 *pmax_trans, l_int32 *pmin_opaque );
 LEPT_DLL extern l_ok pixcmapIsBlackAndWhite ( PIXCMAP *cmap, l_int32 *pblackwhite );
 LEPT_DLL extern l_ok pixcmapCountGrayColors ( PIXCMAP *cmap, l_int32 *pngray );
 LEPT_DLL extern l_ok pixcmapGetRankIntensity ( PIXCMAP *cmap, l_float32 rankval, l_int32 *pindex );
@@ -5161,6 +5028,7 @@ LEPT_DLL extern l_ok pixcmapGetNearestIndex ( PIXCMAP *cmap, l_int32 rval, l_int
 LEPT_DLL extern l_ok pixcmapGetNearestGrayIndex ( PIXCMAP *cmap, l_int32 val, l_int32 *pindex );
 LEPT_DLL extern l_ok pixcmapGetDistanceToColor ( PIXCMAP *cmap, l_int32 index, l_int32 rval, l_int32 gval, l_int32 bval, l_int32 *pdist );
 LEPT_DLL extern l_ok pixcmapGetRangeValues ( PIXCMAP *cmap, l_int32 select, l_int32 *pminval, l_int32 *pmaxval, l_int32 *pminindex, l_int32 *pmaxindex );
+LEPT_DLL extern PIXCMAP * pixcmapGrayToFalseColor ( l_float32 gamma );
 LEPT_DLL extern PIXCMAP * pixcmapGrayToColor ( l_uint32 color );
 LEPT_DLL extern PIXCMAP * pixcmapColorToGray ( PIXCMAP *cmaps, l_float32 rwt, l_float32 gwt, l_float32 bwt );
 LEPT_DLL extern PIXCMAP * pixcmapConvertTo4 ( PIXCMAP *cmaps );
@@ -5244,6 +5112,7 @@ LEPT_DLL extern FPIXA * pixConvertRGBToLAB ( PIX *pixs );
 LEPT_DLL extern PIX * fpixaConvertLABToRGB ( FPIXA *fpixa );
 LEPT_DLL extern l_ok convertRGBToLAB ( l_int32 rval, l_int32 gval, l_int32 bval, l_float32 *pflval, l_float32 *pfaval, l_float32 *pfbval );
 LEPT_DLL extern l_ok convertLABToRGB ( l_float32 flval, l_float32 faval, l_float32 fbval, l_int32 *prval, l_int32 *pgval, l_int32 *pbval );
+LEPT_DLL extern PIX * pixMakeGamutRGB ( l_int32 scale );
 LEPT_DLL extern l_ok pixEqual ( PIX *pix1, PIX *pix2, l_int32 *psame );
 LEPT_DLL extern l_ok pixEqualWithAlpha ( PIX *pix1, PIX *pix2, l_int32 use_alpha, l_int32 *psame );
 LEPT_DLL extern l_ok pixEqualWithCmap ( PIX *pix1, PIX *pix2, l_int32 *psame );
@@ -5340,10 +5209,10 @@ LEPT_DLL extern L_DEWARPA * dewarpaReadMem ( const l_uint8 *data, size_t size );
 LEPT_DLL extern l_ok dewarpaWrite ( const char *filename, L_DEWARPA *dewa );
 LEPT_DLL extern l_ok dewarpaWriteStream ( FILE *fp, L_DEWARPA *dewa );
 LEPT_DLL extern l_ok dewarpaWriteMem ( l_uint8 **pdata, size_t *psize, L_DEWARPA *dewa );
-/* WILLUS MOD */
-    LEPT_DLL extern l_ok dewarpBuildPageModel_ex ( L_DEWARP *dew, const char *debugfile,l_int32 fit_order );
-    LEPT_DLL extern l_ok dewarpFindVertDisparity_ex ( L_DEWARP *dew, PTAA *ptaa, l_int32 rotflag,l_int32 fit_order );
-    LEPT_DLL extern l_ok dewarpBuildLineModel_ex ( L_DEWARP *dew, l_int32 opensize, const char *debugfile,l_int32 fit_order );
+/* WILLUS mod */
+LEPT_DLL extern l_ok dewarpBuildPageModel_ex ( L_DEWARP *dew, const char *debugfile, l_int32 fit_order );
+LEPT_DLL extern l_ok dewarpFindVertDisparity_ex ( L_DEWARP *dew, PTAA *ptaa, l_int32 rotflag, l_int32 fit_order );
+LEPT_DLL extern l_ok dewarpBuildLineModel_ex ( L_DEWARP *dew, l_int32 opensize, const char *debugfile, l_int32 fit_order );
 LEPT_DLL extern l_ok dewarpBuildPageModel ( L_DEWARP *dew, const char *debugfile );
 LEPT_DLL extern l_ok dewarpFindVertDisparity ( L_DEWARP *dew, PTAA *ptaa, l_int32 rotflag );
 LEPT_DLL extern l_ok dewarpFindHorizDisparity ( L_DEWARP *dew, PTAA *ptaa );
@@ -5389,15 +5258,16 @@ LEPT_DLL extern l_ok l_dnaSetValue ( L_DNA *da, l_int32 index, l_float64 val );
 LEPT_DLL extern l_ok l_dnaShiftValue ( L_DNA *da, l_int32 index, l_float64 diff );
 LEPT_DLL extern l_int32 * l_dnaGetIArray ( L_DNA *da );
 LEPT_DLL extern l_float64 * l_dnaGetDArray ( L_DNA *da, l_int32 copyflag );
-LEPT_DLL extern l_int32 l_dnaGetRefcount ( L_DNA *da );
-LEPT_DLL extern l_ok l_dnaChangeRefcount ( L_DNA *da, l_int32 delta );
 LEPT_DLL extern l_ok l_dnaGetParameters ( L_DNA *da, l_float64 *pstartx, l_float64 *pdelx );
 LEPT_DLL extern l_ok l_dnaSetParameters ( L_DNA *da, l_float64 startx, l_float64 delx );
 LEPT_DLL extern l_ok l_dnaCopyParameters ( L_DNA *dad, L_DNA *das );
 LEPT_DLL extern L_DNA * l_dnaRead ( const char *filename );
 LEPT_DLL extern L_DNA * l_dnaReadStream ( FILE *fp );
+LEPT_DLL extern L_DNA * l_dnaReadMem ( const l_uint8 *data, size_t size );
 LEPT_DLL extern l_ok l_dnaWrite ( const char *filename, L_DNA *da );
 LEPT_DLL extern l_ok l_dnaWriteStream ( FILE *fp, L_DNA *da );
+LEPT_DLL extern l_ok l_dnaWriteStderr ( L_DNA *da );
+LEPT_DLL extern l_ok l_dnaWriteMem ( l_uint8 **pdata, size_t *psize, L_DNA *da );
 LEPT_DLL extern L_DNAA * l_dnaaCreate ( l_int32 n );
 LEPT_DLL extern L_DNAA * l_dnaaCreateFull ( l_int32 nptr, l_int32 n );
 LEPT_DLL extern l_ok l_dnaaTruncate ( L_DNAA *daa );
@@ -5412,28 +5282,30 @@ LEPT_DLL extern l_ok l_dnaaGetValue ( L_DNAA *daa, l_int32 i, l_int32 j, l_float
 LEPT_DLL extern l_ok l_dnaaAddNumber ( L_DNAA *daa, l_int32 index, l_float64 val );
 LEPT_DLL extern L_DNAA * l_dnaaRead ( const char *filename );
 LEPT_DLL extern L_DNAA * l_dnaaReadStream ( FILE *fp );
+LEPT_DLL extern L_DNAA * l_dnaaReadMem ( const l_uint8 *data, size_t size );
 LEPT_DLL extern l_ok l_dnaaWrite ( const char *filename, L_DNAA *daa );
 LEPT_DLL extern l_ok l_dnaaWriteStream ( FILE *fp, L_DNAA *daa );
+LEPT_DLL extern l_ok l_dnaaWriteMem ( l_uint8 **pdata, size_t *psize, L_DNAA *daa );
 LEPT_DLL extern l_ok l_dnaJoin ( L_DNA *dad, L_DNA *das, l_int32 istart, l_int32 iend );
 LEPT_DLL extern L_DNA * l_dnaaFlattenToDna ( L_DNAA *daa );
+LEPT_DLL extern L_DNA * l_dnaSelectRange ( L_DNA *das, l_int32 first, l_int32 last );
 LEPT_DLL extern NUMA * l_dnaConvertToNuma ( L_DNA *da );
 LEPT_DLL extern L_DNA * numaConvertToDna ( NUMA *na );
-LEPT_DLL extern L_DNA * l_dnaUnionByAset ( L_DNA *da1, L_DNA *da2 );
-LEPT_DLL extern L_DNA * l_dnaRemoveDupsByAset ( L_DNA *das );
-LEPT_DLL extern L_DNA * l_dnaIntersectionByAset ( L_DNA *da1, L_DNA *da2 );
+LEPT_DLL extern L_DNA * pixConvertDataToDna ( PIX *pix );
 LEPT_DLL extern L_ASET * l_asetCreateFromDna ( L_DNA *da );
+LEPT_DLL extern l_ok l_dnaRemoveDupsByAset ( L_DNA *das, L_DNA **pdad );
+LEPT_DLL extern l_ok l_dnaUnionByAset ( L_DNA *da1, L_DNA *da2, L_DNA **pdad );
+LEPT_DLL extern l_ok l_dnaIntersectionByAset ( L_DNA *da1, L_DNA *da2, L_DNA **pdad );
+LEPT_DLL extern L_HASHMAP * l_hmapCreateFromDna ( L_DNA *da );
+LEPT_DLL extern l_ok l_dnaRemoveDupsByHmap ( L_DNA *das, L_DNA **pdad, L_HASHMAP **phmap );
+LEPT_DLL extern l_ok l_dnaUnionByHmap ( L_DNA *da1, L_DNA *da2, L_DNA **pdad );
+LEPT_DLL extern l_ok l_dnaIntersectionByHmap ( L_DNA *da1, L_DNA *da2, L_DNA **pdad );
+LEPT_DLL extern l_ok l_dnaMakeHistoByHmap ( L_DNA *das, L_DNA **pdav, L_DNA **pdac );
 LEPT_DLL extern L_DNA * l_dnaDiffAdjValues ( L_DNA *das );
 LEPT_DLL extern L_DNAHASH * l_dnaHashCreate ( l_int32 nbuckets, l_int32 initsize );
 LEPT_DLL extern void l_dnaHashDestroy ( L_DNAHASH **pdahash );
-LEPT_DLL extern l_int32 l_dnaHashGetCount ( L_DNAHASH *dahash );
-LEPT_DLL extern l_int32 l_dnaHashGetTotalCount ( L_DNAHASH *dahash );
 LEPT_DLL extern L_DNA * l_dnaHashGetDna ( L_DNAHASH *dahash, l_uint64 key, l_int32 copyflag );
 LEPT_DLL extern l_ok l_dnaHashAdd ( L_DNAHASH *dahash, l_uint64 key, l_float64 value );
-LEPT_DLL extern L_DNAHASH * l_dnaHashCreateFromDna ( L_DNA *da );
-LEPT_DLL extern l_ok l_dnaRemoveDupsByHash ( L_DNA *das, L_DNA **pdad, L_DNAHASH **pdahash );
-LEPT_DLL extern l_ok l_dnaMakeHistoByHash ( L_DNA *das, L_DNAHASH **pdahash, L_DNA **pdav, L_DNA **pdac );
-LEPT_DLL extern L_DNA * l_dnaIntersectionByHash ( L_DNA *da1, L_DNA *da2 );
-LEPT_DLL extern l_ok l_dnaFindValByHash ( L_DNA *da, L_DNAHASH *dahash, l_float64 val, l_int32 *pindex );
 LEPT_DLL extern PIX * pixMorphDwa_2 ( PIX *pixd, PIX *pixs, l_int32 operation, char *selname );
 LEPT_DLL extern PIX * pixFMorphopGen_2 ( PIX *pixd, PIX *pixs, l_int32 operation, char *selname );
 LEPT_DLL extern l_int32 fmorphopgen_low_2 ( l_uint32 *datad, l_int32 w, l_int32 h, l_int32 wpld, l_uint32 *datas, l_int32 wpls, l_int32 index );
@@ -5445,8 +5317,10 @@ LEPT_DLL extern l_ok pixGetLastOffPixelInRun ( PIX *pixs, l_int32 x, l_int32 y, 
 LEPT_DLL extern l_int32 pixGetLastOnPixelInRun ( PIX *pixs, l_int32 x, l_int32 y, l_int32 direction, l_int32 *ploc );
 LEPT_DLL extern char * encodeBase64 ( const l_uint8 *inarray, l_int32 insize, l_int32 *poutsize );
 LEPT_DLL extern l_uint8 * decodeBase64 ( const char *inarray, l_int32 insize, l_int32 *poutsize );
-LEPT_DLL extern char * encodeAscii85 ( const l_uint8 *inarray, l_int32 insize, l_int32 *poutsize );
-LEPT_DLL extern l_uint8 * decodeAscii85 ( const char *inarray, l_int32 insize, l_int32 *poutsize );
+LEPT_DLL extern char * encodeAscii85 ( const l_uint8 *inarray, size_t insize, size_t *poutsize );
+LEPT_DLL extern l_uint8 * decodeAscii85 ( const char *inarray, size_t insize, size_t *poutsize );
+LEPT_DLL extern char * encodeAscii85WithComp ( const l_uint8 *indata, size_t insize, size_t *poutsize );
+LEPT_DLL extern l_uint8 * decodeAscii85WithComp ( const char *instr, size_t insize, size_t *poutsize );
 LEPT_DLL extern char * reformatPacked64 ( const char *inarray, l_int32 insize, l_int32 leadspace, l_int32 linechars, l_int32 addquotes, l_int32 *poutsize );
 LEPT_DLL extern PIX * pixGammaTRC ( PIX *pixd, PIX *pixs, l_float32 gamma, l_int32 minval, l_int32 maxval );
 LEPT_DLL extern PIX * pixGammaTRCMasked ( PIX *pixd, PIX *pixs, PIX *pixm, l_float32 gamma, l_int32 minval, l_int32 maxval );
@@ -5485,14 +5359,8 @@ LEPT_DLL extern l_ok pixItalicWords ( PIX *pixs, BOXA *boxaw, PIX *pixw, BOXA **
 LEPT_DLL extern PIX * pixOrientCorrect ( PIX *pixs, l_float32 minupconf, l_float32 minratio, l_float32 *pupconf, l_float32 *pleftconf, l_int32 *protation, l_int32 debug );
 LEPT_DLL extern l_ok pixOrientDetect ( PIX *pixs, l_float32 *pupconf, l_float32 *pleftconf, l_int32 mincount, l_int32 debug );
 LEPT_DLL extern l_ok makeOrientDecision ( l_float32 upconf, l_float32 leftconf, l_float32 minupconf, l_float32 minratio, l_int32 *porient, l_int32 debug );
-LEPT_DLL extern l_ok pixUpDownDetect ( PIX *pixs, l_float32 *pconf, l_int32 mincount, l_int32 debug );
-LEPT_DLL extern l_ok pixUpDownDetectGeneral ( PIX *pixs, l_float32 *pconf, l_int32 mincount, l_int32 npixels, l_int32 debug );
-LEPT_DLL extern l_ok pixOrientDetectDwa ( PIX *pixs, l_float32 *pupconf, l_float32 *pleftconf, l_int32 mincount, l_int32 debug );
-LEPT_DLL extern l_ok pixUpDownDetectDwa ( PIX *pixs, l_float32 *pconf, l_int32 mincount, l_int32 debug );
-LEPT_DLL extern l_ok pixUpDownDetectGeneralDwa ( PIX *pixs, l_float32 *pconf, l_int32 mincount, l_int32 npixels, l_int32 debug );
+LEPT_DLL extern l_ok pixUpDownDetect ( PIX *pixs, l_float32 *pconf, l_int32 mincount, l_int32 npixels, l_int32 debug );
 LEPT_DLL extern l_ok pixMirrorDetect ( PIX *pixs, l_float32 *pconf, l_int32 mincount, l_int32 debug );
-LEPT_DLL extern l_ok pixMirrorDetectDwa ( PIX *pixs, l_float32 *pconf, l_int32 mincount, l_int32 debug );
-LEPT_DLL extern PIX * pixFlipFHMTGen ( PIX *pixd, PIX *pixs, const char *selname );
 LEPT_DLL extern l_ok fmorphautogen ( SELA *sela, l_int32 fileindex, const char *filename );
 LEPT_DLL extern l_ok fmorphautogen1 ( SELA *sela, l_int32 fileindex, const char *filename );
 LEPT_DLL extern l_int32 fmorphautogen2 ( SELA *sela, l_int32 fileindex, const char *filename );
@@ -5502,15 +5370,12 @@ LEPT_DLL extern l_int32 fmorphopgen_low_1 ( l_uint32 *datad, l_int32 w, l_int32 
 LEPT_DLL extern FPIX * fpixCreate ( l_int32 width, l_int32 height );
 LEPT_DLL extern FPIX * fpixCreateTemplate ( FPIX *fpixs );
 LEPT_DLL extern FPIX * fpixClone ( FPIX *fpix );
-LEPT_DLL extern FPIX * fpixCopy ( FPIX *fpixd, FPIX *fpixs );
-LEPT_DLL extern l_ok fpixResizeImageData ( FPIX *fpixd, FPIX *fpixs );
+LEPT_DLL extern FPIX * fpixCopy ( FPIX *fpixs );
 LEPT_DLL extern void fpixDestroy ( FPIX **pfpix );
 LEPT_DLL extern l_ok fpixGetDimensions ( FPIX *fpix, l_int32 *pw, l_int32 *ph );
 LEPT_DLL extern l_ok fpixSetDimensions ( FPIX *fpix, l_int32 w, l_int32 h );
 LEPT_DLL extern l_int32 fpixGetWpl ( FPIX *fpix );
 LEPT_DLL extern l_ok fpixSetWpl ( FPIX *fpix, l_int32 wpl );
-LEPT_DLL extern l_int32 fpixGetRefcount ( FPIX *fpix );
-LEPT_DLL extern l_ok fpixChangeRefcount ( FPIX *fpix, l_int32 delta );
 LEPT_DLL extern l_ok fpixGetResolution ( FPIX *fpix, l_int32 *pxres, l_int32 *pyres );
 LEPT_DLL extern l_ok fpixSetResolution ( FPIX *fpix, l_int32 xres, l_int32 yres );
 LEPT_DLL extern l_ok fpixCopyResolution ( FPIX *fpixd, FPIX *fpixs );
@@ -5523,7 +5388,6 @@ LEPT_DLL extern FPIXA * fpixaCopy ( FPIXA *fpixa, l_int32 copyflag );
 LEPT_DLL extern void fpixaDestroy ( FPIXA **pfpixa );
 LEPT_DLL extern l_ok fpixaAddFPix ( FPIXA *fpixa, FPIX *fpix, l_int32 copyflag );
 LEPT_DLL extern l_int32 fpixaGetCount ( FPIXA *fpixa );
-LEPT_DLL extern l_ok fpixaChangeRefcount ( FPIXA *fpixa, l_int32 delta );
 LEPT_DLL extern FPIX * fpixaGetFPix ( FPIXA *fpixa, l_int32 index, l_int32 accesstype );
 LEPT_DLL extern l_ok fpixaGetFPixDimensions ( FPIXA *fpixa, l_int32 index, l_int32 *pw, l_int32 *ph );
 LEPT_DLL extern l_float32 * fpixaGetData ( FPIXA *fpixa, l_int32 index );
@@ -5532,15 +5396,12 @@ LEPT_DLL extern l_ok fpixaSetPixel ( FPIXA *fpixa, l_int32 index, l_int32 x, l_i
 LEPT_DLL extern DPIX * dpixCreate ( l_int32 width, l_int32 height );
 LEPT_DLL extern DPIX * dpixCreateTemplate ( DPIX *dpixs );
 LEPT_DLL extern DPIX * dpixClone ( DPIX *dpix );
-LEPT_DLL extern DPIX * dpixCopy ( DPIX *dpixd, DPIX *dpixs );
-LEPT_DLL extern l_ok dpixResizeImageData ( DPIX *dpixd, DPIX *dpixs );
+LEPT_DLL extern DPIX * dpixCopy ( DPIX *dpixs );
 LEPT_DLL extern void dpixDestroy ( DPIX **pdpix );
 LEPT_DLL extern l_ok dpixGetDimensions ( DPIX *dpix, l_int32 *pw, l_int32 *ph );
 LEPT_DLL extern l_ok dpixSetDimensions ( DPIX *dpix, l_int32 w, l_int32 h );
 LEPT_DLL extern l_int32 dpixGetWpl ( DPIX *dpix );
 LEPT_DLL extern l_ok dpixSetWpl ( DPIX *dpix, l_int32 wpl );
-LEPT_DLL extern l_int32 dpixGetRefcount ( DPIX *dpix );
-LEPT_DLL extern l_ok dpixChangeRefcount ( DPIX *dpix, l_int32 delta );
 LEPT_DLL extern l_ok dpixGetResolution ( DPIX *dpix, l_int32 *pxres, l_int32 *pyres );
 LEPT_DLL extern l_ok dpixSetResolution ( DPIX *dpix, l_int32 xres, l_int32 yres );
 LEPT_DLL extern l_ok dpixCopyResolution ( DPIX *dpixd, DPIX *dpixs );
@@ -5705,6 +5566,10 @@ LEPT_DLL extern PIX * pixGenerateMaskByBand32 ( PIX *pixs, l_uint32 refval, l_in
 LEPT_DLL extern PIX * pixGenerateMaskByDiscr32 ( PIX *pixs, l_uint32 refval1, l_uint32 refval2, l_int32 distflag );
 LEPT_DLL extern PIX * pixGrayQuantFromHisto ( PIX *pixd, PIX *pixs, PIX *pixm, l_float32 minfract, l_int32 maxsize );
 LEPT_DLL extern PIX * pixGrayQuantFromCmap ( PIX *pixs, PIXCMAP *cmap, l_int32 mindepth );
+LEPT_DLL extern L_HASHMAP * l_hmapCreate ( l_int32 ninit, l_int32 maxocc );
+LEPT_DLL extern void l_hmapDestroy ( L_HASHMAP **phmap );
+LEPT_DLL extern L_HASHITEM * l_hmapLookup ( L_HASHMAP *hmap, l_uint64 key, l_uint64 val, l_int32 op );
+LEPT_DLL extern l_ok l_hmapRehash ( L_HASHMAP *hmap );
 LEPT_DLL extern L_HEAP * lheapCreate ( l_int32 n, l_int32 direction );
 LEPT_DLL extern void lheapDestroy ( L_HEAP **plh, l_int32 freeflag );
 LEPT_DLL extern l_ok lheapAdd ( L_HEAP *lh, void *item );
@@ -5738,14 +5603,14 @@ LEPT_DLL extern JBDATA * jbDataRead ( const char *rootname );
 LEPT_DLL extern PIXA * jbDataRender ( JBDATA *data, l_int32 debugflag );
 LEPT_DLL extern l_ok jbGetULCorners ( JBCLASSER *classer, PIX *pixs, BOXA *boxa );
 LEPT_DLL extern l_ok jbGetLLCorners ( JBCLASSER *classer );
-LEPT_DLL extern l_ok readHeaderJp2k ( const char *filename, l_int32 *pw, l_int32 *ph, l_int32 *pbps, l_int32 *pspp );
-LEPT_DLL extern l_ok freadHeaderJp2k ( FILE *fp, l_int32 *pw, l_int32 *ph, l_int32 *pbps, l_int32 *pspp );
-LEPT_DLL extern l_ok readHeaderMemJp2k ( const l_uint8 *data, size_t size, l_int32 *pw, l_int32 *ph, l_int32 *pbps, l_int32 *pspp );
+LEPT_DLL extern l_ok readHeaderJp2k ( const char *filename, l_int32 *pw, l_int32 *ph, l_int32 *pbps, l_int32 *pspp, l_int32 *pcodec );
+LEPT_DLL extern l_ok freadHeaderJp2k ( FILE *fp, l_int32 *pw, l_int32 *ph, l_int32 *pbps, l_int32 *pspp, l_int32 *pcodec );
+LEPT_DLL extern l_ok readHeaderMemJp2k ( const l_uint8 *data, size_t size, l_int32 *pw, l_int32 *ph, l_int32 *pbps, l_int32 *pspp, l_int32 *pcodec );
 LEPT_DLL extern l_int32 fgetJp2kResolution ( FILE *fp, l_int32 *pxres, l_int32 *pyres );
 LEPT_DLL extern PIX * pixReadJp2k ( const char *filename, l_uint32 reduction, BOX *box, l_int32 hint, l_int32 debug );
 LEPT_DLL extern PIX * pixReadStreamJp2k ( FILE *fp, l_uint32 reduction, BOX *box, l_int32 hint, l_int32 debug );
 LEPT_DLL extern l_ok pixWriteJp2k ( const char *filename, PIX *pix, l_int32 quality, l_int32 nlevels, l_int32 hint, l_int32 debug );
-LEPT_DLL extern l_ok pixWriteStreamJp2k ( FILE *fp, PIX *pix, l_int32 quality, l_int32 nlevels, l_int32 hint, l_int32 debug );
+LEPT_DLL extern l_ok pixWriteStreamJp2k ( FILE *fp, PIX *pix, l_int32 quality, l_int32 nlevels, l_int32 codec, l_int32 hint, l_int32 debug );
 LEPT_DLL extern PIX * pixReadMemJp2k ( const l_uint8 *data, size_t size, l_uint32 reduction, BOX *box, l_int32 hint, l_int32 debug );
 LEPT_DLL extern l_ok pixWriteMemJp2k ( l_uint8 **pdata, size_t *psize, PIX *pix, l_int32 quality, l_int32 nlevels, l_int32 hint, l_int32 debug );
 LEPT_DLL extern PIX * pixReadJpeg ( const char *filename, l_int32 cmapflag, l_int32 reduction, l_int32 *pnwarn, l_int32 hint );
@@ -5906,8 +5771,6 @@ LEPT_DLL extern l_ok numaSetValue ( NUMA *na, l_int32 index, l_float32 val );
 LEPT_DLL extern l_ok numaShiftValue ( NUMA *na, l_int32 index, l_float32 diff );
 LEPT_DLL extern l_int32 * numaGetIArray ( NUMA *na );
 LEPT_DLL extern l_float32 * numaGetFArray ( NUMA *na, l_int32 copyflag );
-LEPT_DLL extern l_int32 numaGetRefcount ( NUMA *na );
-LEPT_DLL extern l_ok numaChangeRefcount ( NUMA *na, l_int32 delta );
 LEPT_DLL extern l_ok numaGetParameters ( NUMA *na, l_float32 *pstartx, l_float32 *pdelx );
 LEPT_DLL extern l_ok numaSetParameters ( NUMA *na, l_float32 startx, l_float32 delx );
 LEPT_DLL extern l_ok numaCopyParameters ( NUMA *nad, NUMA *nas );
@@ -5949,12 +5812,14 @@ LEPT_DLL extern l_ok numaGetMax ( NUMA *na, l_float32 *pmaxval, l_int32 *pimaxlo
 LEPT_DLL extern l_ok numaGetSum ( NUMA *na, l_float32 *psum );
 LEPT_DLL extern NUMA * numaGetPartialSums ( NUMA *na );
 LEPT_DLL extern l_ok numaGetSumOnInterval ( NUMA *na, l_int32 first, l_int32 last, l_float32 *psum );
-LEPT_DLL extern l_ok numaHasOnlyIntegers ( NUMA *na, l_int32 maxsamples, l_int32 *pallints );
+LEPT_DLL extern l_ok numaHasOnlyIntegers ( NUMA *na, l_int32 *pallints );
+LEPT_DLL extern l_ok numaGetMean ( NUMA *na, l_float32 *pave );
+LEPT_DLL extern l_ok numaGetMeanAbsval ( NUMA *na, l_float32 *paveabs );
 LEPT_DLL extern NUMA * numaSubsample ( NUMA *nas, l_int32 subfactor );
 LEPT_DLL extern NUMA * numaMakeDelta ( NUMA *nas );
 LEPT_DLL extern NUMA * numaMakeSequence ( l_float32 startval, l_float32 increment, l_int32 size );
 LEPT_DLL extern NUMA * numaMakeConstant ( l_float32 val, l_int32 size );
-LEPT_DLL extern NUMA * numaMakeAbsValue ( NUMA *nad, NUMA *nas );
+LEPT_DLL extern NUMA * numaMakeAbsval ( NUMA *nad, NUMA *nas );
 LEPT_DLL extern NUMA * numaAddBorder ( NUMA *nas, l_int32 left, l_int32 right, l_float32 val );
 LEPT_DLL extern NUMA * numaAddSpecifiedBorder ( NUMA *nas, l_int32 left, l_int32 right, l_int32 type );
 LEPT_DLL extern NUMA * numaRemoveBorder ( NUMA *nas, l_int32 left, l_int32 right );
@@ -5988,6 +5853,8 @@ LEPT_DLL extern NUMA * numaSortByIndex ( NUMA *nas, NUMA *naindex );
 LEPT_DLL extern l_int32 numaIsSorted ( NUMA *nas, l_int32 sortorder, l_int32 *psorted );
 LEPT_DLL extern l_ok numaSortPair ( NUMA *nax, NUMA *nay, l_int32 sortorder, NUMA **pnasx, NUMA **pnasy );
 LEPT_DLL extern NUMA * numaInvertMap ( NUMA *nas );
+LEPT_DLL extern l_ok numaAddSorted ( NUMA *na, l_float32 val );
+LEPT_DLL extern l_ok numaFindSortedLoc ( NUMA *na, l_float32 val, l_int32 *pindex );
 LEPT_DLL extern NUMA * numaPseudorandomSequence ( l_int32 size, l_int32 seed );
 LEPT_DLL extern NUMA * numaRandomPermutation ( NUMA *nas, l_int32 seed );
 LEPT_DLL extern l_ok numaGetRankValue ( NUMA *na, l_float32 fract, NUMA *nasort, l_int32 usebins, l_float32 *pval );
@@ -6022,8 +5889,10 @@ LEPT_DLL extern l_ok numaGetHistogramStatsOnInterval ( NUMA *nahisto, l_float32 
 LEPT_DLL extern l_ok numaMakeRankFromHistogram ( l_float32 startx, l_float32 deltax, NUMA *nasy, l_int32 npts, NUMA **pnax, NUMA **pnay );
 LEPT_DLL extern l_ok numaHistogramGetRankFromVal ( NUMA *na, l_float32 rval, l_float32 *prank );
 LEPT_DLL extern l_ok numaHistogramGetValFromRank ( NUMA *na, l_float32 rank, l_float32 *prval );
-LEPT_DLL extern l_ok numaDiscretizeRankAndIntensity ( NUMA *na, l_int32 nbins, NUMA **pnarbin, NUMA **pnam, NUMA **pnar, NUMA **pnabb );
-LEPT_DLL extern l_ok numaGetRankBinValues ( NUMA *na, l_int32 nbins, NUMA **pnarbin, NUMA **pnam );
+LEPT_DLL extern l_ok numaDiscretizeSortedInBins ( NUMA *na, l_int32 nbins, NUMA **pnabinval );
+LEPT_DLL extern l_ok numaDiscretizeHistoInBins ( NUMA *na, l_int32 nbins, NUMA **pnabinval, NUMA **pnarank );
+LEPT_DLL extern l_ok numaGetRankBinValues ( NUMA *na, l_int32 nbins, NUMA **pnam );
+LEPT_DLL extern NUMA * numaGetUniformBinSizes ( l_int32 ntotal, l_int32 nbins );
 LEPT_DLL extern l_ok numaSplitDistribution ( NUMA *na, l_float32 scorefract, l_int32 *psplitindex, l_float32 *pave1, l_float32 *pave2, l_float32 *pnum1, l_float32 *pnum2, NUMA **pnascore );
 LEPT_DLL extern l_ok grayHistogramsToEMD ( NUMAA *naa1, NUMAA *naa2, NUMA **pnad );
 LEPT_DLL extern l_ok numaEarthMoverDistance ( NUMA *na1, NUMA *na2, l_float32 *pdist );
@@ -6102,13 +5971,13 @@ LEPT_DLL extern l_ok pixConvertToPdfData ( PIX *pix, l_int32 type, l_int32 quali
 LEPT_DLL extern l_ok ptraConcatenatePdfToData ( L_PTRA *pa_data, SARRAY *sa, l_uint8 **pdata, size_t *pnbytes );
 LEPT_DLL extern l_ok convertTiffMultipageToPdf ( const char *filein, const char *fileout );
 LEPT_DLL extern l_ok l_generateCIDataForPdf ( const char *fname, PIX *pix, l_int32 quality, L_COMP_DATA **pcid );
+LEPT_DLL extern l_ok l_generateCIData ( const char *fname, l_int32 type, l_int32 quality, l_int32 ascii85, L_COMP_DATA **pcid );
 LEPT_DLL extern L_COMP_DATA * l_generateFlateDataPdf ( const char *fname, PIX *pixs );
 LEPT_DLL extern L_COMP_DATA * l_generateJpegData ( const char *fname, l_int32 ascii85flag );
 LEPT_DLL extern L_COMP_DATA * l_generateJpegDataMem ( l_uint8 *data, size_t nbytes, l_int32 ascii85flag );
-LEPT_DLL extern l_ok l_generateCIData ( const char *fname, l_int32 type, l_int32 quality, l_int32 ascii85, L_COMP_DATA **pcid );
+LEPT_DLL extern L_COMP_DATA * l_generateG4Data ( const char *fname, l_int32 ascii85flag );
 LEPT_DLL extern l_ok pixGenerateCIData ( PIX *pixs, l_int32 type, l_int32 quality, l_int32 ascii85, L_COMP_DATA **pcid );
 LEPT_DLL extern L_COMP_DATA * l_generateFlateData ( const char *fname, l_int32 ascii85flag );
-LEPT_DLL extern L_COMP_DATA * l_generateG4Data ( const char *fname, l_int32 ascii85flag );
 LEPT_DLL extern l_ok cidConvertToPdfData ( L_COMP_DATA *cid, const char *title, l_uint8 **pdata, size_t *pnbytes );
 LEPT_DLL extern void l_CIDataDestroy ( L_COMP_DATA **pcid );
 LEPT_DLL extern void l_pdfSetG4ImageMask ( l_int32 flag );
@@ -6125,7 +5994,6 @@ LEPT_DLL extern void pixDestroy ( PIX **ppix );
 LEPT_DLL extern PIX * pixCopy ( PIX *pixd, const PIX *pixs );
 LEPT_DLL extern l_ok pixResizeImageData ( PIX *pixd, const PIX *pixs );
 LEPT_DLL extern l_ok pixCopyColormap ( PIX *pixd, const PIX *pixs );
-LEPT_DLL extern l_int32 pixSizesEqual ( const PIX *pix1, const PIX *pix2 );
 LEPT_DLL extern l_ok pixTransferAllData ( PIX *pixd, PIX **ppixs, l_int32 copytext, l_int32 copyformat );
 LEPT_DLL extern l_ok pixSwapAndDestroy ( PIX **ppixd, PIX **ppixs );
 LEPT_DLL extern l_int32 pixGetWidth ( const PIX *pix );
@@ -6142,8 +6010,6 @@ LEPT_DLL extern l_int32 pixSetSpp ( PIX *pix, l_int32 spp );
 LEPT_DLL extern l_ok pixCopySpp ( PIX *pixd, const PIX *pixs );
 LEPT_DLL extern l_int32 pixGetWpl ( const PIX *pix );
 LEPT_DLL extern l_int32 pixSetWpl ( PIX *pix, l_int32 wpl );
-LEPT_DLL extern l_int32 pixGetRefcount ( const PIX *pix );
-LEPT_DLL extern l_int32 pixChangeRefcount ( PIX *pix, l_int32 delta );
 LEPT_DLL extern l_int32 pixGetXRes ( const PIX *pix );
 LEPT_DLL extern l_int32 pixSetXRes ( PIX *pix, l_int32 res );
 LEPT_DLL extern l_int32 pixGetYRes ( const PIX *pix );
@@ -6160,14 +6026,19 @@ LEPT_DLL extern char * pixGetText ( PIX *pix );
 LEPT_DLL extern l_ok pixSetText ( PIX *pix, const char *textstring );
 LEPT_DLL extern l_ok pixAddText ( PIX *pix, const char *textstring );
 LEPT_DLL extern l_int32 pixCopyText ( PIX *pixd, const PIX *pixs );
+LEPT_DLL extern l_uint8 * pixGetTextCompNew ( PIX *pix, size_t *psize );
+LEPT_DLL extern l_ok pixSetTextCompNew ( PIX *pix, const l_uint8 *data, size_t size );
 LEPT_DLL extern PIXCMAP * pixGetColormap ( PIX *pix );
 LEPT_DLL extern l_ok pixSetColormap ( PIX *pix, PIXCMAP *colormap );
 LEPT_DLL extern l_ok pixDestroyColormap ( PIX *pix );
 LEPT_DLL extern l_uint32 * pixGetData ( PIX *pix );
+LEPT_DLL extern l_int32 pixFreeAndSetData ( PIX *pix, l_uint32 *data );
 LEPT_DLL extern l_int32 pixSetData ( PIX *pix, l_uint32 *data );
-LEPT_DLL extern l_uint32 * pixExtractData ( PIX *pixs );
 LEPT_DLL extern l_int32 pixFreeData ( PIX *pix );
+LEPT_DLL extern l_uint32 * pixExtractData ( PIX *pixs );
 LEPT_DLL extern void ** pixGetLinePtrs ( PIX *pix, l_int32 *psize );
+LEPT_DLL extern l_int32 pixSizesEqual ( const PIX *pix1, const PIX *pix2 );
+LEPT_DLL extern l_ok pixMaxAspectRatio ( PIX *pixs, l_float32 *pratio );
 LEPT_DLL extern l_ok pixPrintStreamInfo ( FILE *fp, const PIX *pix, const char *text );
 LEPT_DLL extern l_ok pixGetPixel ( PIX *pix, l_int32 x, l_int32 y, l_uint32 *pval );
 LEPT_DLL extern l_ok pixSetPixel ( PIX *pix, l_int32 x, l_int32 y, l_uint32 val );
@@ -6199,6 +6070,7 @@ LEPT_DLL extern PIX * pixCopyBorder ( PIX *pixd, PIX *pixs, l_int32 left, l_int3
 LEPT_DLL extern PIX * pixAddBorder ( PIX *pixs, l_int32 npix, l_uint32 val );
 LEPT_DLL extern PIX * pixAddBlackOrWhiteBorder ( PIX *pixs, l_int32 left, l_int32 right, l_int32 top, l_int32 bot, l_int32 op );
 LEPT_DLL extern PIX * pixAddBorderGeneral ( PIX *pixs, l_int32 left, l_int32 right, l_int32 top, l_int32 bot, l_uint32 val );
+LEPT_DLL extern PIX * pixAddMultipleBlackWhiteBorders ( PIX *pixs, l_int32 nblack1, l_int32 nwhite1, l_int32 nblack2, l_int32 nwhite2, l_int32 nblack3, l_int32 nwhite3 );
 LEPT_DLL extern PIX * pixRemoveBorder ( PIX *pixs, l_int32 npix );
 LEPT_DLL extern PIX * pixRemoveBorderGeneral ( PIX *pixs, l_int32 left, l_int32 right, l_int32 top, l_int32 bot );
 LEPT_DLL extern PIX * pixRemoveBorderToSize ( PIX *pixs, l_int32 wd, l_int32 hd );
@@ -6226,6 +6098,7 @@ LEPT_DLL extern l_int32 lineEndianByteSwap ( l_uint32 *datad, l_uint32 *datas, l
 LEPT_DLL extern PIX * pixEndianTwoByteSwapNew ( PIX *pixs );
 LEPT_DLL extern l_ok pixEndianTwoByteSwap ( PIX *pixs );
 LEPT_DLL extern l_ok pixGetRasterData ( PIX *pixs, l_uint8 **pdata, size_t *pnbytes );
+LEPT_DLL extern l_ok pixInferResolution ( PIX *pix, l_float32 longside, l_int32 *pres );
 LEPT_DLL extern l_ok pixAlphaIsOpaque ( PIX *pix, l_int32 *popaque );
 LEPT_DLL extern l_uint8 ** pixSetupByteProcessing ( PIX *pix, l_int32 *pw, l_int32 *ph );
 LEPT_DLL extern l_ok pixCleanupByteProcessing ( PIX *pix, l_uint8 **lineptrs );
@@ -6286,6 +6159,7 @@ LEPT_DLL extern l_ok pixGetColorHistogramMasked ( PIX *pixs, PIX *pixm, l_int32 
 LEPT_DLL extern NUMA * pixGetCmapHistogram ( PIX *pixs, l_int32 factor );
 LEPT_DLL extern NUMA * pixGetCmapHistogramMasked ( PIX *pixs, PIX *pixm, l_int32 x, l_int32 y, l_int32 factor );
 LEPT_DLL extern NUMA * pixGetCmapHistogramInRect ( PIX *pixs, BOX *box, l_int32 factor );
+LEPT_DLL extern l_ok pixCountRGBColorsByHash ( PIX *pixs, l_int32 *pncolors );
 LEPT_DLL extern l_ok pixCountRGBColors ( PIX *pixs, l_int32 factor, l_int32 *pncolors );
 LEPT_DLL extern L_AMAP * pixGetColorAmapHistogram ( PIX *pixs, l_int32 factor );
 LEPT_DLL extern l_int32 amapGetCountForColor ( L_AMAP *amap, l_uint32 val );
@@ -6303,9 +6177,10 @@ LEPT_DLL extern l_int32 pixColumnStats ( PIX *pixs, BOX *box, NUMA **pnamean, NU
 LEPT_DLL extern l_ok pixGetRangeValues ( PIX *pixs, l_int32 factor, l_int32 color, l_int32 *pminval, l_int32 *pmaxval );
 LEPT_DLL extern l_ok pixGetExtremeValue ( PIX *pixs, l_int32 factor, l_int32 type, l_int32 *prval, l_int32 *pgval, l_int32 *pbval, l_int32 *pgrayval );
 LEPT_DLL extern l_ok pixGetMaxValueInRect ( PIX *pixs, BOX *box, l_uint32 *pmaxval, l_int32 *pxmax, l_int32 *pymax );
+LEPT_DLL extern l_ok pixGetMaxColorIndex ( PIX *pixs, l_int32 *pmaxindex );
 LEPT_DLL extern l_ok pixGetBinnedComponentRange ( PIX *pixs, l_int32 nbins, l_int32 factor, l_int32 color, l_int32 *pminval, l_int32 *pmaxval, l_uint32 **pcarray, l_int32 fontsize );
 LEPT_DLL extern l_ok pixGetRankColorArray ( PIX *pixs, l_int32 nbins, l_int32 type, l_int32 factor, l_uint32 **pcarray, PIXA *pixadb, l_int32 fontsize );
-LEPT_DLL extern l_ok pixGetBinnedColor ( PIX *pixs, PIX *pixg, l_int32 factor, l_int32 nbins, NUMA *nalut, l_uint32 **pcarray, PIXA *pixadb );
+LEPT_DLL extern l_ok pixGetBinnedColor ( PIX *pixs, PIX *pixg, l_int32 factor, l_int32 nbins, l_uint32 **pcarray, PIXA *pixadb );
 LEPT_DLL extern PIX * pixDisplayColorArray ( l_uint32 *carray, l_int32 ncolors, l_int32 side, l_int32 ncols, l_int32 fontsize );
 LEPT_DLL extern PIX * pixRankBinByStrip ( PIX *pixs, l_int32 direction, l_int32 size, l_int32 nbins, l_int32 type );
 LEPT_DLL extern PIX * pixaGetAlignedStats ( PIXA *pixa, l_int32 type, l_int32 nbins, l_int32 thresh );
@@ -6332,6 +6207,7 @@ LEPT_DLL extern BOXA * pixFindRectangleComps ( PIX *pixs, l_int32 dist, l_int32 
 LEPT_DLL extern l_ok pixConformsToRectangle ( PIX *pixs, BOX *box, l_int32 dist, l_int32 *pconforms );
 LEPT_DLL extern PIXA * pixClipRectangles ( PIX *pixs, BOXA *boxa );
 LEPT_DLL extern PIX * pixClipRectangle ( PIX *pixs, BOX *box, BOX **pboxc );
+LEPT_DLL extern PIX * pixClipRectangleWithBorder ( PIX *pixs, BOX *box, l_int32 maxbord, BOX **pboxn );
 LEPT_DLL extern PIX * pixClipMasked ( PIX *pixs, PIX *pixm, l_int32 x, l_int32 y, l_uint32 outval );
 LEPT_DLL extern l_ok pixCropToMatch ( PIX *pixs1, PIX *pixs2, PIX **ppixd1, PIX **ppixd2 );
 LEPT_DLL extern PIX * pixCropToSize ( PIX *pixs, l_int32 w, l_int32 h );
@@ -6364,9 +6240,8 @@ LEPT_DLL extern void pixaDestroy ( PIXA **ppixa );
 LEPT_DLL extern PIXA * pixaCopy ( PIXA *pixa, l_int32 copyflag );
 LEPT_DLL extern l_ok pixaAddPix ( PIXA *pixa, PIX *pix, l_int32 copyflag );
 LEPT_DLL extern l_ok pixaAddBox ( PIXA *pixa, BOX *box, l_int32 copyflag );
-LEPT_DLL extern l_ok pixaExtendArrayToSize ( PIXA *pixa, l_int32 size );
+LEPT_DLL extern l_ok pixaExtendArrayToSize ( PIXA *pixa, size_t size );
 LEPT_DLL extern l_int32 pixaGetCount ( PIXA *pixa );
-LEPT_DLL extern l_ok pixaChangeRefcount ( PIXA *pixa, l_int32 delta );
 LEPT_DLL extern PIX * pixaGetPix ( PIXA *pixa, l_int32 index, l_int32 accesstype );
 LEPT_DLL extern l_ok pixaGetPixDimensions ( PIXA *pixa, l_int32 index, l_int32 *pw, l_int32 *ph, l_int32 *pd );
 LEPT_DLL extern BOXA * pixaGetBoxa ( PIXA *pixa, l_int32 accesstype );
@@ -6396,7 +6271,6 @@ LEPT_DLL extern PIXAA * pixaaCreate ( l_int32 n );
 LEPT_DLL extern PIXAA * pixaaCreateFromPixa ( PIXA *pixa, l_int32 n, l_int32 type, l_int32 copyflag );
 LEPT_DLL extern void pixaaDestroy ( PIXAA **ppaa );
 LEPT_DLL extern l_ok pixaaAddPixa ( PIXAA *paa, PIXA *pixa, l_int32 copyflag );
-LEPT_DLL extern l_ok pixaaExtendArray ( PIXAA *paa );
 LEPT_DLL extern l_ok pixaaAddPix ( PIXAA *paa, l_int32 index, PIX *pix, BOX *box, l_int32 copyflag );
 LEPT_DLL extern l_ok pixaaAddBox ( PIXAA *paa, BOX *box, l_int32 copyflag );
 LEPT_DLL extern l_int32 pixaaGetCount ( PIXAA *paa, NUMA **pna );
@@ -6444,6 +6318,8 @@ LEPT_DLL extern PIX * pixSelectByPerimSizeRatio ( PIX *pixs, l_float32 thresh, l
 LEPT_DLL extern PIXA * pixaSelectByPerimSizeRatio ( PIXA *pixas, l_float32 thresh, l_int32 type, l_int32 *pchanged );
 LEPT_DLL extern PIX * pixSelectByAreaFraction ( PIX *pixs, l_float32 thresh, l_int32 connectivity, l_int32 type, l_int32 *pchanged );
 LEPT_DLL extern PIXA * pixaSelectByAreaFraction ( PIXA *pixas, l_float32 thresh, l_int32 type, l_int32 *pchanged );
+LEPT_DLL extern PIX * pixSelectByArea ( PIX *pixs, l_float32 thresh, l_int32 connectivity, l_int32 type, l_int32 *pchanged );
+LEPT_DLL extern PIXA * pixaSelectByArea ( PIXA *pixas, l_float32 thresh, l_int32 type, l_int32 *pchanged );
 LEPT_DLL extern PIX * pixSelectByWidthHeightRatio ( PIX *pixs, l_float32 thresh, l_int32 connectivity, l_int32 type, l_int32 *pchanged );
 LEPT_DLL extern PIXA * pixaSelectByWidthHeightRatio ( PIXA *pixas, l_float32 thresh, l_int32 type, l_int32 *pchanged );
 LEPT_DLL extern PIXA * pixaSelectByNumConnComp ( PIXA *pixas, l_int32 nmin, l_int32 nmax, l_int32 connectivity, l_int32 *pchanged );
@@ -6478,6 +6354,7 @@ LEPT_DLL extern l_ok pixaHasColor ( PIXA *pixa, l_int32 *phascolor );
 LEPT_DLL extern l_ok pixaAnyColormaps ( PIXA *pixa, l_int32 *phascmap );
 LEPT_DLL extern l_ok pixaGetDepthInfo ( PIXA *pixa, l_int32 *pmaxdepth, l_int32 *psame );
 LEPT_DLL extern PIXA * pixaConvertToSameDepth ( PIXA *pixas );
+LEPT_DLL extern PIXA * pixaConvertToGivenDepth ( PIXA *pixas, l_int32 depth );
 LEPT_DLL extern l_ok pixaEqual ( PIXA *pixa1, PIXA *pixa2, l_int32 maxdist, NUMA **pnaindex, l_int32 *psame );
 LEPT_DLL extern l_ok pixaSetFullSizeBoxa ( PIXA *pixa );
 LEPT_DLL extern PIX * pixaDisplay ( PIXA *pixa, l_int32 w, l_int32 h );
@@ -6491,6 +6368,7 @@ LEPT_DLL extern PIX * pixaDisplayTiledInColumns ( PIXA *pixas, l_int32 nx, l_flo
 LEPT_DLL extern PIX * pixaDisplayTiledAndScaled ( PIXA *pixa, l_int32 outdepth, l_int32 tilewidth, l_int32 ncols, l_int32 background, l_int32 spacing, l_int32 border );
 LEPT_DLL extern PIX * pixaDisplayTiledWithText ( PIXA *pixa, l_int32 maxwidth, l_float32 scalefactor, l_int32 spacing, l_int32 border, l_int32 fontsize, l_uint32 textcolor );
 LEPT_DLL extern PIX * pixaDisplayTiledByIndex ( PIXA *pixa, NUMA *na, l_int32 width, l_int32 spacing, l_int32 border, l_int32 fontsize, l_uint32 textcolor );
+LEPT_DLL extern PIX * pixaDisplayPairTiledInColumns ( PIXA *pixas1, PIXA *pixas2, l_int32 nx, l_float32 scalefactor, l_int32 spacing1, l_int32 spacing2, l_int32 border1, l_int32 border2, l_int32 fontsize, l_int32 startindex, SARRAY *sa );
 LEPT_DLL extern PIX * pixaaDisplay ( PIXAA *paa, l_int32 w, l_int32 h );
 LEPT_DLL extern PIX * pixaaDisplayByPixa ( PIXAA *paa, l_int32 maxnx, l_float32 scalefactor, l_int32 hspacing, l_int32 vspacing, l_int32 border );
 LEPT_DLL extern PIXA * pixaaDisplayTiledAndScaled ( PIXAA *paa, l_int32 outdepth, l_int32 tilewidth, l_int32 ncols, l_int32 background, l_int32 spacing, l_int32 border );
@@ -6590,6 +6468,7 @@ LEPT_DLL extern PIX * pixRemoveColormap ( PIX *pixs, l_int32 type );
 LEPT_DLL extern l_ok pixAddGrayColormap8 ( PIX *pixs );
 LEPT_DLL extern PIX * pixAddMinimalGrayColormap8 ( PIX *pixs );
 LEPT_DLL extern PIX * pixConvertRGBToLuminance ( PIX *pixs );
+LEPT_DLL extern PIX * pixConvertRGBToGrayGeneral ( PIX *pixs, l_int32 type, l_float32 rwt, l_float32 gwt, l_float32 bwt );
 LEPT_DLL extern PIX * pixConvertRGBToGray ( PIX *pixs, l_float32 rwt, l_float32 gwt, l_float32 bwt );
 LEPT_DLL extern PIX * pixConvertRGBToGrayFast ( PIX *pixs );
 LEPT_DLL extern PIX * pixConvertRGBToGrayMinMax ( PIX *pixs, l_int32 type );
@@ -6727,8 +6606,6 @@ LEPT_DLL extern l_ok ptaEmpty ( PTA *pta );
 LEPT_DLL extern l_ok ptaAddPt ( PTA *pta, l_float32 x, l_float32 y );
 LEPT_DLL extern l_ok ptaInsertPt ( PTA *pta, l_int32 index, l_int32 x, l_int32 y );
 LEPT_DLL extern l_ok ptaRemovePt ( PTA *pta, l_int32 index );
-LEPT_DLL extern l_int32 ptaGetRefcount ( PTA *pta );
-LEPT_DLL extern l_int32 ptaChangeRefcount ( PTA *pta, l_int32 delta );
 LEPT_DLL extern l_int32 ptaGetCount ( PTA *pta );
 LEPT_DLL extern l_ok ptaGetPt ( PTA *pta, l_int32 index, l_float32 *px, l_float32 *py );
 LEPT_DLL extern l_ok ptaGetIPt ( PTA *pta, l_int32 index, l_int32 *px, l_int32 *py );
@@ -6774,6 +6651,7 @@ LEPT_DLL extern l_int32 ptaTestIntersection ( PTA *pta1, PTA *pta2 );
 LEPT_DLL extern PTA * ptaTransform ( PTA *ptas, l_int32 shiftx, l_int32 shifty, l_float32 scalex, l_float32 scaley );
 LEPT_DLL extern l_int32 ptaPtInsidePolygon ( PTA *pta, l_float32 x, l_float32 y, l_int32 *pinside );
 LEPT_DLL extern l_float32 l_angleBetweenVectors ( l_float32 x1, l_float32 y1, l_float32 x2, l_float32 y2 );
+LEPT_DLL extern l_int32 ptaPolygonIsConvex ( PTA *pta, l_int32 *pisconvex );
 LEPT_DLL extern l_ok ptaGetMinMax ( PTA *pta, l_float32 *pxmin, l_float32 *pymin, l_float32 *pxmax, l_float32 *pymax );
 LEPT_DLL extern PTA * ptaSelectByValue ( PTA *ptas, l_float32 xth, l_float32 yth, l_int32 type, l_int32 relation );
 LEPT_DLL extern PTA * ptaCropToMask ( PTA *ptas, PIX *pixm );
@@ -6809,15 +6687,14 @@ LEPT_DLL extern PTAA * ptaaSortByIndex ( PTAA *ptaas, NUMA *naindex );
 LEPT_DLL extern l_ok ptaGetRankValue ( PTA *pta, l_float32 fract, PTA *ptasort, l_int32 sorttype, l_float32 *pval );
 LEPT_DLL extern PTA * ptaSort2d ( PTA *pta );
 LEPT_DLL extern l_ok ptaEqual ( PTA *pta1, PTA *pta2, l_int32 *psame );
-LEPT_DLL extern PTA * ptaUnionByAset ( PTA *pta1, PTA *pta2 );
-LEPT_DLL extern PTA * ptaRemoveDupsByAset ( PTA *ptas );
-LEPT_DLL extern PTA * ptaIntersectionByAset ( PTA *pta1, PTA *pta2 );
 LEPT_DLL extern L_ASET * l_asetCreateFromPta ( PTA *pta );
-LEPT_DLL extern PTA * ptaUnionByHash ( PTA *pta1, PTA *pta2 );
-LEPT_DLL extern l_ok ptaRemoveDupsByHash ( PTA *ptas, PTA **pptad, L_DNAHASH **pdahash );
-LEPT_DLL extern PTA * ptaIntersectionByHash ( PTA *pta1, PTA *pta2 );
-LEPT_DLL extern l_ok ptaFindPtByHash ( PTA *pta, L_DNAHASH *dahash, l_int32 x, l_int32 y, l_int32 *pindex );
-LEPT_DLL extern L_DNAHASH * l_dnaHashCreateFromPta ( PTA *pta );
+LEPT_DLL extern l_ok ptaRemoveDupsByAset ( PTA *ptas, PTA **pptad );
+LEPT_DLL extern l_ok ptaUnionByAset ( PTA *pta1, PTA *pta2, PTA **pptad );
+LEPT_DLL extern l_ok ptaIntersectionByAset ( PTA *pta1, PTA *pta2, PTA **pptad );
+LEPT_DLL extern L_HASHMAP * l_hmapCreateFromPta ( PTA *pta );
+LEPT_DLL extern l_ok ptaRemoveDupsByHmap ( PTA *ptas, PTA **pptad, L_HASHMAP **phmap );
+LEPT_DLL extern l_ok ptaUnionByHmap ( PTA *pta1, PTA *pta2, PTA **pptad );
+LEPT_DLL extern l_ok ptaIntersectionByHmap ( PTA *pta1, PTA *pta2, PTA **pptad );
 LEPT_DLL extern L_PTRA * ptraCreate ( l_int32 n );
 LEPT_DLL extern void ptraDestroy ( L_PTRA **ppa, l_int32 freeflag, l_int32 warnflag );
 LEPT_DLL extern l_ok ptraAdd ( L_PTRA *pa, void *item );
@@ -6937,7 +6814,7 @@ LEPT_DLL extern l_ok recogTrainLabeled ( L_RECOG *recog, PIX *pixs, BOX *box, ch
 LEPT_DLL extern l_ok recogProcessLabeled ( L_RECOG *recog, PIX *pixs, BOX *box, char *text, PIX **ppix );
 LEPT_DLL extern l_ok recogAddSample ( L_RECOG *recog, PIX *pix, l_int32 debug );
 LEPT_DLL extern PIX * recogModifyTemplate ( L_RECOG *recog, PIX *pixs );
-LEPT_DLL extern l_int32 recogAverageSamples ( L_RECOG **precog, l_int32 debug );
+LEPT_DLL extern l_int32 recogAverageSamples ( L_RECOG *recog, l_int32 debug );
 LEPT_DLL extern l_int32 pixaAccumulateSamples ( PIXA *pixa, PTA *pta, PIX **ppixd, l_float32 *px, l_float32 *py );
 LEPT_DLL extern l_ok recogTrainingFinished ( L_RECOG **precog, l_int32 modifyflag, l_int32 minsize, l_float32 minfract );
 LEPT_DLL extern PIXA * recogFilterPixaBySize ( PIXA *pixas, l_int32 setsize, l_int32 maxkeep, l_float32 max_ht_ratio, NUMA **pna );
@@ -6953,7 +6830,7 @@ LEPT_DLL extern PIXA * recogAddDigitPadTemplates ( L_RECOG *recog, SARRAY *sa );
 LEPT_DLL extern L_RECOG * recogMakeBootDigitRecog ( l_int32 nsamp, l_int32 scaleh, l_int32 linew, l_int32 maxyshift, l_int32 debug );
 LEPT_DLL extern PIXA * recogMakeBootDigitTemplates ( l_int32 nsamp, l_int32 debug );
 LEPT_DLL extern l_ok recogShowContent ( FILE *fp, L_RECOG *recog, l_int32 index, l_int32 display );
-LEPT_DLL extern l_ok recogDebugAverages ( L_RECOG **precog, l_int32 debug );
+LEPT_DLL extern l_ok recogDebugAverages ( L_RECOG *recog, l_int32 debug );
 LEPT_DLL extern l_int32 recogShowAverageTemplates ( L_RECOG *recog );
 LEPT_DLL extern l_ok recogShowMatchesInRange ( L_RECOG *recog, PIXA *pixa, l_float32 minscore, l_float32 maxscore, l_int32 display );
 LEPT_DLL extern PIX * recogShowMatch ( L_RECOG *recog, PIX *pix1, PIX *pix2, BOX *box, l_int32 index, l_float32 score );
@@ -7024,23 +6901,23 @@ LEPT_DLL extern l_ok sarrayClear ( SARRAY *sa );
 LEPT_DLL extern l_int32 sarrayGetCount ( SARRAY *sa );
 LEPT_DLL extern char ** sarrayGetArray ( SARRAY *sa, l_int32 *pnalloc, l_int32 *pn );
 LEPT_DLL extern char * sarrayGetString ( SARRAY *sa, l_int32 index, l_int32 copyflag );
-LEPT_DLL extern l_int32 sarrayGetRefcount ( SARRAY *sa );
-LEPT_DLL extern l_ok sarrayChangeRefcount ( SARRAY *sa, l_int32 delta );
 LEPT_DLL extern char * sarrayToString ( SARRAY *sa, l_int32 addnlflag );
 LEPT_DLL extern char * sarrayToStringRange ( SARRAY *sa, l_int32 first, l_int32 nstrings, l_int32 addnlflag );
+LEPT_DLL extern SARRAY * sarrayConcatUniformly ( SARRAY *sa, l_int32 n, l_int32 addnlflag );
 LEPT_DLL extern l_ok sarrayJoin ( SARRAY *sa1, SARRAY *sa2 );
 LEPT_DLL extern l_ok sarrayAppendRange ( SARRAY *sa1, SARRAY *sa2, l_int32 start, l_int32 end );
 LEPT_DLL extern l_ok sarrayPadToSameSize ( SARRAY *sa1, SARRAY *sa2, const char *padstring );
 LEPT_DLL extern SARRAY * sarrayConvertWordsToLines ( SARRAY *sa, l_int32 linesize );
 LEPT_DLL extern l_int32 sarraySplitString ( SARRAY *sa, const char *str, const char *separators );
 LEPT_DLL extern SARRAY * sarraySelectBySubstring ( SARRAY *sain, const char *substr );
-LEPT_DLL extern SARRAY * sarraySelectByRange ( SARRAY *sain, l_int32 first, l_int32 last );
+LEPT_DLL extern SARRAY * sarraySelectRange ( SARRAY *sain, l_int32 first, l_int32 last );
 LEPT_DLL extern l_int32 sarrayParseRange ( SARRAY *sa, l_int32 start, l_int32 *pactualstart, l_int32 *pend, l_int32 *pnewstart, const char *substr, l_int32 loc );
 LEPT_DLL extern SARRAY * sarrayRead ( const char *filename );
 LEPT_DLL extern SARRAY * sarrayReadStream ( FILE *fp );
 LEPT_DLL extern SARRAY * sarrayReadMem ( const l_uint8 *data, size_t size );
 LEPT_DLL extern l_ok sarrayWrite ( const char *filename, SARRAY *sa );
 LEPT_DLL extern l_ok sarrayWriteStream ( FILE *fp, SARRAY *sa );
+LEPT_DLL extern l_ok sarrayWriteStderr ( SARRAY *sa );
 LEPT_DLL extern l_ok sarrayWriteMem ( l_uint8 **pdata, size_t *psize, SARRAY *sa );
 LEPT_DLL extern l_ok sarrayAppend ( const char *filename, SARRAY *sa );
 LEPT_DLL extern SARRAY * getNumberedPathnamesInDirectory ( const char *dirname, const char *substr, l_int32 numpre, l_int32 numpost, l_int32 maxnum );
@@ -7050,14 +6927,14 @@ LEPT_DLL extern SARRAY * getFilenamesInDirectory ( const char *dirname );
 LEPT_DLL extern SARRAY * sarraySort ( SARRAY *saout, SARRAY *sain, l_int32 sortorder );
 LEPT_DLL extern SARRAY * sarraySortByIndex ( SARRAY *sain, NUMA *naindex );
 LEPT_DLL extern l_int32 stringCompareLexical ( const char *str1, const char *str2 );
-LEPT_DLL extern SARRAY * sarrayUnionByAset ( SARRAY *sa1, SARRAY *sa2 );
-LEPT_DLL extern SARRAY * sarrayRemoveDupsByAset ( SARRAY *sas );
-LEPT_DLL extern SARRAY * sarrayIntersectionByAset ( SARRAY *sa1, SARRAY *sa2 );
 LEPT_DLL extern L_ASET * l_asetCreateFromSarray ( SARRAY *sa );
-LEPT_DLL extern l_ok sarrayRemoveDupsByHash ( SARRAY *sas, SARRAY **psad, L_DNAHASH **pdahash );
-LEPT_DLL extern SARRAY * sarrayIntersectionByHash ( SARRAY *sa1, SARRAY *sa2 );
-LEPT_DLL extern l_ok sarrayFindStringByHash ( SARRAY *sa, L_DNAHASH *dahash, const char *str, l_int32 *pindex );
-LEPT_DLL extern L_DNAHASH * l_dnaHashCreateFromSarray ( SARRAY *sa );
+LEPT_DLL extern l_ok sarrayRemoveDupsByAset ( SARRAY *sas, SARRAY **psad );
+LEPT_DLL extern l_ok sarrayUnionByAset ( SARRAY *sa1, SARRAY *sa2, SARRAY **psad );
+LEPT_DLL extern l_ok sarrayIntersectionByAset ( SARRAY *sa1, SARRAY *sa2, SARRAY **psad );
+LEPT_DLL extern L_HASHMAP * l_hmapCreateFromSarray ( SARRAY *sa );
+LEPT_DLL extern l_ok sarrayRemoveDupsByHmap ( SARRAY *sas, SARRAY **psad, L_HASHMAP **phmap );
+LEPT_DLL extern l_ok sarrayUnionByHmap ( SARRAY *sa1, SARRAY *sa2, SARRAY **psad );
+LEPT_DLL extern l_ok sarrayIntersectionByHmap ( SARRAY *sa1, SARRAY *sa2, SARRAY **psad );
 LEPT_DLL extern SARRAY * sarrayGenerateIntegers ( l_int32 n );
 LEPT_DLL extern l_ok sarrayLookupCSKV ( SARRAY *sa, const char *keystring, char **pvalstring );
 LEPT_DLL extern PIX * pixScale ( PIX *pixs, l_float32 scalex, l_float32 scaley );
@@ -7212,7 +7089,7 @@ LEPT_DLL extern l_ok pixFindNormalizedSquareSum ( PIX *pixs, l_float32 *phratio,
 LEPT_DLL extern PIX * pixReadStreamSpix ( FILE *fp );
 LEPT_DLL extern l_ok readHeaderSpix ( const char *filename, l_int32 *pwidth, l_int32 *pheight, l_int32 *pbps, l_int32 *pspp, l_int32 *piscmap );
 LEPT_DLL extern l_ok freadHeaderSpix ( FILE *fp, l_int32 *pwidth, l_int32 *pheight, l_int32 *pbps, l_int32 *pspp, l_int32 *piscmap );
-LEPT_DLL extern l_ok sreadHeaderSpix ( const l_uint32 *data, l_int32 *pwidth, l_int32 *pheight, l_int32 *pbps, l_int32 *pspp, l_int32 *piscmap );
+LEPT_DLL extern l_ok sreadHeaderSpix ( const l_uint32 *data, size_t size, l_int32 *pwidth, l_int32 *pheight, l_int32 *pbps, l_int32 *pspp, l_int32 *piscmap );
 LEPT_DLL extern l_ok pixWriteStreamSpix ( FILE *fp, PIX *pix );
 LEPT_DLL extern PIX * pixReadMemSpix ( const l_uint8 *data, size_t size );
 LEPT_DLL extern l_ok pixWriteMemSpix ( l_uint8 **pdata, size_t *psize, PIX *pix );
@@ -7294,11 +7171,12 @@ LEPT_DLL extern l_uint32 convertOnBigEnd32 ( l_uint32 wordin );
 LEPT_DLL extern l_ok fileCorruptByDeletion ( const char *filein, l_float32 loc, l_float32 size, const char *fileout );
 LEPT_DLL extern l_ok fileCorruptByMutation ( const char *filein, l_float32 loc, l_float32 size, const char *fileout );
 LEPT_DLL extern l_ok fileReplaceBytes ( const char *filein, l_int32 start, l_int32 nbytes, l_uint8 *newdata, size_t newsize, const char *fileout );
-LEPT_DLL extern l_ok genRandomIntegerInRange ( l_int32 range, l_int32 seed, l_int32 *pval );
+LEPT_DLL extern l_ok genRandomIntOnInterval ( l_int32 start, l_int32 end, l_int32 seed, l_int32 *pval );
 LEPT_DLL extern l_int32 lept_roundftoi ( l_float32 fval );
 LEPT_DLL extern l_ok l_hashStringToUint64 ( const char *str, l_uint64 *phash );
+LEPT_DLL extern l_ok l_hashStringToUint64Fast ( const char *str, l_uint64 *phash );
 LEPT_DLL extern l_ok l_hashPtToUint64 ( l_int32 x, l_int32 y, l_uint64 *phash );
-LEPT_DLL extern l_ok l_hashFloat64ToUint64 ( l_int32 nbuckets, l_float64 val, l_uint64 *phash );
+LEPT_DLL extern l_ok l_hashFloat64ToUint64 ( l_float64 val, l_uint64 *phash );
 LEPT_DLL extern l_ok findNextLargerPrime ( l_int32 start, l_uint32 *pprime );
 LEPT_DLL extern l_ok lept_isPrime ( l_uint64 n, l_int32 *pis_prime, l_uint32 *pfactor );
 LEPT_DLL extern l_uint32 convertIntToGrayCode ( l_uint32 val );
@@ -7333,7 +7211,7 @@ LEPT_DLL extern l_int32 stringFindSubstr ( const char *src, const char *sub, l_i
 LEPT_DLL extern l_uint8 * arrayReplaceEachSequence ( const l_uint8 *datas, size_t dataslen, const l_uint8 *seq, size_t seqlen, const l_uint8 *newseq, size_t newseqlen, size_t *pdatadlen, l_int32 *pcount );
 LEPT_DLL extern L_DNA * arrayFindEachSequence ( const l_uint8 *data, size_t datalen, const l_uint8 *sequence, size_t seqlen );
 LEPT_DLL extern l_ok arrayFindSequence ( const l_uint8 *data, size_t datalen, const l_uint8 *sequence, size_t seqlen, l_int32 *poffset, l_int32 *pfound );
-LEPT_DLL extern void * reallocNew ( void **pindata, l_int32 oldsize, l_int32 newsize );
+LEPT_DLL extern void * reallocNew ( void **pindata, size_t oldsize, size_t newsize );
 LEPT_DLL extern l_uint8 * l_binaryRead ( const char *filename, size_t *pnbytes );
 LEPT_DLL extern l_uint8 * l_binaryReadStream ( FILE *fp, size_t *pnbytes );
 LEPT_DLL extern l_uint8 * l_binaryReadSelect ( const char *filename, size_t start, size_t nbytes, size_t *pnread );
@@ -7346,6 +7224,7 @@ LEPT_DLL extern l_ok l_binaryCompare ( const l_uint8 *data1, size_t size1, const
 LEPT_DLL extern l_ok fileCopy ( const char *srcfile, const char *newfile );
 LEPT_DLL extern l_ok fileConcatenate ( const char *srcfile, const char *destfile );
 LEPT_DLL extern l_ok fileAppendString ( const char *filename, const char *str );
+LEPT_DLL extern l_ok fileSplitLinesUniform ( const char *filename, l_int32 n, l_int32 save_empty, const char *rootpath, const char *ext );
 LEPT_DLL extern FILE * fopenReadStream ( const char *filename );
 LEPT_DLL extern FILE * fopenWriteStream ( const char *filename, const char *modestring );
 LEPT_DLL extern FILE * fopenReadFromMemory ( const l_uint8 *data, size_t size );
@@ -7419,11 +7298,8 @@ LEPT_DLL extern PIX * pixMakeColorSquare ( l_uint32 color, l_int32 size, l_int32
 LEPT_DLL extern void l_chooseDisplayProg ( l_int32 selection );
 LEPT_DLL extern void changeFormatForMissingLib ( l_int32 *pformat );
 LEPT_DLL extern l_ok pixDisplayWrite ( PIX *pixs, l_int32 reduction );
-LEPT_DLL extern l_ok pixSaveTiled ( PIX *pixs, PIXA *pixa, l_float32 scalefactor, l_int32 newrow, l_int32 space, l_int32 dp );
-LEPT_DLL extern l_ok pixSaveTiledOutline ( PIX *pixs, PIXA *pixa, l_float32 scalefactor, l_int32 newrow, l_int32 space, l_int32 linewidth, l_int32 dp );
-LEPT_DLL extern l_ok pixSaveTiledWithText ( PIX *pixs, PIXA *pixa, l_int32 outwidth, l_int32 newrow, l_int32 space, l_int32 linewidth, L_BMF *bmf, const char *textstr, l_uint32 val, l_int32 location );
-LEPT_DLL extern l_uint8 * zlibCompress ( l_uint8 *datain, size_t nin, size_t *pnout );
-LEPT_DLL extern l_uint8 * zlibUncompress ( l_uint8 *datain, size_t nin, size_t *pnout );
+LEPT_DLL extern l_uint8 * zlibCompress ( const l_uint8 *datain, size_t nin, size_t *pnout );
+LEPT_DLL extern l_uint8 * zlibUncompress ( const l_uint8 *datain, size_t nin, size_t *pnout );
 
 #ifdef __cplusplus
 }

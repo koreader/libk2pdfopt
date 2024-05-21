@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2020  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -106,6 +106,7 @@ void strbuf_init(STRBUF *sbuf)
     {
     sbuf->s=NULL;
     sbuf->na=0;
+    sbuf->len=0;
     }
 
 
@@ -116,6 +117,42 @@ int strbuf_len(STRBUF *sbuf)
     }
 
 
+void strbuf_to_file(STRBUF *sbuf,FILE *out)
+
+    {
+    fprintf(out,"%s",sbuf->s);
+    }
+
+
+/*
+** ASSUMES sbuf->len is correct!
+** add_a_space==0:  Do not add a space
+** add_a_space==1:  Add a space
+** add_a_space==2:  Add a space only if: not empty and not following new line
+*/
+void strbuf_cat_ex2(STRBUF *sbuf,char *s,int add_a_space)
+
+    {
+    
+    if (s!=NULL && s[0]!='\0')
+        {
+        int slen;
+        slen=strlen(s);
+        strbuf_ensure(sbuf,sbuf->len+slen+2);
+        if (add_a_space==1 
+               || (add_a_space==2 && sbuf->len>0 
+                                  && sbuf->s[sbuf->len-1]!='\n'
+                                  && sbuf->s[sbuf->len-1]!=' '))
+            {
+            sbuf->s[sbuf->len]=' ';
+            sbuf->len++;
+            }
+        strcpy(&sbuf->s[sbuf->len],s);
+        sbuf->len+=slen;
+        }
+    }
+        
+    
 void strbuf_cat_ex(STRBUF *sbuf,char *s)
 
     {
@@ -123,6 +160,7 @@ void strbuf_cat_ex(STRBUF *sbuf,char *s)
         {
         strbuf_ensure(sbuf,(sbuf->s==NULL?0:strlen(sbuf->s))+strlen(s)+2);
         strcat(sbuf->s,s);
+        sbuf->len=strlen(sbuf->s);
         }
     }
 
@@ -136,6 +174,7 @@ void strbuf_cat(STRBUF *sbuf,char *s)
         if (sbuf->s[0]!='\0')
             strcat(sbuf->s," ");
         strcat(sbuf->s,s);
+        sbuf->len=strlen(sbuf->s);
         }
     }
 
@@ -155,6 +194,7 @@ void strbuf_cat_with_quotes(STRBUF *sbuf,char *s)
         strcat(sbuf->s,s);
         if (q)
             strcat(sbuf->s,"\"");
+        sbuf->len=strlen(sbuf->s);
         }
     }
 
@@ -168,6 +208,7 @@ void strbuf_cat_no_spaces(STRBUF *sbuf,char *s)
         if (sbuf->s[0]!='\0')
             strcat(sbuf->s," ");
         strcpy_no_spaces(&sbuf->s[strlen(sbuf->s)],s);
+        sbuf->len=strlen(sbuf->s);
         }
     }
 
@@ -179,6 +220,7 @@ void strbuf_cpy(STRBUF *sbuf,char *s)
         {
         strbuf_ensure(sbuf,strlen(s)+1);
         strcpy(sbuf->s,s);
+        sbuf->len=strlen(sbuf->s);
         }
     }
 
@@ -188,6 +230,7 @@ void strbuf_clear(STRBUF *sbuf)
     {
     if (sbuf->s!=NULL)
         sbuf->s[0]='\0';
+    sbuf->len=0;
     }
 
 
@@ -197,10 +240,14 @@ void strbuf_ensure(STRBUF *sbuf,int n)
     static char *funcname="strbuf_ensure";
     if (n>sbuf->na)
         {
-        willus_mem_realloc_robust_warn((void**)&sbuf->s,n,sbuf->na,funcname,10);
+        int newsize;
+        newsize=sbuf->na<128 ? 256 : sbuf->na*2;
+        while (newsize < n)
+            newsize *= 2;
+        willus_mem_realloc_robust_warn((void**)&sbuf->s,newsize,sbuf->na,funcname,10);
         if (sbuf->na==0)
             sbuf->s[0]='\0';
-        sbuf->na=n;
+        sbuf->na=newsize;
         }
     }
 
@@ -211,6 +258,7 @@ void strbuf_free(STRBUF *sbuf)
     willus_mem_free((double**)&sbuf->s,"strbuf_free");
     sbuf->s=NULL;
     sbuf->na=0;
+    sbuf->len=0;
     }
 
 

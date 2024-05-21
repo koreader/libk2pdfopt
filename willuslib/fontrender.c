@@ -198,7 +198,7 @@ void fontrender_caption(WILLUSBITMAP *bmp,char *s,int justify,FILE *out)
 
 
 void fontrender_render(WILLUSBITMAP *bmp,double x,double y_from_bottom,
-                       char *string,int rot,FILE *out)
+                       char *string,double rot,FILE *out)
 
     {
 #ifdef HAVE_PNG_LIB
@@ -208,7 +208,7 @@ void fontrender_render(WILLUSBITMAP *bmp,double x,double y_from_bottom,
 
 
 void fontrender_render_ex(WILLUSBITMAP *bmp,double x,double y_from_bottom,
-                          char *string,int rot,
+                          char *string,double rot,
                           int ep_translate,int justify_per_line,
                           int clear_behind_chars,FILE *out)
 

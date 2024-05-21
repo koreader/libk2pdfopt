@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2019  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -75,7 +75,11 @@ int rmdir(const char *);
 #endif
 #if (defined(WIN32) || defined(MSDOS))
 #define SLASH   '\\'
+#ifdef WIN32
+#define ALLFILES    "*"
+#else
 #define ALLFILES    "*.*"
+#endif
 #define COLON
 #else
 #define SLASH   '/'
@@ -3532,5 +3536,71 @@ int wfile_read_ascii_to_buf(char **buf,char *filename)
         return(-7);
     remove(tempname);
     (*buf)[sizebytes]='\0';
+    return(0);
+    }
+
+
+int wfile_files_match(char *file1,char *file2)
+
+    {
+    FILE *f1,*f2;
+    int c1,c2;
+
+    f1=fopen(file1,"rb");
+    if (f1==NULL)
+        return(0);
+    f2=fopen(file2,"rb");
+    if (f2==NULL)
+        {
+        fclose(f1);
+        return(0);
+        }
+    while ((c1=fgetc(f1))!=EOF)
+        {
+        c2=fgetc(f2);
+        if (c1!=c2)
+            {
+            fclose(f2);
+            fclose(f1);
+            return(0);
+            }
+        }
+    c2=fgetc(f2);
+    fclose(f2);
+    fclose(f1);
+    return(c1==c2);
+    }
+
+
+int wfile_file_contains(char *filename,unsigned char *buf,int n)
+
+    {
+    int i,c;
+    FILE *f;
+    size_t i0;
+
+    f=fopen(filename,"rb");
+    if (f==NULL)
+        return(0);
+    for (i=i0=0;(c=fgetc(f))!=EOF;)
+        {
+        if (c==buf[i])
+            {
+            if (i==n-1)
+                {
+                fclose(f);
+                return(1);
+                }
+            if (i==0)
+                i0=ftell(f);
+            i++;
+            continue;
+            }
+        if (i==0)
+            continue;
+        fseek(f,i0+1,0);
+        i=0;
+        }
+    fclose(f);
     return(0);
     }

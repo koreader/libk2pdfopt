@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2020  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -155,6 +155,55 @@ int mem_get_line_cf(char *buf,int maxlen,char *cptr,long *cindex,long csize)
     if (i>=csize)
         return(buf[0]!=';');
     return(1);
+    }
+
+
+/*
+** Return first index where pattern occurs in buffer.  Return -1
+** if pattern does not occur in buffer.  Match is NOT case sensitive.
+**
+** 4 Dec 2014:  Made this much faster.  Significantly improves load
+**              time on Excel spreadsheets.
+*/
+int in_string_case_sensitive(char *buffer,char *pattern)
+
+    {
+    int c,lp;
+    char *b,*p;
+
+    c=pattern[0];
+    /* Quickly scan for first letter--if not found, return negative result */
+    for (b=buffer;(*b)!='\0' && (*b)!=c;b++);
+    if ((*b)=='\0')
+        return(-1);
+    lp=strlen(pattern)-1;
+    if (lp<=0)
+        return((int)(b-buffer));
+    p=&pattern[1];
+    while (1)
+        {
+        b++;
+        if (!strncmp(b,p,lp))
+            return((int)((b-1)-buffer));
+        for (;(*b)!='\0' && (*b)!=c;b++);
+        if ((*b)=='\0')
+            break;
+        }
+    return(-1);
+/*
+** Pre 4 Dec 2014 version:
+**
+    int     i,lp,lb;
+
+    lp=strlen(pattern);
+    lb=strlen(buffer);
+    if (lb<lp)
+        return(-1);
+    for (i=0;i<=lb-lp;i++)
+        if (!strnicmp(&buffer[i],pattern,lp))
+            return(i);
+    return(-1);
+*/
     }
 
 
@@ -1768,6 +1817,13 @@ int hexcolor(char *s)
 
 
 
+void xstrncpy_and_clean(char *d,char *s,int nmax)
+
+    {
+    xstrncpy(d,s,nmax);
+    clean_line(d);
+    }
+
 
 void xstrncpy(char *d,char *s,int nmax)
 
@@ -1809,4 +1865,19 @@ int base64_encode(unsigned char *dst,unsigned char *src,int n)
         dst[j++]=i<n-2?b64[sb3&0x3f]:'=';
         }
     return(j);
+    }
+
+
+void strncpywide(char *d,short *s,int maxlen)
+
+    {
+    int i;
+    unsigned short *p;
+    unsigned char *x;
+
+    x=(unsigned char *)d;
+    p=(unsigned short *)s;
+    for (i=0;p[i]!=0 && i<maxlen-1;i++)
+        x[i]=(unsigned char)p[i];
+    x[i]='\0';
     }

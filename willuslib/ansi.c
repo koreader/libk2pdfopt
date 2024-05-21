@@ -6,7 +6,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -65,6 +65,50 @@ static int  ansi_win32_rows_cols(FILE *f,int *rows,int *cols);
 static void ansi_win32_clear(FILE *f);
 #endif
 
+int ansi_escape_code(char *s,int *len)
+
+    {
+    int i;
+    static char *esccodes[] = 
+                {
+                ANSI_RED,
+                ANSI_GREEN,
+                ANSI_YELLOW,
+                ANSI_BROWN,
+                ANSI_BLUE,
+                ANSI_MAGENTA,
+                ANSI_CYAN,
+                ANSI_DARKCYAN,
+                ANSI_WHITE,
+                ANSI_NORMAL,
+                ANSI_SAVE_CURSOR,
+                ANSI_RESTORE_CURSOR,
+                ANSI_CLEAR_TO_END,
+                ANSI_BEGIN_LINE,
+                ANSI_UP_ONE_LINE,
+                ANSI_HOME,
+                ""};
+    if (len!=NULL)
+        (*len)=0;
+    if (s[0]!=0x1b || s[1]!='[')
+        return(0);
+    for (i=0;esccodes[i][0]!='\0';i++)
+        {
+        int elen;
+        elen=strlen(esccodes[i]);
+        if (!strncmp(s,esccodes[i],elen))
+            {
+            if (len!=NULL)
+                (*len)=elen;
+            return(i+1);
+            }
+        }
+    for (i=2;s[i]>='0' && s[i]<='9';i++);
+    if (len!=NULL)
+        (*len)=i+1;
+    return(999);
+    }
+        
 
 void ansi_set(int on)
 

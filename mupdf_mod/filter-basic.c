@@ -1,3 +1,25 @@
+// Copyright (C) 2004-2022 Artifex Software, Inc.
+//
+// This file is part of MuPDF.
+//
+// MuPDF is free software: you can redistribute it and/or modify it under the
+// terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version.
+//
+// MuPDF is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+// details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with MuPDF. If not, see <https://www.gnu.org/licenses/agpl-3.0.en.html>
+//
+// Alternative licensing terms are available from the licensor.
+// For commercial licensing, see <https://www.artifex.com/> or contact
+// Artifex Software, Inc., 1305 Grant Avenue - Suite 200, Novato,
+// CA 94945, U.S.A., +1(415)492-9861, for further information.
+
 #include "mupdf/fitz.h"
 
 #include <string.h>
@@ -7,7 +29,7 @@
 struct null_filter
 {
 	fz_stream *chain;
-	size_t remain;
+	uint64_t remain;
 	int64_t offset;
 	unsigned char buffer[4096];
 };
@@ -16,7 +38,7 @@ static int
 next_null(fz_context *ctx, fz_stream *stm, size_t max)
 {
 	struct null_filter *state = stm->state;
-	size_t n;
+	uint64_t n;
 
 	if (state->remain == 0)
 		return EOF;
@@ -49,7 +71,7 @@ close_null(fz_context *ctx, void *state_)
 }
 
 fz_stream *
-fz_open_null_filter(fz_context *ctx, fz_stream *chain, int len, int64_t offset)
+fz_open_null_filter(fz_context *ctx, fz_stream *chain, uint64_t len, int64_t offset)
 {
 	struct null_filter *state = fz_malloc_struct(ctx, struct null_filter);
 	state->chain = fz_keep_stream(ctx, chain);
@@ -157,7 +179,8 @@ fz_open_range_filter(fz_context *ctx, fz_stream *chain, fz_range *ranges, int nr
 struct endstream_filter
 {
 	fz_stream *chain;
-	size_t remain, extras, size;
+	uint64_t remain;
+	size_t extras, size;
 	int64_t offset;
 	int warned;
 	unsigned char buffer[4096];
@@ -273,12 +296,9 @@ close_endstream(fz_context *ctx, void *state_)
 }
 
 fz_stream *
-fz_open_endstream_filter(fz_context *ctx, fz_stream *chain, int len, int64_t offset)
+fz_open_endstream_filter(fz_context *ctx, fz_stream *chain, uint64_t len, int64_t offset)
 {
 	struct endstream_filter *state;
-
-	if (len < 0)
-		len = 0;
 
 	state = fz_malloc_struct(ctx, struct endstream_filter);
 	state->chain = fz_keep_stream(ctx, chain);
@@ -714,12 +734,23 @@ close_rld(fz_context *ctx, void *state_)
 fz_stream *
 fz_open_rld(fz_context *ctx, fz_stream *chain)
 {
+	fz_stream *stm;
 	fz_rld *state = fz_malloc_struct(ctx, fz_rld);
 	state->chain = fz_keep_stream(ctx, chain);
 	state->run = 0;
 	state->n = 0;
 	state->c = 0;
-	return fz_new_stream(ctx, state, next_rld, close_rld);
+
+	stm = fz_new_stream(ctx, state, next_rld, close_rld);
+
+	/* Don't explode RLE compression bombs. */
+	if (chain->next == next_rld)
+	{
+		fz_warn(ctx, "RLE bomb defused");
+		stm->eof = 1;
+	}
+
+	return stm;
 }
 
 /* RC4 Filter */

@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2020  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -1176,6 +1176,64 @@ static void pdfinfo_info(fz_context *ctx, fz_output *out, char *filename, char *
 	closexref(ctx, &glo);
 }
 */
+
+/*
+** filename = input PDF file
+** pagelist[] terminates with a negative number (or can be NULL for all pages).
+** buf = char buffer to put info in.
+*/
+double wmupdfinfo_get_max_bitmap_size_sqpix(char *filename,int pagenum)
+
+    {
+	char *password = "";
+	fz_context *ctx;
+    double maxsqpix;
+
+    ctx = fz_new_context(NULL, NULL, FZ_STORE_UNLIMITED);
+    if (!ctx)
+        {
+        fprintf(stderr, "cannot initialise context\n");
+        exit(1);
+        }
+    maxsqpix=0.;
+    fz_try(ctx)
+	    {
+        int i;
+        static globals _glo = { 0 };
+        globals *glo;
+        int pagelist[2];
+
+        glo=&_glo;
+        glo->ctx = ctx;
+        glo->doc = pdf_open_document(ctx,filename);
+        if (pdf_needs_password(ctx,glo->doc))
+            if (!pdf_authenticate_password(ctx, glo->doc, password))
+                fz_throw(glo->ctx, FZ_ERROR_GENERIC, "cannot authenticate password: %s", filename);
+        glo->pagecount=pdf_count_pages(ctx,glo->doc);
+        pagelist[0]=pagenum;
+        pagelist[1]=-1;
+        gather_all_info(ctx,glo,filename,ALL,pagelist);
+		for (i = 0; i < glo->images; i++)
+            {
+            double sqpix;
+
+            if (glo->image[i].page!=pagenum)
+                continue;
+            sqpix= (double)pdf_to_int(ctx, glo->image[i].u.image.width)
+				   * (double)pdf_to_int(ctx, glo->image[i].u.image.height);
+            if (sqpix > maxsqpix)
+                maxsqpix=sqpix;
+            }
+        closexref(ctx,glo);
+	    }
+	fz_catch(ctx)
+	    {
+		return(-1.);
+	    }
+	fz_drop_context(ctx);
+    return(maxsqpix);
+    }
+
 
 /*
 ** filename = input PDF file
