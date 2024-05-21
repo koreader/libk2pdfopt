@@ -1,4 +1,4 @@
-char *k2pdfopt_version = "v2.52";
+char *k2pdfopt_version = "v2.53";
 /*
 ** k2version.c  K2pdfopt version number and history.
 **
@@ -19,6 +19,41 @@ char *k2pdfopt_version = "v2.52";
 **
 **
 ** VERSION HISTORY
+**
+** v2.53     18 JUL 2020
+**           NEW FEATURES
+**           -Added more support for DJVU input files, including OCR-layer text
+**            extraction, reading of bookmarks, and information viewing
+**            (-i or GUI "Info" view).
+**           -Added support for CBZ input files.
+**           ENHANCEMENTS
+**           -The multithreaded Tesseract OCR capability has been significantly
+**            improved.  The images for OCR processing are now queued up into
+**            larger groups so that the multithreading is more effective.
+**            Since the introduction of the -ocrd option in v2.50 (Dec 2018),
+**            the default OCR method of OCRing an entire line of text at a
+**            time had effectively turned off OCR multithreading since only
+**            one row of text at a time was passed to the OCR engine.
+**           -Updated many of the support libraries to their latest releases:
+**            Tesseact 4.1.1, Leptonica 1.79, Mupdf 1.17, Freetype 2.10.2
+**            libpng 1.6.37, jpeg-turbo 2.0.4, openjpeg 2.3.1
+**           -When previewing "marked up" pages, the preview now only
+**            processes the desired preview page, making it much faster for
+**            previewing pages above page 1.
+**           -Added -ocrvbb option to more precisely determine OCR layer text
+**            bounding boxes in pre-existing OCR layers.
+**           BUG FIXES
+**           -Fixed bug in ocr layer sorting algorithm in
+**            wtextchars_group_by_words() function in k2ocr.c
+**           -Fixed a bug where one of my png image reading functions was not
+**            thread safe (not re-entrant).  This had the potential to cause
+**            very random crashing.
+**           -Fixed multiple issues with text selection of a pre-existing
+**            OCR layer.  Some text wasn't always included in certain cases,
+**            and sometimes the selection box was over-sized.
+**           -Altered the detection of words in a row of text to work better /
+**            more consistently in obvious cases.  See v2.53 comments in
+**            get_word_gap_threshold() in bmpregion.c.
 **
 ** v2.52 12 JUN 2020
 **           NEW FEATURES

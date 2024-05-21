@@ -654,6 +654,23 @@ static int wtextchar_compare_vert(WTEXTCHAR *c1,WTEXTCHAR *c2,int index)
         return(c1->y1-c2->y1);
     else if (index==2)
         return(c1->y2-c2->y2);
+    else if (index==3)
+        {
+        double percentage_overlap;
+        double h,ol;
+        if (c1->y2 <= c2->y1)
+            return(-1);
+        if (c1->y1 >= c2->y2)
+            return(1);
+        h=(c2->y2-c2->y1) < (c1->y2-c1->y1) ? c2->y2-c2->y1 : c1->y2-c1->y1;
+        if (h<0.1)
+            h=0.1;
+        ol=c1->y2<c2->y2 ? c1->y2-c2->y1 : c2->y2-c1->y1;
+        percentage_overlap=ol*100./h;
+        if (percentage_overlap < 7.)
+            return(c1->y2 < c2->y2 ? -1 : 1);
+        return(0);
+        }
     else
         return(c1->yp-c2->yp);
     }
@@ -881,4 +898,31 @@ static int wtextchars_ligature_pattern(WTEXTCHARS *wtcs,int index)
              && wtcs->wtextchar[index+3].ucs==' '
              && fabs(wtcs->wtextchar[index+1].x1-wtcs->wtextchar[index].x1)<.01
              && fabs(wtcs->wtextchar[index+2].x1 - wtcs->wtextchar[index].x1)<.01);
+    }
+
+
+void wtextchars_to_easyplot(WTEXTCHARS *wtcs,char *filename)
+
+    {
+    FILE *f;
+    int i;
+
+    f=fopen(filename,"w");
+    if (f==NULL)
+        return;
+    fprintf(f,"/sc on\n/sd off\n/sm off\n");
+    for (i=0;i<wtcs->n;i++)
+        {
+        WTEXTCHAR *wtc;
+        double x1,y1,x2,y2;
+
+        wtc=&wtcs->wtextchar[i];
+        x1=wtc->x1;
+        x2=wtc->x2;
+        y1=792.-wtc->y2;
+        y2=792.-wtc->y1;
+        fprintf(f,"/sa m 1 2\n%g %g\n%g %g\n%g %g\n%g %g\n%g %g\n//nc\n",x1,y1,x1,y2,x2,y2,x2,y1,x1,y1);
+        fprintf(f,"/aa %g %g \"%d.%c\"\n",x1,y1+(y2-y1)*.2,i+1,wtc->ucs);
+        }
+    fclose(f);
     }

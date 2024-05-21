@@ -5,7 +5,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2019  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -393,6 +393,19 @@ render_partial_circle_pts((x+dw*cth-dh*sth)/fontrender_pixels_per_point,(y_from_
                 char *ptr;
                 w=rchar[k].w;
                 ptr=(char *)w;
+/*
+{
+static int count=0;
+FILE *f;
+char filename[256];
+printf("DEBUG: ptr=%p (wbmpfd=%p)\n",ptr,willus_bmp_fontdata[0]);
+sprintf(filename,"fontdata%03d.dat",++count);
+f=fopen(filename,"wb");
+fwrite(ptr,1,83586,f);
+fclose(f);
+wfile_written_info(filename,stdout);
+}
+*/
                 bmp_read_png_stream(fontbmp,&ptr[1036],1,NULL);
 #else
                 /* create blank bitmap */
@@ -866,20 +879,14 @@ static void rchar_get_one_line(char *s,RCHAR *rchar,int *nc,double *y1,
 static int style_index(int bold,int italic,int underline)
 
     {
-    /* Italic and underline ignored for now */
-    if (bold)
-        return(fontrender_font_index|1);
-    return(fontrender_font_index&(~1));
+    return(0);
     }
 
 
 static int symbol_index(int bold,int italic,int underline)
 
     {
-    char buf[32];
-
-    sprintf(buf,"symbol%s",bold?"-bold":"");
-    return(fontrender_get_font_index(buf));
+    return(0);
     }
 
 

@@ -32,9 +32,9 @@
 #include <time.h>
 #include <unistd.h>
 /* 12-6-18:  Apparently sys/termios.h no longer needed to compile in some cases. */
-#if (defined(__MACH__) || !defined(__GNUC__) || __GNUC__ < 7)
+// #if (defined(__MACH__) || !defined(__GNUC__) || __GNUC__ < 7)
 #include <sys/termios.h>
-#endif
+// #endif
 #include <sys/wait.h>
 #include <sys/types.h>
 #include <signal.h>

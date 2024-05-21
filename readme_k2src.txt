@@ -1,7 +1,7 @@
 K2pdfopt build help.
 http://willus.com
 Original: 7 September 2012
-Last updated:  12 Jun 2020 (v2.52)
+Last updated:  18 Jul 2020 (v2.53)
 
 This "read me" file describes the source code distribution for k2pdfopt.
 
@@ -37,26 +37,27 @@ NOTE 4 below).
     REQUIRED
     --------
     1.  Z-lib 1.2.11 (zlib.net)
-    2.  libpng 1.6.35 (www.libpng.org)
-    3.  Turbo JPEG lib 2.0.1 (sourceforge.net/projects/libjpeg-turbo/)
+    2.  libpng 1.6.37 (www.libpng.org)
+    3.  Turbo JPEG lib 2.0.4 (sourceforge.net/projects/libjpeg-turbo/)
 
     TO INCLUDE MuPDF LIBRARY (search for HAVE_MUPDF in k2pdfopt.c)
     --------------------------------------------------------------
     4.  JBIG2Dec 0.11 (jbig2dec.sourceforge.net)
-    5.  OpenJPEG 2.3.0 (www.openjpeg.org)
-    6.  FreeType 2.9.1 (freetype.sourceforge.net/index2.html)
-    7.  Mupdf 1.14 (mupdf.com) -- SEE NOTE 1.
+    5.  OpenJPEG 2.3.1 (www.openjpeg.org)
+    6.  FreeType 2.10.2 (freetype.sourceforge.net/index2.html)
+    7.  lcms 2.9 (Artifex fork included w/MuPDF 1.17 distro)
+    8.  Mupdf 1.17 (mupdf.com) -- SEE NOTE 1.
 
     TO INCLUDE DjVuLibre LIBRARY (search for HAVE_DJVU in k2pdfopt.c)
     -----------------------------------------------------------------
-    8.  DJVULibre 3.5.25.3 (C++) (djvu.sourceforge.net)
+    9.  DJVULibre 3.5.25.3 (C++) (djvu.sourceforge.net)
 
     FOR OCR VERSIONS OF K2PDFOPT (search for HAVE_OCR in k2pdfopt.c)
     ----------------------------------------------------------------
-    9.  GOCR 0.50 (sourceforge.net/jocr/)
-    10. Leptonica 1.74.4 (leptonica.com)
-    11. Tesseract 4.0.0 (C++) (code.google.com/tesseract-ocr/) -- SEE NOTE 2.
-    12. POSIX threads support (pretty standard with gcc implementations)
+    10.  GOCR 0.50 (sourceforge.net/jocr/)
+    12. Leptonica 1.79.0 (leptonica.com)
+    12. Tesseract 4.1.1 (C++) (code.google.com/tesseract-ocr/) -- SEE NOTE 2.
+    13. POSIX threads support (pretty standard with gcc implementations)
 
     If you don't include MuPDF, DjVuLibre, or OCR, then k2pdfopt will
     look for an installation of Ghostscript.
@@ -69,10 +70,11 @@ Notes
 
 2. Tesseract requires my small C API file plus some custom-modified source files.
    These are in the tesseract_mod folder.  Search for "willus" in the files to
-   find the mods.  To use Tesseract, you'll need to download one of the data
-   packages for it from the Tesseract web site and to point the TESSDATA_PREFIX
-   environment variable to the root tesseract folder
-   (e.g. TESSDATA_PREFIX=c:\tesseract-ocr\).
+   find the mods.  As of v2.52, k2pdfopt now auto-downloads Tesseract language
+   training files needed to perform OCR, so you no longer have to worry about
+   setting the TESSDATA_PREFIX environment variable correctly, but for other
+   tesseract applications, you should point the TESSDATA_PREFIX environment
+   variable to the root tesseract folder (e.g. TESSDATA_PREFIX=c:\tesseract-ocr\).
 
 3. For a lot of the 3rd-party libraries, I combined their headers into one
    header that gets included by some of the willus library source files.

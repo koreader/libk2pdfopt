@@ -819,6 +819,10 @@ bmp_write(bmp,filename,stdout,100);
         word.lcheight=word.maxheight;
         word.rot=0;
         word.text=&text[it];
+        word.n=utf8_to_unicode(NULL,word.text,-1);
+/*
+printf("ocrtess: word[%d] = '%s' (%d,%d) %dx%d lc=%d\n",i,word.text,word.c,word.r,word.w,word.h,(int)word.lcheight);
+*/
         it+=strlen(&text[it])+1;
         ocrwords_add_word(ocrwords,&word);
 /*

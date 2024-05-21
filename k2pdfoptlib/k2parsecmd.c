@@ -238,7 +238,8 @@ int parse_cmd_args(K2PDFOPT_CONVERSION *k2conv,STRBUF *env,STRBUF *cmdline,
         MINUS_OPTION("-ppgs",ppgs,1)
 #endif
 #ifdef HAVE_OCR_LIB
-        MINUS_BITOPTION("-ocrsort",dst_ocr_visibility_flags,32,1)
+        MINUS_OPTION("-ocrvbb",ocrvbb,1)
+        MINUS_OPTION("-ocrsort",ocrsort,1)
         PLUS_MINUS_BITOPTION("-ocrsp",dst_ocr_visibility_flags,8,16,1)
 #endif
         /*

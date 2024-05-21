@@ -53,14 +53,13 @@
 ** 0x80000000 = Fake Mupdf
 **
 ** WILLUSDEBUGX2
-** 1 = -fr degug
+**
+** 1 = -fr debug
+** 2 = OCR multithreading
+** 3 = OCR queueing
+** 4 = char sort debug
 **
 */
-
-#define K2PDFOPT_DEFAULT_DEVICE "kv"
-/* OCR DEBUG */
-/* -fr */
-// #define WILLUSDEBUGX2 1
 /*
 #define WILLUSDEBUGX 0x800100 // Page breaks
 #define WILLUSDEBUGX 0x20000 // Margin detection
@@ -79,6 +78,8 @@
 #include <stdarg.h>
 #include <math.h>
 #include <willus.h>
+
+#define K2PDFOPT_DEFAULT_DEVICE "kv"
 
 /* Uncomment below if compiling for Kindle PDF Viewer */
 /* #define K2PDFOPT_KINDLEPDFVIEWER */
@@ -106,7 +107,7 @@
 #endif
 */
 
-#if (defined(HAVE_MUPDF) || defined(HAVE_GOCR_LIB) || defined(HAVE_TESSERACT_LIB))
+#if (defined(HAVE_MUPDF) || defined(HAVE_GOCR_LIB) || defined(HAVE_TESSERACT_LIB) || defined(HAVE_DJVU_LIB))
 #if (!defined(HAVE_OCR_LIB))
 #define HAVE_OCR_LIB
 #endif
@@ -144,7 +145,8 @@
 #define SRC_TYPE_DJVU    2
 #define SRC_TYPE_PS      3
 #define SRC_TYPE_BITMAPFOLDER 4
-#define SRC_TYPE_OTHER   5
+#define SRC_TYPE_CBZ     5
+#define SRC_TYPE_OTHER   6
 
 #define UNITS_PIXELS      0
 #define UNITS_INCHES      1
@@ -268,6 +270,8 @@ typedef struct
 #ifdef HAVE_OCR_LIB
     char ocrout[128];
     int dst_ocr;
+    int ocrvbb;             /* New in v2.53 -ocrvbb option */
+    int ocrsort;            /* Moved from visibility flags to separate variable in v2.53 */
     int ocr_detection_type; /* New in v2.50, 'w', 'l', or 'p' */
     int ocr_dpi;            /* New in v2.51--desired dpi for OCR bitmaps */
                             /* If zero, ignored--use default input dpi */
@@ -283,12 +287,10 @@ typedef struct
     ** 4=show boxes
     ** 8=use spaces
     ** 16=use optimized spaces
-    ** 32=sort OCR text
     */
     int dst_ocr_visibility_flags;
     int ocr_max_columns;
     double ocr_max_height_inches;
-    OCRWORDS dst_ocrwords;
     int sort_ocr_text;
 #endif
 
@@ -651,6 +653,19 @@ typedef struct
     HYPHENINFO hyphen;
     } WRAPBMP;
 
+typedef struct
+    {
+    int rowcount;
+    int srcpageno;
+    } QUEUED_PAGE;
+
+typedef struct
+    {
+    QUEUED_PAGE *page;
+    int n;
+    int na;
+    } QUEUED_PAGE_INFO;
+
 /*
 ** MASTERINFO contains performance parameters relevant to the device output.
 ** (E.g. the "master" bitmap which is a running scroll of content meant to
@@ -665,6 +680,9 @@ typedef struct
     WPDFOUTLINE *outline; /* PDF outline / bookmarks structure--loaded by MuPDF only */
     WILLUSBITMAP bmp; /* Master output bitmap collects pages that will go to */
                       /* the output device */
+    OCRWORDS mi_ocrwords;/* Queue of OCR bitmaps that have positions corresponding to */
+                         /* the master bitmap -- v2.53 */
+    QUEUED_PAGE_INFO queued_page_info; /* Queued up output pages */
     WILLUSBITMAP *preview_bitmap;
     K2PAGEBREAKMARKS k2pagebreakmarks; /* User-specified page breaks */
     int preview_captured;  /* = 1 if preview bitmap obtained */
@@ -773,6 +791,7 @@ void k2pdfopt_proc_wildarg(K2PDFOPT_SETTINGS *k2settings,char *arg,
                            K2PDFOPT_FILELIST_PROCESS *k2listproc);
 void wpdfboxes_echo(WPDFBOXES *boxes,FILE *out);
 void overwrite_set(int status);
+void k2file_get_info(char *filename,int *pagelist,char **buf);
 int  k2file_get_num_pages(char *filename);
 void k2file_get_overlay_bitmap(WILLUSBITMAP *bmp,double *dpi,char *filename,char *pagelist);
 void filename_get_marked_pdf_name(char *dst,char *fmt,char *pdfname,int filecount,
@@ -784,6 +803,7 @@ void bitmap_file_echo_status(char *filename);
 void k2file_look_for_pagebreakmarks(K2PAGEBREAKMARKS *k2pagebreakmarks,
                                     K2PDFOPT_SETTINGS *k2settings,WILLUSBITMAP *src,
                                     WILLUSBITMAP *srcgrey,int dpi);
+int get_source_type(char *filename);
 
 /* k2sys.c */
 void k2sys_init(void);
@@ -1010,11 +1030,12 @@ void wrectmaps_add_wrectmap(WRECTMAPS *wrectmaps,WRECTMAP *wrectmap);
 void wrectmaps_scale_wrapbmp_coords(WRECTMAPS *wrectmaps,double scalew,double scaleh);
 int  wrectmap_inside(WRECTMAP *wrmap,int xc,int yc);
 void wrectmaps_sort_horizontally(WRECTMAPS *wrectmaps);
+void wrectmap_write_bmp(WRECTMAP *wrectmap,int index,BMPREGION *region);
 
 /* k2master.c */
 void masterinfo_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings);
 void masterinfo_free(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings);
-void masterinfo_flush(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings);
+void masterinfo_flush(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int clearbitmap);
 int  masterinfo_new_source_page_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
                          WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,WILLUSBITMAP *marked,
                          BMPREGION *region,double rot_deg,double *bormean,
@@ -1029,12 +1050,13 @@ void masterinfo_add_gap_src_pixels(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2s
                                    int pixels,char *caller);
 void masterinfo_add_gap(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,double inches);
 */
-void masterinfo_remove_top_rows(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int rows);
 int masterinfo_fits_on_existing_page(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
                                      int bmpheight_pixels);
-int masterinfo_get_next_output_page(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
-                                    int flushall,WILLUSBITMAP *bmp,double *bmpdpi,
-                                    int *size_reduction,void *ocrwords);
+int masterinfo_queue_next_output_page(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
+                                      int flushall);
+int masterinfo_pop_next_queued_page(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
+                                    WILLUSBITMAP *bmp,double *bmpdpi,
+                                    int *size_reduction,void *ocrwords,int *srcpageno);
 int masterinfo_should_flush(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings);
 void get_dest_margins(int *margins_pixels,K2PDFOPT_SETTINGS *k2settings,double dpi,
                       int width_pixels,int height_pixels);
@@ -1055,11 +1077,16 @@ void ocrtess_debug_info(char **buf0,int use_ansi);
 void k2ocr_tesslang_selected(char *lang,int maxlen,K2PDFOPT_SETTINGS *settings);
 #endif
 #ifdef HAVE_OCR_LIB
-void k2ocr_ocrwords_fill_in_ex(MASTERINFO *masterinfo,OCRWORDS *words,BMPREGION *region,
-                               K2PDFOPT_SETTINGS *k2settings);
+void k2ocr_ocrwords_add_to_queue(MASTERINFO *masterinfo,OCRWORDS *words,BMPREGION *region,
+                                 K2PDFOPT_SETTINGS *k2settings);
+void k2ocr_multithreaded_ocr(OCRWORDS *words,K2PDFOPT_SETTINGS *k2settings);
 double k2ocr_cpu_time_secs(void);
 void k2ocr_cpu_time_reset(void);
 int k2ocr_max_threads(void);
+#endif
+#if (defined(HAVE_MUPDF_LIB) || defined(HAVE_DJVU_LIB))
+int k2ocr_wtextchars_fill_from_page(WTEXTCHARS *wtcs,char *filename,int pageno,char *password,
+                                   int boundingbox);
 #endif
 
 /* pagelist.c */
@@ -1100,6 +1127,7 @@ void   bmp_change_colors(WILLUSBITMAP *bmp,WILLUSBITMAP *mask,char *fgcolor,int 
                          char *bgcolor,int bgtype,
                          int c1,int r1,int c2,int r2);
 void   bmp_modbox(WILLUSBITMAP *bmp,int c1,int r1,int c2,int r2,int color1,int color2);
+void   bmp_eliminate_top_rows(WILLUSBITMAP *bmp,int rowcount);
 void   bmp8_merge(WILLUSBITMAP *dst,WILLUSBITMAP *src,int count);
 int    bmp_autocrop2(WILLUSBITMAP *bmp0,int *cx,double aggressiveness);
 void   k2bmp_apply_autocrop(WILLUSBITMAP *bmp,int *cx0);

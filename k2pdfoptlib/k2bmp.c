@@ -54,13 +54,13 @@ int bmp_get_one_document_page(WILLUSBITMAP *src,K2PDFOPT_SETTINGS *k2settings,
     int status;
 
     /* v2.34--read PS file correctly */
-    if (src_type==SRC_TYPE_PDF || src_type==SRC_TYPE_PS)
+    if (src_type==SRC_TYPE_PDF || src_type==SRC_TYPE_PS || src_type==SRC_TYPE_CBZ)
         {
 #ifdef HAVE_MUPDF_LIB
         static char *mupdferr_trygs=TTEXT_WARN "\a\n ** ERROR reading from " TTEXT_BOLD2 "%s" TTEXT_WARN "using MuPDF.  Trying Ghostscript...\n\n" TTEXT_NORMAL;
 
         status=0;
-        if (src_type==SRC_TYPE_PDF && k2settings->usegs<=0)
+        if (src_type==SRC_TYPE_CBZ || (src_type==SRC_TYPE_PDF && k2settings->usegs<=0))
             {
 #if (WILLUSDEBUGX & 0x80000000)
 printf("\a\a\n\n\n\n\n\n\n\n\n   ****** FAKING MUPDF--IGNORING SOURCE DOCUMENT!!  *****\n\n\n\n\n\n\n");
@@ -70,7 +70,7 @@ bmp_convert_to_grayscale(src);
 return(status);
 #else
             status=bmpmupdf_pdffile_to_bmp(src,filename,pageno,dpi*k2settings->document_scale_factor,bpp);
-            if (!status || k2settings->usegs<0)
+            if (!status || k2settings->usegs<0 || src_type==SRC_TYPE_CBZ)
                 return(status);
 #endif
             }
@@ -1157,6 +1157,22 @@ static int not_close(int c1,int c2)
         return(dc>5);
     pd=100*dc/cm;
     return(pd>5);
+    }
+
+
+void bmp_eliminate_top_rows(WILLUSBITMAP *bmp,int rowcount)
+
+    {
+    int bw;
+    unsigned char *dst,*src;
+
+    bw=bmp_bytewidth(bmp);
+    if (rowcount>bmp->height)
+        rowcount=bmp->height;
+    dst=bmp_rowptr_from_top(bmp,0);
+    src=bmp_rowptr_from_top(bmp,rowcount);
+    memmove(dst,src,(bmp->height-rowcount)*bw);
+    bmp->height -= rowcount;
     }
 
 

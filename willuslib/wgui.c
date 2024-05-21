@@ -1471,9 +1471,16 @@ int willusgui_control_listbox_get_selected_items_count(WILLUSGUICONTROL *control
                                                          int maxsel)
 
     {
+#ifdef MSWINGUI
+    int n;
+#endif
+
     if (control->type != WILLUSGUICONTROL_TYPE_LISTBOX)
         return(-1);
 #ifdef MSWINGUI
+    n=SendMessage((HWND)control->handle,LB_GETSELCOUNT,0,0);
+    if (n==0)
+        return(0);
     return(SendMessage((HWND)control->handle,LB_GETSELITEMS,maxsel,(LPARAM)selected_indices));
 #else
     return(0);
