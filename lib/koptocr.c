@@ -46,7 +46,7 @@ void k2pdfopt_tocr_init(char *datadir, char *lang) {
 		int status;
 		tess_api = ocrtess_init(datadir, NULL, 0, lang, NULL, NULL, 0, &status);
 		if (tess_api == NULL) {
-			printf("fail to start tesseract OCR engine\n");
+			k2printf("fail to start tesseract OCR engine\n");
 		}
 	}
 }
@@ -112,7 +112,7 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 		if (kctx->cjkchar) {
 			if (k2pdfopt_get_word_boxes_from_tesseract(pixs, kctx->cjkchar,
 					pboxa, pnai) != 0) {
-				printf("failed to get word boxes from tesseract\n");
+				k2printf("failed to get word boxes from tesseract\n");
 			}
 		} else {
 			pixb = pixConvertTo1(pixs, 128);

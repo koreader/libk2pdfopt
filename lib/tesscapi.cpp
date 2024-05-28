@@ -1,6 +1,10 @@
 #include "tesseract.h"
 #include "../tesseract_mod/tesscapi.cpp"
 
+extern "C" {
+#include "k2pdfopt.h"
+}
+
 // For our try/catch block
 #include <stdexcept>
 
@@ -29,7 +33,7 @@ int tess_capi_get_word_boxes(void *vapi, PIX *pix, BOXA **out_boxa, int is_cjk, 
        api->Clear();
        return -1;
     }
-    printf("engine inited in %s\n", api->GetInitLanguagesAsString());
+    k2printf("engine inited in %s\n", api->GetInitLanguagesAsString());
 #ifndef DISABLED_LEGACY_ENGINE
     api->ClearAdaptiveClassifier();
 #endif
