@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -20,12 +20,15 @@
 **
 */
 #include <stdio.h>
+#include <math.h>
 #include "willus.h"
 
 #ifdef HAVE_MUPDF_LIB
 #include <mupdf/pdf.h>
 void pdf_install_load_system_font_funcs(fz_context *ctx);
 
+static void mupdf_cbz_add_page_info(char *buf,fz_context *ctx,fz_document *doc,
+                                    int pageno,int npages);
 static int bmpmupdf_pixmap_to_bmp(WILLUSBITMAP *bmp,fz_context *ctx,fz_pixmap *pixmap);
 
 int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double dpi,
@@ -93,9 +96,10 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
         fz_drop_context(ctx);
         return(-3);
         }
-    fz_try(ctx) { list=fz_new_display_list(ctx,NULL);
+    bounds=fz_bound_page(ctx,page);
+    fz_try(ctx) { list=fz_new_display_list(ctx,bounds);
                   dev=fz_new_list_device(ctx,list);
-                  fz_run_page(ctx,page,dev,&fz_identity,NULL);
+                  fz_run_page(ctx,page,dev,fz_identity,NULL);
                 }
     fz_catch(ctx)
         {
@@ -113,14 +117,12 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
     dpp=dpi/72.;
     pix=NULL;
     fz_var(pix);
-    fz_bound_page(ctx,page,&bounds);
     ctm=fz_identity;
     identity=fz_identity;
-    fz_scale(&ctm,dpp,dpp);
+    ctm=fz_scale(dpp,dpp);
 //    ctm=fz_concat(ctm,fz_rotate(rotation));
-    bounds2=bounds;
-    fz_transform_rect(&bounds2,&ctm);
-    fz_round_rect(&bbox,&bounds2);
+    bounds2=fz_transform_rect(bounds,ctm);
+    bbox=fz_round_rect(bounds2);
 //    ctm=fz_translate(0,-page->mediabox.y1);
 //    ctm=fz_concat(ctm,fz_scale(dpp,-dpp));
 //    ctm=fz_concat(ctm,fz_rotate(page->rotate));
@@ -129,13 +131,13 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
 //    pix=fz_new_pixmap_with_rect(colorspace,bbox);
     fz_try(ctx)
         {
-        pix=fz_new_pixmap_with_bbox(ctx,colorspace,&bbox,1);
+        pix=fz_new_pixmap_with_bbox(ctx,colorspace,bbox,NULL,1);
         fz_clear_pixmap_with_value(ctx,pix,255);
-        dev=fz_new_draw_device(ctx,&identity,pix);
+        dev=fz_new_draw_device(ctx,identity,pix);
         if (list)
-            fz_run_display_list(ctx,list,dev,&ctm,&bounds2,NULL);
+            fz_run_display_list(ctx,list,dev,ctm,bounds2,NULL);
         else
-            fz_run_page(ctx,page,dev,&ctm,NULL);
+            fz_run_page(ctx,page,dev,ctm,NULL);
         fz_close_device(ctx,dev);
         fz_drop_device(ctx,dev);
         dev=NULL;
@@ -170,6 +172,88 @@ int bmpmupdf_pdffile_to_bmp(WILLUSBITMAP *bmp,char *filename,int pageno,double d
     if (status<0)
         return(status-10);
     return(0);
+    }
+
+
+void wmupdf_cbzinfo_get(char *filename,int *pagelist,char **buf0)
+
+    {
+    fz_context *ctx;
+    fz_document *doc;
+    int i,npages;
+    char *buf;
+
+    (*buf0)=NULL;
+    doc=NULL;
+    ctx = fz_new_context(NULL,NULL,FZ_STORE_DEFAULT);
+    if (!ctx)
+        return;
+    fz_try(ctx)
+        {
+        fz_register_document_handlers(ctx);
+        fz_set_aa_level(ctx,8);
+        pdf_install_load_system_font_funcs(ctx);
+        fz_try(ctx) { doc=fz_open_document(ctx,filename); }
+        fz_catch(ctx) 
+            { 
+            fz_drop_context(ctx);
+            return;
+            }
+        npages=fz_count_pages(ctx,doc);
+        buf=malloc(1024+100*npages);
+        sprintf(buf,"CBZ File: %s\r\n\r\n%d total pages\r\n\r\n",filename,npages);
+        if (pagelist!=NULL)
+            {
+            for (i=0;pagelist[i]>0;i++)
+                mupdf_cbz_add_page_info(buf,ctx,doc,pagelist[i]-1,npages);
+            }
+        if (pagelist==NULL || pagelist[i]==-2)
+            {
+            for (i=(pagelist!=NULL && i>0?pagelist[i-1]+1:1);i<=npages;i++)
+                mupdf_cbz_add_page_info(buf,ctx,doc,i-1,npages);
+            }
+        fz_drop_document(ctx,doc);
+        fz_flush_warnings(ctx);
+        } /* fz_catch before registering handlers */
+    fz_catch(ctx) /* Error registering */
+        {
+        }
+    fz_drop_context(ctx);
+    (*buf0)=buf;
+    }
+
+typedef struct
+{
+	fz_page super;
+	fz_image *image;
+} cbz_page;
+
+static void mupdf_cbz_add_page_info(char *buf,fz_context *ctx,fz_document *doc,int pageno,int npages)
+
+    {
+    cbz_page *cbzpage;
+    fz_page *page;
+    fz_image *image;
+    int xres,yres;
+
+    if (pageno>npages)
+        return;
+    sprintf(&buf[strlen(buf)],"Page %3d of %3d: ",pageno,npages);
+    page = fz_load_page(ctx,doc,pageno);
+    if (page==NULL)
+        {
+        strcat(buf,"No info available.\r\n");
+        return;
+        }
+    cbzpage=(cbz_page*)page;
+    image=cbzpage->image;
+    fz_image_resolution(image,&xres,&yres);
+    sprintf(&buf[strlen(buf)],"%.2f x %.2f in,",(double)image->w/xres,(double)image->h/yres);
+    if (xres==yres)
+        sprintf(&buf[strlen(buf)]," %d dpi\r\n",xres);
+    else
+        sprintf(&buf[strlen(buf)]," %d x %d dpi\r\n",xres,yres);
+    fz_drop_page(ctx,page);
     }
 
 /*
@@ -217,9 +301,10 @@ int bmpmupdf_pdffile_width_and_height(char *filename,int pageno,double *width_in
         fz_drop_context(ctx);
         return(-3);
         }
-    fz_try(ctx) { list=fz_new_display_list(ctx,NULL);
+    bounds=fz_bound_page(ctx,page);
+    fz_try(ctx) { list=fz_new_display_list(ctx,bounds);
                   dev=fz_new_list_device(ctx,list);
-                  fz_run_page(ctx,page,dev,&fz_identity,NULL);
+                  fz_run_page(ctx,page,dev,fz_identity,NULL);
                 }
     fz_catch(ctx)
         {
@@ -234,7 +319,6 @@ int bmpmupdf_pdffile_width_and_height(char *filename,int pageno,double *width_in
     fz_close_device(ctx,dev);
     fz_drop_device(ctx,dev);
     dev=NULL;
-    fz_bound_page(ctx,page,&bounds);
     if (width_in!=NULL)
         (*width_in)=fabs(bounds.x1-bounds.x0)/72.;
     if (height_in!=NULL)

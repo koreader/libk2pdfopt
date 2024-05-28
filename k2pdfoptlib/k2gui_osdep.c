@@ -1,7 +1,7 @@
 /*
 ** k2gui_osdep.c    K2pdfopt O/S-Dependent WILLUSGUI functions
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -96,7 +96,8 @@ k2dprintf("@k2gui_osdep_window_proc_messages, win=%p, winhand=%p\n",win,win->han
     while (win->handle!=NULL && GetMessage(&msg,NULL,0,0))
         {
 #if (WILLUSDEBUGX & 0x2000000)
-if (msg.message!=0x113)
+//if (msg.message!=0x113)
+if (msg.message==0x111)
 k2dprintf("k2gui_o_w_p_m: hwnd=%p, imsg=%04X, wparam=%d, conv=%d\n",msg.hwnd,msg.message,msg.wParam);
 if (procid==2)
 k2dprintf("    converting=%d\n",k2gui_overlay->converting);
@@ -782,8 +783,11 @@ LRESULT CALLBACK k2mswingui_process_messages(HWND hwnd,UINT iMsg,WPARAM wParam,L
     static int gotmw=0;
 
 #if (WILLUSDEBUGX & 0x2000000)
+/*
 if (iMsg!=WM_MOUSEFIRST && iMsg!=WM_SETCURSOR && iMsg!=WM_NCHITTEST 
                         && iMsg!=WM_NCMOUSEMOVE && iMsg!=WM_TIMER)
+*/
+if (iMsg==0x11111)
 k2dprintf(ANSI_CYAN "MAINWIN: hwnd=%p, iMsg = 0x%X, wParam=0x%X, lParam=0x%X" ANSI_NORMAL "\n",(void *)hwnd,(int)iMsg,(int)wParam,(int)lParam);
 #endif
 /*

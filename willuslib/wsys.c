@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2021  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -33,6 +33,7 @@
 #include <errno.h>
 #include <unistd.h>
 #endif
+#include <fcntl.h> /* MinGW has this -- using for file locking */
 
 /*
 Digital Mars:  __DMC__ == 0x700 (7.0) 0x720 (7.2) 0x800 (8.0)
@@ -68,12 +69,13 @@ void wsys_system_version(char *system,char *_os,char *_chip,char *_compiler)
                                "Gnu C (RSXNT/EMX)","Intel C/C++","HPUX C++",
                                "Digital Mars C/C++","LCC","Watcom C/C++",
                                "Borland C/C++","Gnu C (Mingw32)",
-                               "Intel C++ for Linux","Gnu C (Mingw64)","Tiny CC"};
+                               "Intel C++ for Linux","Gnu C (Mingw64)","Tiny CC",
+                               "CLang (Mingw64)","CLang (Mingw32)","CLang"};
     static char *os[] = {"Unknown O/S","Unix","VMS","Unicos","SunOS","HPUX",
                          "MS-DOS","Win32","MS-DOS (32-bit)","OS/X",
                          "Linux","SuSE Linux","Win64"};
     static char *chip[] = {"Unknown architecture","CRAY2","CRAY","hppa 1.0",
-                           "hppa 1.1","sparc","i386","hppa 2.0","PPC","x64"};
+                           "hppa 1.1","sparc","i386","hppa 2.0","PPC","x64","ARM64"};
 
     ccode=0;
     oscode=0;
@@ -144,6 +146,8 @@ void wsys_system_version(char *system,char *_os,char *_chip,char *_compiler)
     chipcode=7;
 #elif (defined(__ppc__))
     chipcode=8;
+#elif (defined(__arm64__))
+    chipcode=10;
 #endif
 
     /* Specific compilers */
@@ -166,14 +170,27 @@ void wsys_system_version(char *system,char *_os,char *_chip,char *_compiler)
     ccode=8;
     gnu_compiler(compiler_version);
 #elif (defined(__MINGW64__))
+#if (defined(__clang__))
+    ccode=20;
+    sprintf(compiler_version,"v%d.%d.%d",__clang_major__,__clang_minor__,__clang_patchlevel__);
+#else
     ccode=18;
     gnu_compiler(compiler_version);
+#endif
 #elif (defined(__MINGW32__))
+#if (defined(__clang__))
+    ccode=21;
+    sprintf(compiler_version,"v%d.%d.%d",__clang_major__,__clang_minor__,__clang_patchlevel__);
+#else
     ccode=16;
     gnu_compiler(compiler_version);
+#endif
 #elif (defined(EMX))
     ccode=9;
     gnu_compiler(compiler_version);
+#elif (defined(__clang__))
+    ccode=22;
+    sprintf(compiler_version,"v%d.%d.%d",__clang_major__,__clang_minor__,__clang_patchlevel__);
 #elif (defined(__GNUC__))
     ccode=2;
     gnu_compiler(compiler_version);
@@ -311,6 +328,17 @@ void wsys_sleep(int secs)
     }
 
 
+void wsys_sleep_ms(int ms)
+
+    {
+#ifdef HAVE_WIN32_API
+    win_sleep(ms);
+#else
+    usleep(ms*1000);
+#endif
+    }
+
+
 int wsys_num_cpus(void)
 
     {
@@ -363,6 +391,7 @@ int wsys_which(char *exactname,char *exename)
     }
 
 
+#ifndef NO_FILELIST
 int wsys_most_recent_in_path(char *exename,char *wildcard)
 
     {
@@ -376,6 +405,7 @@ int wsys_most_recent_in_path(char *exename,char *wildcard)
 #endif
 #endif
     }
+#endif
 
 
 void wsys_computer_name(char *name,int maxlen)
@@ -454,7 +484,7 @@ char *wsys_utc_string(void)
     {
     double tz;
     int c,hr,min;
-    static char buf[8];
+    static char buf[32];
 
     tz = wsys_utc_offset();
     if (tz<0)
@@ -639,4 +669,91 @@ int wsys_get_envvar_ex(char *varname,char *value,int maxlen)
     strncpy(value,p,maxlen-1);
     value[maxlen-1]='\0';
     return(0);
+    }
+
+/*
+** Returns -1 for no lock, otherwise, file lock obtained
+** and returns file descriptor.
+*/
+int wsys_file_lock(char *filename)
+
+    {
+    return(open(filename,O_CREAT|O_EXCL,0644));
+    }
+
+
+/*
+** Returns -1 or -2 for failure
+** Returns 0 for file correctly unlocked
+*/
+int wsys_file_unlock(char *filename,int fd)
+
+    {
+    int status;
+
+    status=close(fd);
+    if (status!=0)
+        return(-1);
+    status=remove(filename);
+    if (status!=0)
+        return(-2);
+    return(0);
+    }
+
+/*
+** use NULL to send output to /dev/null or nul
+** use "" to send output to stdout/stderr (no redirect)
+*/
+int wsys_shell_command(char *cmd,char *stdoutfile,char *stderrfile)
+
+    {
+    static char *funcname="wsys_shell_command";
+    char *syscmd;
+    int status;
+#ifdef HAVE_WIN32_API
+    static char *nullname="nul";
+#else
+    static char *nullname="/dev/null";
+#endif
+
+    syscmd=NULL;
+    willus_mem_alloc_warn((void **)&syscmd,strlen(cmd)
+                        +(stdoutfile==NULL?strlen(nullname):strlen(stdoutfile))
+                        +(stderrfile==NULL?strlen(nullname):strlen(stderrfile))+32,funcname,10);
+/* I originally had this code in for unix, but it seems that even if
+   you shell out from a csh-type shell, the redirects still need to
+   use bourne-shell style (1> and 2>).
+    {
+    char *p;
+    p=getenv("SHELL");
+    if (p!=NULL && strlen(p)>3 && !strcmp(&p[strlen(p)-3],"csh"))
+        {
+        strcat(cmd," >>& ");
+        strcat(cmd,logfile);
+        }
+    else
+        {
+        strcat(cmd," 1>> ");
+        strcat(cmd,logfile);
+        strcat(cmd," 2>> ");
+        strcat(cmd,errfile);
+        }
+    }
+*/
+    strcpy(syscmd,cmd);
+    if (stdoutfile==NULL || stdoutfile[0]!='\0')
+        {
+        strcat(syscmd," 1> \"");
+        strcat(syscmd,stdoutfile==NULL?nullname:stdoutfile);
+        strcat(syscmd,"\"");
+        }
+    if (stderrfile==NULL || stderrfile[0]!='\0')
+        {
+        strcat(syscmd," 2> \"");
+        strcat(syscmd,stderrfile==NULL?nullname:stderrfile);
+        strcat(syscmd,"\"");
+        }
+    status=system(syscmd);
+    willus_mem_free((double **)&syscmd,funcname);
+    return(status);
     }

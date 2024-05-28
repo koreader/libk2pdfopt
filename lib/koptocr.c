@@ -32,7 +32,7 @@
 #include "koptocr.h"
 
 PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h);
-l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs, l_int32 maxsize,
+l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs,
 		l_int32 reduction, l_int32 minwidth, l_int32 minheight,
 		l_int32 maxwidth, l_int32 maxheight, BOXA **pboxad, NUMA **pnai);
 
@@ -44,7 +44,7 @@ void k2pdfopt_tocr_init(char *datadir, char *lang) {
 	}
 	if (tess_api == NULL) {
 		int status;
-		tess_api = ocrtess_init(datadir, lang, NULL, NULL, 0, &status);
+		tess_api = ocrtess_init(datadir, NULL, 0, lang, NULL, NULL, 0, &status);
 		if (tess_api == NULL) {
 			printf("fail to start tesseract OCR engine\n");
 		}
@@ -52,17 +52,23 @@ void k2pdfopt_tocr_init(char *datadir, char *lang) {
 }
 
 void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
-		int x, int y, int w, int h,
+		int x, int y, int w, int h, int dpi,
 		char *word, int max_length,
 		char *datadir, char *lang, int ocr_type,
 		int allow_spaces, int std_proc) {
 	k2pdfopt_tocr_init(datadir, lang);
-	if (tess_api != NULL) {
-		ocrtess_single_word_from_bmp8(tess_api,
-				word, max_length, src,
-				x, y, x + w, y + h,
-				ocr_type, allow_spaces, std_proc, stderr);
+	if (tess_api == NULL)
+		return;
+	OCRWORDS ocrwords = { NULL, 0, 0 };
+	ocrtess_ocrwords_from_bmp8(tess_api, &ocrwords, src, x, y, x + w - 1, y + h - 1, dpi, ocr_type, 1., stderr);
+	if (ocrwords.n) {
+		snprintf(word, max_length, "%s", ocrwords.word->text);
+		if (std_proc)
+			ocr_text_proc(word, allow_spaces);
 	}
+	else
+		word[0] = '\0';
+	ocrwords_free(&ocrwords);
 }
 
 const char* k2pdfopt_tocr_get_language() {
@@ -79,8 +85,8 @@ void k2pdfopt_tocr_end() {
 void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 		int x, int y, int w, int h, int box_type) {
 	static K2PDFOPT_SETTINGS _k2settings, *k2settings;
-	PIX *pixs, *pixt, *pixb;
-	int words;
+	static char initstr[256];
+	PIX *pixs, *pixb;
 	BOXA **pboxa;
 	NUMA **pnai;
 
@@ -89,7 +95,7 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 	k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
 	k2pdfopt_settings_quick_sanity_check(k2settings);
 	/* Init for new source doc */
-	k2pdfopt_settings_new_source_document_init(k2settings);
+	k2pdfopt_settings_new_source_document_init(k2settings, initstr);
 
 	if (box_type == 0) {
 		pboxa = &kctx->rboxa;
@@ -111,7 +117,7 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 		} else {
 			pixb = pixConvertTo1(pixs, 128);
 			k2pdfopt_pixGetWordBoxesInTextlines(pixb,
-					7*kctx->dev_dpi/150, 1, 10, 10, 300, 100,
+					1, 10, 10, 300, 100,
 					pboxa, pnai);
 			pixDestroy(&pixb);
 		}
@@ -185,7 +191,7 @@ int k2pdfopt_get_word_boxes_from_tesseract(PIX *pixs, int is_cjk,
 // modified version of leptonica pixGetWordBoxesInTextlines
 // adding maxsize parameter
 l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs,
-		l_int32 maxsize, l_int32 reduction,
+		l_int32 reduction,
 		l_int32 minwidth, l_int32 minheight,
 		l_int32 maxwidth, l_int32 maxheight,
 		BOXA **pboxad, NUMA **pnai) {
@@ -212,14 +218,13 @@ l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs,
 		pix1 = pixClone(pixs);
 	} else { /* reduction == 2 */
 		pix1 = pixReduceRankBinaryCascade(pixs, 1, 0, 0, 0);
-		maxsize = maxsize / 2;
 	}
 
     /* Get the bounding boxes of the words from the word mask. */
-    pixWordBoxesByDilation(pix1, maxsize, minwidth, minheight,
-			maxwidth, maxheight, &boxa1, NULL);
+    pixWordBoxesByDilation(pix1, minwidth, minheight,
+			maxwidth, maxheight, &boxa1, NULL, NULL);
 	/* Generate a pixa of the word images */
-	pixa1 = pixaCreateFromBoxa(pix1, boxa1, NULL);  /* mask over each word */
+	pixa1 = pixaCreateFromBoxa(pix1, boxa1, 0, 0, NULL);  /* mask over each word */
 	/* Sort the bounding boxes of these words by line.  We use the
 	* index mapping to allow identical sorting of the pixa. */
 	baa = boxaSort2d(boxa1, &naa, -1, -1, 4);

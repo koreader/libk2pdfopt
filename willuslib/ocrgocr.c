@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2018  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -38,10 +38,32 @@ void gocr_single_word_from_bmp8(char *text,int maxlen,WILLUSBITMAP *bmp8,
                                 int std_proc)
 
     {
+    OCRWORDS *ocrwords,_ocrwords;
+
+    ocrwords=&_ocrwords;
+    ocrwords_init(ocrwords);
+    gocr_ocrwords_from_bmp8(ocrwords,bmp8,x1,y1,x2,y2,allow_spaces,std_proc);
+    if (ocrwords->n>0)
+        {
+        strncpy(text,ocrwords->word[0].text,maxlen-1);
+        text[maxlen-1]='\0';
+        }
+    else
+        text[0]='\0';
+    ocrwords_free(ocrwords);
+    }
+
+
+void gocr_ocrwords_from_bmp8(OCRWORDS *ocrwords,WILLUSBITMAP *bmp8,
+                             int x1,int y1,int x2,int y2,int allow_spaces,
+                             int std_proc)
+
+    {
     job_t *job,_job;
     int i,w,h,dw,dh,bw;
     unsigned char *src,*dst;
-    char *buf;
+    char *buf,*buf2;
+    static char *funcname="gocr_ocrwords_from_bmp8";
 
     if (x1>x2)
         {
@@ -78,15 +100,25 @@ void gocr_single_word_from_bmp8(char *text,int maxlen,WILLUSBITMAP *bmp8,
         memcpy(dst,src,w);
     pgm2asc(job);
     buf=getTextLine(&(job->res.linelist),0);
-    if (buf)
-        {
-        strncpy(text,buf,maxlen-1);
-        text[maxlen-1]='\0';
-        if (std_proc)
-            ocr_text_proc(text,allow_spaces);
-        }
-    else
-        text[0]='\0';
+    ocrwords_clear(ocrwords);
+    {
+    OCRWORD word;
+    ocrword_init(&word);
+    word.c=bw;
+    word.r=y2;
+    word.maxheight=y2-y1;
+    word.w=x2-x1+1;
+    word.h=y2-y1+1;
+    word.lcheight=word.h;
+    word.rot=0;
+    willus_mem_alloc_warn((void **)&buf2,2*(strlen(buf)+1),funcname,10);
+    strcpy(buf2,buf);
+    if (std_proc)
+        ocr_text_proc(buf2,allow_spaces);
+    word.text=buf2;
+    ocrwords_add_word(ocrwords,&word);
+    willus_mem_free((double **)&buf2,funcname);
+    }
     // willus_mem_free((double **)&job->src.p.p,funcname);
     job_free_image(job);
     }

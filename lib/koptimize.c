@@ -36,6 +36,7 @@ void k2pdfopt_optimize_bmp(KOPTContext *kctx) {
     MASTERINFO _masterinfo, *masterinfo;
     WILLUSBITMAP _srcgrey, *srcgrey;
     WILLUSBITMAP *src, *dst;
+    char initstr[256];
     BMPREGION region;
     int i, bw;
 
@@ -48,7 +49,7 @@ void k2pdfopt_optimize_bmp(KOPTContext *kctx) {
     /* Initialize settings */
     k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
     /* Init for new source doc */
-    k2pdfopt_settings_new_source_document_init(k2settings);
+    k2pdfopt_settings_new_source_document_init(k2settings, initstr);
     /* Additional settings for optimization */
     k2settings->text_wrap=0;
     k2settings->max_columns=1;

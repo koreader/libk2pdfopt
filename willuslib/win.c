@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -52,6 +52,8 @@ static int get_desktop_directory_1(char *desktop,int maxlen,HKEY key_class,
 static int win_registry_search1(char *value,int maxlen,HKEY key_class,char *keyname,char *searchvalue,int recursive);
 static BOOL CALLBACK find_win_by_procid(HWND hwnd,LPARAM lp);
 static int win_adjust_privilege(void);
+static void cr_filter(char *s);
+static int nextlinelen(char *s,char *d,int *newindex,int ignore_ansi);
 
 static int windate_warn=1;
 
@@ -285,8 +287,8 @@ int process_launch_ex_ii(char *command,char *cmdlineopts,int inherits,
 
     {
     int     i,status;
-    static char cmdline[MAXFILENAMELEN];
-    static char exename[MAXFILENAMELEN];
+    static char cmdline[MAXFILENAMELEN+8];
+    static char exename[MAXFILENAMELEN+4];
     SECURITY_ATTRIBUTES sa;
 
     if (win_which(exename,command)==0)
@@ -335,7 +337,7 @@ int process_launch_ex(char *command,char *cmdlineopts,int inherits,
 
     {
     int     i,status;
-    static char cmdline[MAXFILENAMELEN];
+    static char cmdline[MAXFILENAMELEN+4];
     static char exename[MAXFILENAMELEN];
 
 /*
@@ -528,6 +530,18 @@ int win_setdir(char *directory)
     }
 
 
+wmetafile *win_emf_clipboard_ex(int type)
+
+    {
+    HENHMETAFILE    hemf;
+
+    if (!OpenClipboard(type==0?NULL:GetDesktopWindow()))
+        return(NULL);
+    hemf=(HENHMETAFILE)GetClipboardData(CF_ENHMETAFILE);
+    return((wmetafile *)hemf);
+    }
+
+
 /*
 ** Play a metafile into a bitmap.
 **
@@ -548,12 +562,17 @@ wmetafile *win_emf_clipboard(void)
     }
 
 
+int win_text_file_to_clipboard(char *filename,FILE *out)
+
+    {
+    return(win_text_file_to_clipboard_ex(filename,out,0));
+    }
 /*
 ** Followed example at this link:
 ** http://msdn.microsoft.com/library/default.asp?url=/library/en-us/winui/WinUI/WindowsUserInterface/DataExchange/Clipboard/UsingtheClipboard.asp#_win32_Copying_Information_to_the_Clipboard
 **
 */
-int win_text_file_to_clipboard(char *filename,FILE *out)
+int win_text_file_to_clipboard_ex(char *filename,FILE *out,int nocrs)
 
     {
     FILE *f;
@@ -587,6 +606,8 @@ int win_text_file_to_clipboard(char *filename,FILE *out)
         }
     fclose(f);
     p[size]='\0';
+    if (nocrs)
+        cr_filter(p);
     GlobalUnlock(buf);
     if (!OpenClipboard(GetDesktopWindow()))
         {
@@ -607,6 +628,26 @@ int win_text_file_to_clipboard(char *filename,FILE *out)
     willus_mem_free((double **)&buf,funcname);
     */
     return(0);
+    }
+
+
+static void cr_filter(char *s)
+
+    {
+    int i,j;
+
+    for (i=j=0;s[i]!='\0';i++)
+        {
+        if (s[i]=='\r')
+            continue;
+        if (s[i]=='\t')
+            s[j]=' ';
+        else
+            if (i!=j)
+                s[j]=s[i];
+        j++;
+        }
+    s[j]='\0';
     }
 
 
@@ -867,6 +908,7 @@ int win_emf_write_prn(wmetafile *wmf,char *printer,char *psfile,
 
     page_width_in    = (double)GetDeviceCaps(hDC,HORZSIZE)/25.4;
     page_height_in   = (double)GetDeviceCaps(hDC,VERTSIZE)/25.4;
+printf("Page = %g x %g inches\n",page_width_in,page_height_in);
     page_width_pels  = GetDeviceCaps(hDC,HORZRES);
     page_height_pels = GetDeviceCaps(hDC,VERTRES);
     page_hor_dpi     = page_width_pels/page_width_in;
@@ -874,6 +916,7 @@ int win_emf_write_prn(wmetafile *wmf,char *printer,char *psfile,
 
     image_width_in   = (header.rclFrame.right-header.rclFrame.left)/2540.;
     image_height_in  = (header.rclFrame.bottom-header.rclFrame.top)/2540.;
+printf("EMF = %g x %g inches\n",image_width_in,image_height_in);
 
     margin_hor_in    = (page_width_in-image_width_in)/2.;
     margin_vert_in   = (page_height_in-image_height_in)/2.;
@@ -1521,6 +1564,7 @@ void win_set_mod_filetime(char *filename,struct tm *date)
     }
 
 
+#ifndef NO_FILELIST
 int win_most_recent_in_path(char *exactname,char *wildcard)
 
     {
@@ -1558,6 +1602,7 @@ int win_most_recent_in_path(char *exactname,char *wildcard)
         }
     return(exactname[0]!='\0');
     }
+#endif
 
 
 int win_which(char *exactname,char *exename)
@@ -2168,7 +2213,7 @@ static int win_registry_search1(char *value,int maxlen,HKEY key_class,char *keyn
         {
         int valuesize;
         char valuename[512];
-        char newkeyname[512];
+        char newkeyname[516];
         
         valuesize=511;
         status=RegEnumKey(newkey,(DWORD)i,valuename,valuesize);
@@ -2431,11 +2476,224 @@ int win_textout_utf8(void *hdc,int x,int y,char *s)
     int len,status;
 
     if (utf8_is_ascii(s))
-        return(TextOut((HDC)hdc,x,y,s,strlen(s)));
+        return(win_textout_ascii(hdc,x,y,s));
+//        return(TextOut((HDC)hdc,x,y,s,strlen(s)));
     len=utf8_to_utf16_alloc((void **)&sw,s);
     status=TextOutW((HDC)hdc,x,y,(LPWSTR)sw,len);
     willus_mem_free((double **)&sw,"win_textout_utf8");
     return(status);
+    }
+
+/*
+** Write text to HDC using ANSI escape codes for color
+*/
+int win_textout_ascii(void *hdc,int x,int y,char *s)
+
+    {
+    static char *funcname="win_textout_ascii";
+    char *linebuf;
+    int i,maxmem;
+
+/*
+    SetBkMode((HDC)hdc,TRANSPARENT);
+    SetTextAlign((HDC)hdc,TA_TOP|TA_LEFT);
+*/
+    max_linelen_ascii_ansi(s,&maxmem);
+    willus_mem_alloc_warn((void *)&linebuf,maxmem+1,funcname,10);
+    for (i=0;s[i]!='\0';)
+        {
+        SIZE size;
+        int i1;
+
+        /* Get next w/o escape codes */
+        nextlinelen(&s[i],linebuf,&i1,1);
+        GetTextExtentPoint((HDC)hdc,linebuf,strlen(linebuf),&size);
+        /* Get next w/ANSI escape codes included */
+        nextlinelen(&s[i],linebuf,&i1,0);
+        /* Display line of text */
+        win_textout_oneline_ascii_ansi(hdc,linebuf,x,y);
+        y+=size.cy;
+        i+=i1;
+        }
+    willus_mem_free((double **)&linebuf,funcname);
+    return(1);
+    }
+
+
+void win_textout_oneline_ascii_ansi(void *hdc,char *buf0,int x,int y)
+
+    {
+    static char *funcname="win_textout_oneline_ascii_ansi";
+    char *buf;
+    int i,j,x0;
+
+    x0=x;
+    willus_mem_alloc_warn((void *)&buf,strlen(buf0)+1,funcname,10);
+    for (i=j=0;buf0[i]!='\0';i++)
+        {
+        int ansi_code,n;
+
+        if (buf0[i]=='\0')
+            break;
+        if ((ansi_code=ansi_escape_code(&buf0[i],&n))!=0)
+            {
+            /* Flush text */
+            if (j>0)
+                {
+                SIZE size;
+                buf[j]='\0';
+                GetTextExtentPoint((HDC)hdc,buf,strlen(buf),&size);
+                TextOut((HDC)hdc,x0,y,buf,strlen(buf));
+                x0 += size.cx;
+                j=0;
+                }
+            win_effect_ansi_code(hdc,ansi_code);
+            i+=n-1;
+            continue;
+            }
+         buf[j++]=buf0[i];
+         }
+    if (j>0)
+        {
+        buf[j]='\0';
+        TextOut((HDC)hdc,x0,y,buf,strlen(buf));
+        }
+    willus_mem_free((double **)&buf,funcname);
+    }
+
+
+void win_effect_ansi_code(void *hdc,int code)
+
+    {
+    int bgr[10]={0x0000c0,0x00a000,0x00d0d0,0x008080,0xff0000,
+                 0xff00ff,0xa0a000,0x707000,0x808080,0x000000};
+    if (code>=1 && code<=10)
+        SetTextColor((HDC)hdc,bgr[code-1]);
+    }
+
+
+int win_gettextextentpoint_ascii_ansi(void *hdc,char *s,int *dx,int *dy)
+
+    {
+    static char *funcname="win_gettextextentpoint_ascii_ansi";
+    char *linebuf;
+    int i,maxmem,status;
+
+/*
+aprintf("@extentpoint(%s)\n",s);
+*/
+    status=1;
+    max_linelen_ascii_ansi(s,&maxmem);
+/*
+printf("maxmem=%d\n",maxmem);
+*/
+    willus_mem_alloc_warn((void **)&linebuf,maxmem+1,funcname,10);
+    (*dx)=(*dy)=0;
+    for (i=0;s[i]!='\0';)
+        {
+        int i1;
+        SIZE size;
+
+        /* Get line of text with ANSI escapes removed */
+        nextlinelen(&s[i],linebuf,&i1,1);
+/*
+printf("i=%d, line=%s\n",i,linebuf);
+*/
+        status=GetTextExtentPoint((HDC)hdc,linebuf,strlen(linebuf),&size);
+/*
+printf("    dx=%d, dy=%d\n",(int)size.cx,(int)size.cy);
+*/
+        if (size.cx > (*dx))
+            (*dx) = size.cx;
+        (*dy) += size.cy;
+        i+=i1;
+        }
+/*
+printf("Extents = %d, %d\n",(*dx),(*dy));
+*/
+    willus_mem_free((double **)&linebuf,funcname);
+    return(status);
+    }
+
+
+/*
+** Returns the max line length in the buffer in physical text chars
+** excluding ANSI escape codes and \r or \n.
+**
+** The "bytes" value gets the max memory needed to hold any line (minus the \0)
+**
+*/
+int max_linelen_ascii_ansi(char *s,int *bytes)
+
+    {
+    int i,maxbytes,maxlen;
+
+    for (maxbytes=maxlen=i=0;s[i]!='\0';)
+        {
+        int i1,len;
+        len=nextlinelen(&s[i],NULL,&i1,0);
+        if (i1>maxbytes)
+            maxbytes=i1;
+        if (len>maxlen)
+            maxlen=len;
+        i+=i1;
+        }
+    if (bytes!=NULL)
+        (*bytes)=maxbytes;
+    return(maxlen);
+    }
+
+/*
+** Dump next ANSI text line into destination buf "d".
+** If d==NULL, the line length in display chars and bytes is calculated
+** If ignore_ansi==1, the ANSI escape codes are not copied to "d"
+*/
+static int nextlinelen(char *s,char *d,int *newindex,int ignore_ansi)
+
+    {
+    int i,j,c;
+
+    for (i=j=c=0;s[i]!='\0';i++)
+        {
+        int n;
+
+        if (ansi_escape_code(&s[i],&n))
+            {
+            int k;
+            if (ignore_ansi)
+                {
+                i+=n-1;
+                continue;
+                }
+            if (d==NULL)
+                {
+                j+=n;
+                i+=n-1;
+                }
+            else
+                {
+                for (k=0;k<n;k++,i++)
+                    d[j++]=s[i];
+                i--;
+                }
+            continue;
+            }
+        if (s[i]=='\r' || s[i]=='\n')
+            {
+            if ((s[i]=='\r' && s[i+1]=='\n') || (s[i]=='\n' && s[i+1]=='\r'))
+                i++;
+            i++;
+            break;
+            }
+        if (d!=NULL)
+            d[j]=s[i];
+        j++;
+        c++;
+        }
+    if (d!=NULL)
+        d[j]='\0';
+    (*newindex)=i;
+    return(c);
     }
 
 
@@ -2448,11 +2706,25 @@ int win_gettextextentpoint_utf8(void *hdc,char *s,long *dx,long *dy)
 
     if (utf8_is_ascii(s))
         {
+        int dx0,dy0,status;
+        status=win_gettextextentpoint_ascii_ansi(hdc,s,&dx0,&dy0);
+/*
+printf("gtep(%s)=%dx%d\n",s,dx0,dy0);
+*/
+        (*dx)=dx0;
+        (*dy)=dy0;
+        return(status);
+        }
+        /*
+    if (utf8_is_ascii(s))
+        {
         status=GetTextExtentPoint((HDC)hdc,s,strlen(s),&size);
+printf("gtep(%s)=%dx%d\n",s,(int)size.cx,(int)size.cy);
         (*dx)=size.cx;
         (*dy)=size.cy;
         return(status);
         }
+        */
     len=utf8_to_utf16_alloc((void **)&sw,s);
     status=GetTextExtentPointW((HDC)hdc,(LPWSTR)sw,len,&size);
     (*dx)=size.cx;
@@ -2515,6 +2787,89 @@ void *win_shared_handle_utf8(char *filename)
     if (handle==INVALID_HANDLE_VALUE)
         return(NULL);
     return((void *)handle);
+    }
+
+
+/*
+**
+** Copy the .exe file to a temp folder and re-run it from that folder.
+** This allows you to auto-update the original .exe file that was run from within
+** the program itself.
+**
+** Problem:  Need to keep track of original .exe location!
+**
+** Typical use like so:
+**
+** int WINAPI WinMain(HINSTANCE hInstance,HINSTANCE hPrevInstance,
+**                    char *cmdline,int iCmdShow)
+**
+**      {
+**      if (win_relaunch(cmdline,iCmdShow))
+**          return(0);
+**      ...
+**      }
+**
+*/
+int win_relaunch(char *cmdline,int iCmdShow)
+
+    {
+    char  basename[512];
+    char  exename[512];
+    char  tmpname[512];
+    char  tmpfolder[512];
+    char  exefolder[512];
+    char  newexe[512];
+    char *p;
+    char *buf;
+    int  cmdlen;
+    STARTUPINFO si;
+    PROCESS_INFORMATION pi;
+    static char *funcname="win_relaunch";
+
+    win_full_exe_name(exename);
+    wfile_basepath(exefolder,exename);
+    wfile_abstmpnam(tmpname);
+    wfile_basepath(tmpfolder,tmpname);
+    if (!stricmp(tmpfolder,exefolder))
+        return(0);
+    wfile_basespec(basename,exename);
+    wfile_newext(basename,basename,"");
+    p=getenv("USERNAME");
+    if (p!=NULL)
+        {
+        int i;
+
+        i=in_string(basename,p);
+        if (i>0 && basename[i-1]=='_')
+            return(0);
+        strcat(basename,"_");
+        strcat(basename,p);
+        }
+    wfile_newext(basename,basename,"exe");
+    wfile_fullname(newexe,tmpfolder,basename);
+
+    /* Copy and launch */
+    if (!wfile_copy_file(newexe,exename,0))
+        return(0);
+
+    GetStartupInfo(&si);
+    cmdlen=strlen(newexe)+strlen(exename)+strlen(cmdline)+16;
+    willus_mem_alloc_warn((void **)&buf,cmdlen,funcname,10);
+    sprintf(buf,"\"%s\" \"%s\"",newexe,exename);
+    if (cmdline[0]!='\0')
+        sprintf(&buf[strlen(buf)]," %s",cmdline);
+    memset(&pi,0,sizeof(PROCESS_INFORMATION));
+    memset(&si,0,sizeof(STARTUPINFO));
+    si.cb = sizeof(STARTUPINFO);
+    si.dwX = 0; /* Ignored unless si.dwFlags |= STARTF_USEPOSITION */
+    si.dwY = 0;
+    si.dwXSize = 0; /* Ignored unless si.dwFlags |= STARTF_USESIZE */
+    si.dwYSize = 0;
+    si.dwFlags = STARTF_USESHOWWINDOW;
+    si.wShowWindow = iCmdShow;
+    /* Re-launch */
+    CreateProcess(newexe,buf,0,0,1,DETACHED_PROCESS,0,NULL,&si,&pi);
+    return(1);
     }
 
 

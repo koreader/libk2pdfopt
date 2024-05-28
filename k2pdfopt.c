@@ -8,7 +8,7 @@
 **               downloads for MS Windows, Mac OSX, and Linux. The MS Windows
 **               version has an integrated GUI. K2pdfopt is open source.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -185,7 +185,31 @@ int main(int argc,char *argv[])
         k2pdfopt_conversion_close(k2conv);
         return(0);
         }
-    if (k2settings->query_user<0)
+#ifdef HAVE_TESSERACT_LIB
+    if (k2settings->dst_ocr_lang[0]=='?')
+        {
+        char *p;
+        extern char *ocrtess_langnames[];
+
+        k2sys_header(NULL);
+        ocrtess_debug_info(&p,1);
+        aprintf("%s",p);
+        printf("\nAvailable languages:\n"
+                 "Code         Language\n"
+                 "---------------------\n");
+        for (i=0;ocrtess_langnames[i][0]!='\0';i+=3)
+            printf("%-12s %s\n",ocrtess_langnames[i+1],ocrtess_langnames[i+2]);
+        willus_mem_free((double **)&p,funcname);
+        if (k2settings->query_user!=0)
+            k2sys_enter_to_exit(k2settings);
+        k2sys_close(k2settings);
+        strbuf_free(usermenu);
+        strbuf_free(env);
+        strbuf_free(cmdline);
+        k2pdfopt_conversion_close(k2conv);
+        return(0);
+        }
+#endif
 #if (defined(WIN32) || defined(WIN64))
         {
         if (win_has_own_window())

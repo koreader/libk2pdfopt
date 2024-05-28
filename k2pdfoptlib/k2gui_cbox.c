@@ -2,7 +2,7 @@
 ** k2gui_cbox.c   K2pdfopt WILLUSGUI for the conversion dialog box.
 **                (Non-OS-specific calls.)
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -443,6 +443,8 @@ printf("\n\nDone conversion...\n\n");
         willus_mem_free((double **)&k2c,funcname);
         willus_mem_free((double **)&buf,funcname);
         }
+    k2ocr_end(&k2conv->k2settings); /* Close out OCR after each conversion */
+                                    /* so it will have to re-start--v2.52  */
     k2gui_cbox_set_files_completed(k2listproc.filecount,NULL);
     stop=(double)clock()/CLOCKS_PER_SEC;
     k2sys_cpu_update(k2settings,start,stop);

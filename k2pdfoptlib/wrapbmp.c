@@ -2,7 +2,7 @@
 ** wrapbmp.c    Functions to store individual word bitmaps into a collecting
 **              bitmap for text re-flow.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -471,6 +471,55 @@ k2printf("Bitmap is %d x %d (baseline=%d)\n",wrapbmp->bmp.width,wrapbmp->bmp.hei
         just = (wrapbmp->just & 0xcf) | 0x20;
     else
         just = wrapbmp->just;
+
+
+    /*
+    ** Axet on GitLab thinks this code should be added:
+    **
+    ** Problem happens sometime, when here is only one element recognized on text
+    ** line (happens for titles and right aligned epigraphs) then 'wrmap' not
+    ** aligned properly. As result text detected correctly, and page formed normally,
+    ** but when I ask for back coordinates (original coordinates on source image)
+    ** I got wrong results. It happens because 'wrmap' malformed during parsing.
+    */
+#if (defined(__ANDROID__) && defined(K2PDFOPT_KINDLEPDFVIEWER))
+    {
+    int dstmar_pixels[4];
+    int i,w;
+
+    get_dest_margins(dstmar_pixels,k2settings,(double)k2settings->dst_dpi,
+                     masterinfo->bmp.width,k2settings->dst_height);
+    w = masterinfo->bmp.width-dstmar_pixels[0]-dstmar_pixels[2];
+    w = w*region.dpi/k2settings->dst_dpi;
+    w = w-wrapbmp->bmp.width;
+#if (WILLUSDEBUGX & 0x4000000)
+{
+static int count=0;
+char filename[256];
+sprintf(filename,"wrapbmp_region_%04d.png",++count);
+printf("@wrapbmp_flush:  region %d. region.wrectmaps->n=%d\n",count,region.wrectmaps->n);
+bmpregion_write(&region,filename);
+}
+#endif
+    for(i=0;i<region.wrectmaps->n;i++)
+        { /* adjust center/right for all recently added regions */
+        WRECTMAP *m;
+
+        m = &region.wrectmaps->wrectmap[i];
+        if (m->coords[1].y >= wrapbmp->base+region.r1-region.bbox.rowbase)
+{
+#if (WILLUSDEBUGX & 0x4000000)
+printf("@wrapbmp_flush:  %d. Adding %d to m->coords[1].x=%g\n",i,
+            ((just&0xc)==4) ? w/2 : ((just&0xc)==8) ? w : 0,
+             m->coords[1].x);
+#endif
+            m->coords[1].x += ((just&0xc)==4) ? w/2 : (((just&0xc)==8) ? w : 0);
+}
+        }
+    }
+#endif /* (defined(__ANDROID__) && defined(K2PDFOPT_KINDLEPDFVIEWER)) */
+/* End Axet code mod */
+
     /*
     ** For now, set pageinfo=NULL in calls to bmpregion_add because the
     ** pageinfo processing assumes that the BMPREGION structure it is working
@@ -744,4 +793,64 @@ static double wrectmap_hcompare(WRECTMAP *x1,WRECTMAP *x2)
 
     {
     return(x1->coords[1].x - x2->coords[1].x);
+    }
+
+
+void wrectmap_write_bmp(WRECTMAP *wrmap,int index,BMPREGION *region)
+
+    {
+    char filename[256];
+    WILLUSBITMAP *src;
+    WILLUSBITMAP *bmp,_bmp;
+    int i,r,x1,y1,x2,y2;
+
+    src=region->bmp8;
+    sprintf(filename,"wrectmap%04d.png",index);
+    x1=wrmap->coords[1].x;
+    x2=wrmap->coords[1].x+wrmap->coords[2].x-1;
+    if (x2<0 || x1>=src->width)
+        return;
+    if (x1<0)
+        x1=0;
+    if (x1>src->width-1)
+        x1=src->width-1;
+    if (x2<0)
+        x2=0;
+    if (x2>src->width-1)
+        x2=src->width-1;
+    if (x2<=x1)
+        return;
+    y1=wrmap->coords[1].y;
+    y2=wrmap->coords[1].y+wrmap->coords[2].y-1;
+    if (y2<0 || y1>=src->height)
+        return;
+    if (y1<0)
+        y1=0;
+    if (y1>src->height-1)
+        y1=src->height-1;
+    if (y2<0)
+        y2=0;
+    if (y2>src->height-1)
+        y2=src->height-1;
+    if (y2<=y1)
+        return;
+    bmp=&_bmp;
+    bmp_init(bmp);
+    bmp->width=x2-x1+1;
+    bmp->height=y2-y1+1;
+aprintf(ANSI_MAGENTA "%s is %d x %d" ANSI_NORMAL "\n",filename,bmp->width,bmp->height);
+    bmp->bpp=8;
+    for (i=0;i<256;i++)
+        bmp->red[i]=bmp->green[i]=bmp->blue[i]=i;
+    bmp->type=WILLUSBITMAP_TYPE_NATIVE;
+    bmp_alloc(bmp);
+    for (r=0;r<bmp->height;r++)
+        {
+        unsigned char *d,*s;
+        s=bmp_rowptr_from_top(src,r+y1)+x1;
+        d=bmp_rowptr_from_top(bmp,r);
+        memcpy(d,s,x2-x1+1);
+        }
+    bmp_write(bmp,filename,stdout,100);
+    bmp_free(bmp);
     }

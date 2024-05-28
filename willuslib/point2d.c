@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2012  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -157,6 +157,12 @@ double p2d_angle_between_deg(VECTOR2D *v1,VECTOR2D *v2)
         return(0.);
     m2 = p2d_magnitude(v1)*p2d_magnitude(v2);
     sinth=(v1->x*v2->y - v1->y*v2->x)/m2;
+    /* 1-27-20: Bound sinth--sometimes rounding errors could have it */
+    /* be outside -1 to +1                                           */
+    if (sinth>1.)
+        sinth=1.;
+    if (sinth<-1.)
+        sinth=-1.;
     costh_x_m2 = (v1->x*v2->x + v1->y*v2->y);
     return(costh_x_m2 > 0 ? asin(sinth)*180/PI 
                           : (sinth>0 ? 180.-asin(sinth)*180./PI

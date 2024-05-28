@@ -40,6 +40,7 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	WILLUSBITMAP _srcgrey, *srcgrey;
 	WILLUSBITMAP *src;
 	BMPREGION _region, *region;
+	char initstr[256];
 	int *colcount,*rowcount;
 	int i,j;
 	float margin;
@@ -58,7 +59,7 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
 	k2pdfopt_settings_quick_sanity_check(k2settings);
 	/* Init for new source doc */
-	k2pdfopt_settings_new_source_document_init(k2settings);
+	k2pdfopt_settings_new_source_document_init(k2settings, initstr);
 	/* Init master output structure */
 	masterinfo_init(masterinfo, k2settings);
 	bmp_init(&masterinfo->bmp);

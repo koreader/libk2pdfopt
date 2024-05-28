@@ -1,11 +1,108 @@
+// Copyright (C) 2004-2022 Artifex Software, Inc.
+//
+// This file is part of MuPDF.
+//
+// MuPDF is free software: you can redistribute it and/or modify it under the
+// terms of the GNU Affero General Public License as published by the Free
+// Software Foundation, either version 3 of the License, or (at your option)
+// any later version.
+//
+// MuPDF is distributed in the hope that it will be useful, but WITHOUT ANY
+// WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+// FOR A PARTICULAR PURPOSE. See the GNU Affero General Public License for more
+// details.
+//
+// You should have received a copy of the GNU Affero General Public License
+// along with MuPDF. If not, see <https://www.gnu.org/licenses/agpl-3.0.en.html>
+//
+// Alternative licensing terms are available from the licensor.
+// For commercial licensing, see <https://www.artifex.com/> or contact
+// Artifex Software, Inc., 39 Mesa Street, Suite 108A, San Francisco,
+// CA 94129, USA, for further information.
+
 #include "mupdf/fitz.h"
 
-static inline int
+#include <string.h>
+#include <errno.h>
+#include <math.h>
+#include <float.h>
+#include <stdlib.h>
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
+#ifdef _WIN32
+#include <windows.h> /* for MultiByteToWideChar etc. */
+#endif
+
+#include "utfdata.h"
+
+static const int *
+fz_ucd_bsearch(int c, const int *t, int n, int ne)
+{
+	const int *p;
+	int m;
+	while (n > 1)
+	{
+		m = n/2;
+		p = t + m*ne;
+		if (c >= p[0])
+		{
+			t = p;
+			n = n - m;
+		}
+		else
+		{
+			n = m;
+		}
+	}
+	if (n && c >= t[0])
+		return t;
+	return 0;
+}
+
+int
 fz_tolower(int c)
 {
-	if (c >= 'A' && c <= 'Z')
-		return c + 32;
+	const int *p;
+	p = fz_ucd_bsearch(c, ucd_tolower2, nelem(ucd_tolower2) / 3, 3);
+	if (p && c >= p[0] && c <= p[1])
+		return c + p[2];
+	p = fz_ucd_bsearch(c, ucd_tolower1, nelem(ucd_tolower1) / 2, 2);
+	if (p && c == p[0])
+		return c + p[1];
 	return c;
+}
+
+int
+fz_toupper(int c)
+{
+	const int *p;
+	p = fz_ucd_bsearch(c, ucd_toupper2, nelem(ucd_toupper2) / 3, 3);
+	if (p && c >= p[0] && c <= p[1])
+		return c + p[2];
+	p = fz_ucd_bsearch(c, ucd_toupper1, nelem(ucd_toupper1) / 2, 2);
+	if (p && c == p[0])
+		return c + p[1];
+	return c;
+}
+
+size_t
+fz_strnlen(const char *s, size_t n)
+{
+	const char *p = memchr(s, 0, n);
+	return p ? (size_t) (p - s) : n;
+}
+
+int
+fz_strncasecmp(const char *a, const char *b, size_t n)
+{
+	if (!n--)
+		return 0;
+	for (; *a && *b && n && (*a == *b || fz_tolower(*a) == fz_tolower(*b)); a++, b++, n--)
+		;
+	return fz_tolower(*a) - fz_tolower(*b);
 }
 
 int
@@ -104,6 +201,45 @@ fz_dirname(char *dir, const char *path, size_t n)
 	dir[i+1] = 0;
 }
 
+const char *
+fz_basename(const char *path)
+{
+	const char *name = strrchr(path, '/');
+	if (!name)
+		name = strrchr(path, '\\');
+	if (!name)
+		return path;
+	return name + 1;
+}
+
+#ifdef _WIN32
+
+char *fz_realpath(const char *path, char *buf)
+{
+	wchar_t wpath[PATH_MAX];
+	wchar_t wbuf[PATH_MAX];
+	int i;
+	if (!MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, PATH_MAX))
+		return NULL;
+	if (!GetFullPathNameW(wpath, PATH_MAX, wbuf, NULL))
+		return NULL;
+	if (!WideCharToMultiByte(CP_UTF8, 0, wbuf, -1, buf, PATH_MAX, NULL, NULL))
+		return NULL;
+	for (i=0; buf[i]; ++i)
+		if (buf[i] == '\\')
+			buf[i] = '/';
+	return buf;
+}
+
+#else
+
+char *fz_realpath(const char *path, char *buf)
+{
+	return realpath(path, buf);
+}
+
+#endif
+
 static inline int ishex(int a)
 {
 	return (a >= 'A' && a <= 'F') ||
@@ -119,6 +255,14 @@ static inline int tohex(int c)
 	return 0;
 }
 
+#define URIRESERVED ";/?:@&=+$,"
+#define URIALPHA "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+#define URIDIGIT "0123456789"
+#define URIMARK "-_.!~*'()"
+#define URIUNESCAPED URIALPHA URIDIGIT URIMARK
+#define HEX "0123456789ABCDEF"
+
+/* Same as fz_decode_uri_component but in-place */
 char *
 fz_urldecode(char *url)
 {
@@ -140,6 +284,100 @@ fz_urldecode(char *url)
 	}
 	*p = 0;
 	return url;
+}
+
+char *
+fz_decode_uri_component(fz_context *ctx, const char *s)
+{
+	char *uri = fz_malloc(ctx, strlen(s) + 1);
+	char *p = uri;
+	while (*s)
+	{
+		int c = (unsigned char) *s++;
+		if (c == '%' && ishex(s[0]) && ishex(s[1]))
+		{
+			int a = tohex(*s++);
+			int b = tohex(*s++);
+			*p++ = a << 4 | b;
+		}
+		else
+		{
+			*p++ = c;
+		}
+	}
+	*p = 0;
+	return uri;
+}
+
+char *
+fz_decode_uri(fz_context *ctx, const char *s)
+{
+	char *uri = fz_malloc(ctx, strlen(s) + 1);
+	char *p = uri;
+	while (*s)
+	{
+		int c = (unsigned char) *s++;
+		if (c == '%' && ishex(s[0]) && ishex(s[1]))
+		{
+			int a = tohex(*s++);
+			int b = tohex(*s++);
+			int c = a << 4 | b;
+			if (strchr(URIRESERVED "#", c)) {
+				*p++ = '%';
+				*p++ = HEX[a];
+				*p++ = HEX[b];
+			} else {
+				*p++ = c;
+			}
+		}
+		else
+		{
+			*p++ = c;
+		}
+	}
+	*p = 0;
+	return uri;
+}
+
+static char *
+fz_encode_uri_imp(fz_context *ctx, const char *s, const char *unescaped)
+{
+	char *uri = fz_malloc(ctx, strlen(s) * 3 + 1); /* allocate enough for worst case */
+	char *p = uri;
+	while (*s)
+	{
+		int c = (unsigned char) *s++;
+		if (strchr(unescaped, c))
+		{
+			*p++ = c;
+		}
+		else
+		{
+			*p++ = '%';
+			*p++ = HEX[(c >> 4) & 15];
+			*p++ = HEX[(c) & 15];
+		}
+	}
+	*p = 0;
+	return uri;
+}
+
+char *
+fz_encode_uri_component(fz_context *ctx, const char *s)
+{
+	return fz_encode_uri_imp(ctx, s, URIUNESCAPED);
+}
+
+char *
+fz_encode_uri_pathname(fz_context *ctx, const char *s)
+{
+	return fz_encode_uri_imp(ctx, s, URIUNESCAPED "/");
+}
+
+char *
+fz_encode_uri(fz_context *ctx, const char *s)
+{
+	return fz_encode_uri_imp(ctx, s, URIUNESCAPED URIRESERVED "#");
 }
 
 void
@@ -174,7 +412,7 @@ fz_format_output_path(fz_context *ctx, char *path, size_t size, const char *fmt,
 
 	if (z < 1)
 		z = 1;
-	while (i < z && i < sizeof num)
+	while (i < z && i < (int)sizeof num)
 		num[i++] = '0';
 	n = s - fmt;
 	if (n + i + strlen(p) >= size)
@@ -183,7 +421,6 @@ fz_format_output_path(fz_context *ctx, char *path, size_t size, const char *fmt,
 	while (i > 0)
 		path[n++] = num[--i];
 	fz_strlcpy(path + n, p, size - n);
-
 }
 
 #define SEP(x) ((x)=='/' || (x) == 0)
@@ -282,7 +519,7 @@ int
 fz_chartorune(int *rune, const char *str)
 {
 	int c, c1, c2, c3;
-	long l;
+	int l;
 
 	/*
 	 * one character sequence
@@ -357,7 +594,7 @@ int
 fz_runetochar(char *str, int rune)
 {
 	/* Runes are signed, so convert to unsigned for range check. */
-	unsigned long c = (unsigned long)rune;
+	unsigned int c = (unsigned int)rune;
 
 	/*
 	 * one character sequence
@@ -417,6 +654,37 @@ fz_runelen(int c)
 }
 
 int
+fz_runeidx(const char *s, const char *p)
+{
+	int rune;
+	int i = 0;
+	while (s < p) {
+		if (*(unsigned char *)s < Runeself)
+			++s;
+		else
+			s += fz_chartorune(&rune, s);
+		++i;
+	}
+	return i;
+}
+
+const char *
+fz_runeptr(const char *s, int i)
+{
+	int rune;
+	while (i-- > 0) {
+		rune = *(unsigned char*)s;
+		if (rune < Runeself) {
+			if (rune == 0)
+				return NULL;
+			++s;
+		} else
+			s += fz_chartorune(&rune, s);
+	}
+	return s;
+}
+
+int
 fz_utflen(const char *s)
 {
 	int c, n, rune;
@@ -436,12 +704,14 @@ fz_utflen(const char *s)
 
 float fz_atof(const char *s)
 {
-/* willus mod:  #if-#else-#endif */
+/* willus mod -- #if-#else-#endif */
 #if (!defined(__SSE__))
-    return(atof(s));
+    return(s==NULL ? (float)0. : (float)atof(s));
 #else
-
 	float result;
+
+	if (s == NULL)
+		return 0;
 
 	errno = 0;
 	result = fz_strtof(s, NULL);
@@ -460,11 +730,11 @@ int fz_atoi(const char *s)
 	return atoi(s);
 }
 
-fz_off_t fz_atoo(const char *s)
+int64_t fz_atoi64(const char *s)
 {
 	if (s == NULL)
 		return 0;
-	return fz_atoo_imp(s);
+	return atoll(s);
 }
 
 int fz_is_page_range(fz_context *ctx, const char *s)
@@ -508,8 +778,158 @@ const char *fz_parse_page_range(fz_context *ctx, const char *s, int *a, int *b, 
 	else
 		*b = *a;
 
+	if (*a < 0) *a = n + 1 + *a;
+	if (*b < 0) *b = n + 1 + *b;
+
 	*a = fz_clampi(*a, 1, n);
 	*b = fz_clampi(*b, 1, n);
 
 	return s;
+}
+
+/* memmem from musl */
+
+#define MAX(a,b) ((a)>(b)?(a):(b))
+
+#define BITOP(a,b,op) \
+ ((a)[(size_t)(b)/(8*sizeof *(a))] op (size_t)1<<((size_t)(b)%(8*sizeof *(a))))
+
+static char *twobyte_memmem(const unsigned char *h, size_t k, const unsigned char *n)
+{
+	uint16_t nw = n[0]<<8 | n[1], hw = h[0]<<8 | h[1];
+	for (h++, k--; k; k--, hw = hw<<8 | *++h)
+		if (hw == nw) return (char *)h-1;
+	return 0;
+}
+
+static char *threebyte_memmem(const unsigned char *h, size_t k, const unsigned char *n)
+{
+	uint32_t nw = n[0]<<24 | n[1]<<16 | n[2]<<8;
+	uint32_t hw = h[0]<<24 | h[1]<<16 | h[2]<<8;
+	for (h+=2, k-=2; k; k--, hw = (hw|*++h)<<8)
+		if (hw == nw) return (char *)h-2;
+	return 0;
+}
+
+static char *fourbyte_memmem(const unsigned char *h, size_t k, const unsigned char *n)
+{
+	uint32_t nw = n[0]<<24 | n[1]<<16 | n[2]<<8 | n[3];
+	uint32_t hw = h[0]<<24 | h[1]<<16 | h[2]<<8 | h[3];
+	for (h+=3, k-=3; k; k--, hw = hw<<8 | *++h)
+		if (hw == nw) return (char *)h-3;
+	return 0;
+}
+
+static char *twoway_memmem(const unsigned char *h, const unsigned char *z, const unsigned char *n, size_t l)
+{
+	size_t i, ip, jp, k, p, ms, p0, mem, mem0;
+	size_t byteset[32 / sizeof(size_t)] = { 0 };
+	size_t shift[256];
+
+	/* Computing length of needle and fill shift table */
+	for (i=0; i<l; i++)
+		BITOP(byteset, n[i], |=), shift[n[i]] = i+1;
+
+	/* Compute maximal suffix */
+	ip = -1; jp = 0; k = p = 1;
+	while (jp+k<l) {
+		if (n[ip+k] == n[jp+k]) {
+			if (k == p) {
+				jp += p;
+				k = 1;
+			} else k++;
+		} else if (n[ip+k] > n[jp+k]) {
+			jp += k;
+			k = 1;
+			p = jp - ip;
+		} else {
+			ip = jp++;
+			k = p = 1;
+		}
+	}
+	ms = ip;
+	p0 = p;
+
+	/* And with the opposite comparison */
+	ip = -1; jp = 0; k = p = 1;
+	while (jp+k<l) {
+		if (n[ip+k] == n[jp+k]) {
+			if (k == p) {
+				jp += p;
+				k = 1;
+			} else k++;
+		} else if (n[ip+k] < n[jp+k]) {
+			jp += k;
+			k = 1;
+			p = jp - ip;
+		} else {
+			ip = jp++;
+			k = p = 1;
+		}
+	}
+	if (ip+1 > ms+1) ms = ip;
+	else p = p0;
+
+	/* Periodic needle? */
+	if (memcmp(n, n+p, ms+1)) {
+		mem0 = 0;
+		p = MAX(ms, l-ms-1) + 1;
+	} else mem0 = l-p;
+	mem = 0;
+
+	/* Search loop */
+	for (;;) {
+		/* If remainder of haystack is shorter than needle, done */
+		if ((size_t)(z-h) < l) return 0;
+
+		/* Check last byte first; advance by shift on mismatch */
+		if (BITOP(byteset, h[l-1], &)) {
+			k = l-shift[h[l-1]];
+			if (k) {
+				if (mem0 && mem && k < p) k = l-p;
+				h += k;
+				mem = 0;
+				continue;
+			}
+		} else {
+			h += l;
+			mem = 0;
+			continue;
+		}
+
+		/* Compare right half */
+		for (k=MAX(ms+1,mem); k<l && n[k] == h[k]; k++);
+		if (k < l) {
+			h += k-ms;
+			mem = 0;
+			continue;
+		}
+		/* Compare left half */
+		for (k=ms+1; k>mem && n[k-1] == h[k-1]; k--);
+		if (k <= mem) return (char *)h;
+		h += p;
+		mem = mem0;
+	}
+}
+
+void *fz_memmem(const void *h0, size_t k, const void *n0, size_t l)
+{
+	const unsigned char *h = h0, *n = n0;
+
+	/* Return immediately on empty needle */
+	if (!l) return (void *)h;
+
+	/* Return immediately when needle is longer than haystack */
+	if (k<l) return 0;
+
+	/* Use faster algorithms for short needles */
+	h = memchr(h0, *n, k);
+	if (!h || l==1) return (void *)h;
+	k -= h - (const unsigned char *)h0;
+	if (k<l) return 0;
+	if (l==2) return twobyte_memmem(h, k, n);
+	if (l==3) return threebyte_memmem(h, k, n);
+	if (l==4) return fourbyte_memmem(h, k, n);
+
+	return twoway_memmem(h, h+k, n, l);
 }

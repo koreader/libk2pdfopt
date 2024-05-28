@@ -4,7 +4,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2014  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -25,7 +25,47 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <pthread.h>
 #include "willus.h"
+
+
+/* Structures to capture multithreaded OCR results */
+typedef struct
+    {
+    WILLUSBITMAP *bmp;
+    int    dpi; /* bitmap dpi */
+    int    c1,r1;
+    int    index; /* index into ocrwords array that this came from */
+    double lcheight;
+    pthread_mutex_t mutex;
+    int done;
+    double scale;
+    OCRWORDS ocrwords;
+    } OCRRESULT;
+
+typedef struct
+    {
+    OCRRESULT *ocrresult;
+    int thindex;
+    int n;
+    int na;
+    } OCRRESULTS;
+
+static void **global_ocr_api;
+static int global_ocr_type;
+/*
+** If < 0, then | global_ocr_target_dpi | = the desired light of a lowercase letter
+** in pixels.
+*/
+static int global_ocr_target_dpi;
+
+/*
+** Support funcs for multithreaded OCR 
+*/
+static void  ocrresult_init_from_ocrword(OCRRESULT *ocrresult,OCRWORD *word,int index);
+static void  ocrresults_make_room(OCRRESULTS *ocrresults);
+static void *ocrword_multithreaded_procbitmaps(void *data);
+static void  ocrresult_proc_bitmap(void *api,OCRRESULT *ocrresult);
 
 static int  vowel(int c0);
 static int  not_usually_after_T(int c0);
@@ -34,386 +74,305 @@ static int  not_usually_after_l(int c0);
 static int  not_usually_after_r(int c0);
 
 
-void ocrword_init(OCRWORD *word)
+/*
+** Bitmap must be 8-bit grayscale
+*/
+void ocrwords_queue_bitmap(OCRWORDS *words,WILLUSBITMAP *bmp8,int dpi,
+                           int c1,int r1,int c2,int r2,int lcheight)
 
     {
-    word->cpos=NULL;
-    word->text=NULL;
+    static char *funcname="ocrword_queue_bitmap";
+    OCRWORD *word,_word;
+
+    word=&_word;
+    ocrword_init(word);
+    ocrwords_add_word(words,word);
+    word=&words->word[words->n-1];
+    word->c=c1;
+    word->r=r1;
+    word->lcheight=lcheight;
+    word->dpi=dpi;
+    word->rot=0;
+    ocrword_bitmap8_copy_cropped(word,bmp8,c1,r1,c2,r2);
     }
 
 
-void ocrword_free(OCRWORD *word)
+static void ocrresult_init_from_ocrword(OCRRESULT *ocrresult,OCRWORD *word,int index)
 
     {
-    static char *funcname="ocrword_free";
-
-    willus_mem_free((double **)&word->cpos,funcname);
-    willus_mem_free((double **)&word->text,funcname);
+    ocrresult->bmp=ocrword_bitmap_ptr(word);
+    ocrresult->dpi=word->dpi;
+    ocrresult->c1=word->c;
+    ocrresult->r1=word->r;
+    ocrresult->lcheight=word->lcheight;
+    ocrresult->index=index;
+    ocrresult->done=0;
+    ocrresult->scale=word->bmpscale;
+    pthread_mutex_init(&ocrresult->mutex,NULL);
+    ocrwords_init(&ocrresult->ocrwords);
     }
 
 
-void ocrwords_init(OCRWORDS *words)
+static void ocrresults_make_room(OCRRESULTS *ocrresults)
 
     {
-    words->word=NULL;
-    words->n=words->na=0;
+    static char *funcname="ocrresults_make_room";
+
+    if (ocrresults->n>=ocrresults->na)
+        {
+        willus_mem_realloc_robust_warn((void **)&ocrresults->ocrresult,
+                                       ocrresults->na*2*sizeof(OCRRESULT),
+                                       ocrresults->na*sizeof(OCRRESULT),funcname,10);
+        ocrresults->na*=2;
+        }
     }
 
 
 /*
-** allocates new memory
+** Perform multithreaded OCR on all queued words
 */
-void ocrword_copy(OCRWORD *dst,OCRWORD *src)
+double ocrwords_multithreaded_ocr(OCRWORDS *words,void **ocr_api,int nthreads,int type,int target_dpi)
 
     {
-    int memsize;
-    static char *funcname="ocrword_copy";
+    OCRRESULTS _ocrresults,*ocrresults;
+    OCRRESULTS *ocrr;
+    pthread_t *thread;
+    clock_t start,stop;
+    double ocr_cpu_time_secs;
+    int i;
+    static char *funcname="ocrwords_multithreaded_ocr";
 
-    (*dst)=(*src);
-    dst->text=NULL;
-    dst->cpos=NULL;
-    memsize=sizeof(double)*src->n;
-    willus_mem_alloc_warn((void **)&dst->text,strlen(src->text)+1,funcname,10);
-    strcpy(dst->text,src->text);
-    if (src->cpos!=NULL)
+    global_ocr_api=ocr_api;
+    global_ocr_type=type; /* 'g' for GOCR or 't' for Tesseract */
+    global_ocr_target_dpi=target_dpi;
+    willus_mem_alloc_warn((void**)&ocrr,sizeof(OCRRESULTS)*nthreads,funcname,10);
+    willus_mem_alloc_warn((void**)&thread,sizeof(pthread_t)*nthreads,funcname,10);
+    ocrresults=&_ocrresults;
+    ocrresults->n=0;
+    ocrresults->na=16;
+    willus_mem_alloc_warn((void **)&ocrresults->ocrresult,sizeof(OCRRESULT)*ocrresults->na,funcname,10);
+
+    /* Queue up all conversions to be done into OCRRESULTS structure */
+    for (i=0;i<words->n;i++)
         {
-        willus_mem_alloc_warn((void **)&dst->cpos,memsize,funcname,10);
-        memcpy(dst->cpos,src->cpos,memsize);
-        }
-    }
-
-
-/*
-** Truncate word to chars from text[i1..i2]
-*/
-void ocrword_truncate(OCRWORD *word,int i1,int i2)
-
-    {
-    int i,n;
-    int *u;
-    double w0,scale;
-    static char *funcname="ocrword_truncate";
-
-    n=word->n;
-    if (i1<0)
-        i1=0;
-    if (i2>n-1)
-        i2=n-1;
-    if (i2<i1)
-        {
-        word->n=0;
-        word->w0=0.;
-        word->w=0;
-        return;
-        }
-    w0=word->w0;
-    /* Fix text */
-    willus_mem_alloc_warn((void **)&u,n*sizeof(int),funcname,10);
-    utf8_to_unicode(u,word->text,n);
-    unicode_to_utf8(word->text,&u[i1],i2-i1+1); 
-    willus_mem_free((double **)&u,funcname);
-    /* Fix length */
-    word->n=i2-i1+1;
-    if (word->cpos==NULL)
-        return;
-    /* Fix width */
-    word->w0 = word->cpos[i2]-(i1==0?0.:word->cpos[i1-1]);
-    scale = word->w/w0;
-    word->w = (int)(scale*word->w0+.5);
-    /* Fix left position and subsequent positions */
-    if (i1>0)
-        {
-        double x0;
-
-        x0=word->cpos[i1-1];
-        word->x0 += x0;
-        word->c += (int)(x0*scale+.5);
-        for (i=i1;i<=i2;i++)
-            word->cpos[i-i1]=word->cpos[i]-x0;
-        }
-    }
-
-
-int ocrwords_to_textfile(OCRWORDS *ocrwords,char *filename,int append)
-
-    {
-    FILE *out;
-    int i,newline;
-
-    out=fopen(filename,append ? "a":"w");
-    if (out==NULL)
-        return(-1);
-    for (i=0,newline=1;i<ocrwords->n;i++)
-        {
-        OCRWORD *word0;
         OCRWORD *word;
-        int c,c0,r,r0;
 
-        if (i>0)
-            word0=&ocrwords->word[i-1];
-        word=&ocrwords->word[i];
-        if (word->text[0]=='\0')
+        word=&words->word[i];
+        if (ocrword_bitmap_ptr(word)==NULL)
             continue;
-        if (word->rot==0)
-            {
-            c=word->c;
-            r=word->r;
-            if (i>0)
-                {
-                c0=word0->c;
-                r0=word0->r;
-                }
-            }
-        else
-            {
-            c=-word->r;
-            r=word->c;
-            if (i>0)
-                {
-                c0=-word0->r;
-                r0=word0->c;
-                }
-            }
+        ocrresults_make_room(ocrresults);
+        ocrresult_init_from_ocrword(&ocrresults->ocrresult[ocrresults->n++],word,i);
+        }
+
+    /* Perform OCR */
+    start=clock();
+    for (i=0;i<nthreads;i++)
+        {
+        ocrr[i]=(*ocrresults);
+        ocrr[i].thindex=i;
+        pthread_create(&thread[i],NULL,ocrword_multithreaded_procbitmaps,&ocrr[i]);
+        }
+    for (i=0;i<nthreads;i++)
+        pthread_join(thread[i],NULL);
+    stop=clock();
+    ocr_cpu_time_secs=(double)stop/CLOCKS_PER_SEC - (double)start/CLOCKS_PER_SEC;
+
+    /* Process results */
+    for (i=0;i<ocrresults->n;i++)
+        {
+        OCRRESULT *ocrresult;
+        int j;
+
+        ocrresult=&ocrresults->ocrresult[i];
 /*
-if (!strnicmp(word->text,"II.",3))
-printf("II. c=%d, r=%d, c0=%d, r0=%d, h=%d\n",c,r,c0,r0,word->h);
+printf("ocrresult %d of %d: c1=%d, r1=%d, n=%d\n",i,ocrresults->n,ocrresult->c1,ocrresult->r1,ocrresult->ocrwords.n);
 */
-        if (i>0 && (c<=c0 || r > r0+word->h*.75))
+        if (ocrresult->ocrwords.n==0)
             {
-            fprintf(out,"\n");
-            if (i>0 && r > r0 + word->h*2)
-                fprintf(out,"\n");
-            newline=1;
+            OCRWORD *word;
+            word=&words->word[ocrresult->index];
+            ocrword_free(word);
             }
-        if (!newline)
-            fprintf(out," ");
-        fprintf(out,"%s",word->text);
-        newline=0;
-        }
-    if (!newline)
-        fprintf(out,"\n");
-    fclose(out);
-    return(0);
-    }
-
-
-/*
-** Allocates new space for text buffer.
-*/
-void ocrwords_add_word(OCRWORDS *words,OCRWORD *word)
-
-    {
-    static char *funcname="ocrwords_add_word";
-    int i;
-
-    if (words->n>=words->na)
-        {
-        int newsize;
-      
-        newsize = words->na<512 ? 1024 : words->na*2;
-        willus_mem_realloc_robust_warn((void **)&words->word,newsize*sizeof(OCRWORD),
-                                    words->na*sizeof(OCRWORD),funcname,10);
-        for (i=words->na;i<newsize;i++)
-            ocrword_init(&words->word[i]);
-        words->na=newsize;
-        }
-    words->word[words->n]=(*word);
-    words->word[words->n].text=NULL;
-    willus_mem_alloc_warn((void **)&words->word[words->n].text,strlen(word->text)+1,funcname,10);
-    strcpy(words->word[words->n].text,word->text);
-    /* Copy char positions */
-    words->word[words->n].n=utf8_to_unicode(NULL,word->text,1000000);
-    if (word->cpos!=NULL)
-        {
-        willus_mem_alloc_warn((void **)&words->word[words->n].cpos,
-                       words->word[words->n].n*sizeof(double),funcname,10);
-        for (i=0;i<words->word[words->n].n;i++)
-            words->word[words->n].cpos[i] = word->cpos[i];
-        }
-    else
-        words->word[words->n].cpos=NULL;
-    words->n++;
-    }
-
-/*
-** Remove words from index i1 through i2
-*/
-void ocrwords_remove_words(OCRWORDS *words,int i1,int i2)
-
-    {
-    int i,dn;
-
-    if (i2>words->n-1)
-        i2=words->n-1;
-    if (i2<0)
-        i2=0;
-    if (i1>words->n-1)
-        i1=words->n-1;
-    if (i1<0)
-        i1=0;
-    if (i1>i2)
-        {
-        int t;
-        t=i1;
-        i1=i2;
-        i2=t;
-        }
-    dn=i2-i1+1;
-    for (i=i2;i>=i1;i--)
-        ocrword_free(&words->word[i]);
-    for (i=i1;i<words->na-dn;i++)
-        words->word[i]=words->word[i+dn];
-    for (i=words->na-dn;i<words->na;i++)
-        ocrword_init(&words->word[i]);
-    words->n -= dn;
-    }
-
-
-void ocrwords_clear(OCRWORDS *words)
-
-    {
-    int i;
-
-    for (i=words->na-1;i>=0;i--)
-        ocrword_free(&words->word[i]);
-    words->n=0;
-    }
-
-
-void ocrwords_free(OCRWORDS *words)
-
-    {
-    int i;
-    static char *funcname="ocrwords_free";
-
-    for (i=words->na-1;i>=0;i--)
-        ocrword_free(&words->word[i]);
-    willus_mem_free((double **)&words->word,funcname);
-    words->n=0;
-    words->na=0;
-    }
-
-
-void ocrwords_sort_by_pageno(OCRWORDS *ocrwords)
-
-    {
-    int top,n1,n;
-    OCRWORD x0,*x;
- 
-    x=ocrwords->word;
-    n=ocrwords->n;
-    if (n<2)
-        return;
-    top=n/2;
-    n1=n-1;
-    while (1)
-        {
-        if (top>0)
+        for (j=0;j<ocrresult->ocrwords.n;j++)
             {
-            top--;
-            x0=x[top];
-            }
-        else
-            {
-            x0=x[n1];
-            x[n1]=x[0];
-            n1--;
-            if (!n1)
+            OCRWORD *word,_word;
+
+            if (j==0)
                 {
-                x[0]=x0;
-                return;
-                }
-            }
-        {
-        int parent,child;
-
-        parent=top;
-        child=top*2+1;
-        while (child<=n1)
-            {
-            if (child<n1 && x[child].pageno<x[child+1].pageno)
-                child++;
-            if (x0.pageno<x[child].pageno)
-                {
-                x[parent]=x[child];
-                parent=child;
-                child+=(parent+1);
+                word=&words->word[ocrresult->index];
+                ocrword_free(word);
                 }
             else
-                break;
+                {
+                word=&_word;
+                ocrword_init(word);
+                }
+/*
+printf("    word[%d] (%4d,%4d) %dx%d = '%s' (n=%d)\n",j,ocrresult->ocrwords.word[j].c,ocrresult->ocrwords.word[j].r,ocrresult->ocrwords.word[j].w,ocrresult->ocrwords.word[j].h,ocrresult->ocrwords.word[j].text,ocrresult->ocrwords.word[j].n);
+*/
+            ocrword_copy(word,&ocrresult->ocrwords.word[j]);
+            if (j>0)
+                ocrwords_add_word(words,word);
             }
-        x[parent]=x0;
         }
-        }
+
+    /* Remove any null results */
+    for (i=0;i<words->n;i++)
+        if (words->word[i].text==NULL || strlen(words->word[i].text)==0)
+            {
+            ocrwords_remove_words(words,i,i);
+            i--;
+            }
+        else
+            words->word[i].n=utf8_to_unicode(NULL,words->word[i].text,-1);
+
+    /* Order by position */
+    ocrwords_sort_by_position(words);
+
+    /* Clean up */
+    for (i=ocrresults->n-1;i>=0;i--)
+        ocrwords_free(&ocrresults->ocrresult[i].ocrwords);
+    willus_mem_free((double**)&ocrresults->ocrresult,funcname);
+    willus_mem_free((double**)&thread,funcname);
+    willus_mem_free((double**)&ocrr,funcname);
+    return(ocr_cpu_time_secs);
     }
 
 
-void ocrwords_offset(OCRWORDS *words,int dx,int dy)
+static void *ocrword_multithreaded_procbitmaps(void *data)
 
     {
+    OCRRESULTS *ocrresults;
     int i;
 
-    for (i=0;i<words->n;i++)
+    ocrresults=(OCRRESULTS *)data;
+    for (i=0;i<ocrresults->n;i++)
         {
-        words->word[i].c += dx;
-        words->word[i].r += dy;
+        OCRRESULT *ocrresult;
+
+        ocrresult=&ocrresults->ocrresult[i];
+        pthread_mutex_lock(&ocrresult->mutex);
+        if (ocrresult->done==1)
+            {
+            pthread_mutex_unlock(&ocrresult->mutex);
+            continue;
+            }
+        ocrresult->done=1;
+        pthread_mutex_unlock(&ocrresult->mutex);
+        ocrresult_proc_bitmap(global_ocr_api[ocrresults->thindex],ocrresult);
         }
+    pthread_exit(NULL);
+    return(NULL);
     }
 
 
 /*
-** Don't want this affecting on the MuPDF vars.
+** In tests I did, the ...no_mutex function is never faster
+** than the ..._mutex() function.
 */
-void ocrwords_scale(OCRWORDS *words,double srat)
+#if 0
+static void *ocrword_multithreaded_procbitmaps_no_mutex(void *data)
 
     {
+    OCRRESULTS *ocrresults;
     int i;
 
-    for (i=0;i<words->n;i++)
+    ocrresults=(OCRRESULTS *)data;
+    for (i=ocrresults->thindex;i<ocrresults->n;i+=maxthreads)
         {
-        int c2,r2;
-        c2 = (words->word[i].c+words->word[i].w-1)*srat;
-        r2 = (words->word[i].r+words->word[i].h-1)*srat;
-        words->word[i].c = words->word[i].c*srat;
-        words->word[i].r = words->word[i].r*srat;
-        words->word[i].maxheight = words->word[i].maxheight*srat;
-        words->word[i].lcheight = words->word[i].lcheight*srat;
-        words->word[i].w = c2-words->word[i].c+1;
-        words->word[i].h = r2-words->word[i].r+1;
+        OCRRESULT *ocrresult;
+
+        ocrresult=&ocrresults->ocrresult[i];
+        ocrresult->done=1;
+        ocr_proc_bitmap(ocrtess_api[ocrresults->thindex],ocrresult);
         }
+    pthread_exit(NULL);
+    return(NULL);
     }
+#endif
 
 
+
+static void ocrresult_proc_bitmap(void *api,OCRRESULT *ocrresult)
+
+    {
+    switch (global_ocr_type)
+        {
+#ifdef HAVE_TESSERACT_LIB
+        case 't':
+            {
+            double downsample;
+            OCRWORDS *ocrwords;
+
+            ocrwords=&ocrresult->ocrwords;
+            if (ocrresult->lcheight > 0. && global_ocr_target_dpi < 0
+                      && ocrresult->lcheight > -global_ocr_target_dpi)
+                downsample = (double)-global_ocr_target_dpi / ocrresult->lcheight;
+            else if (ocrresult->dpi > 0 && global_ocr_target_dpi > 0
+                      && ocrresult->dpi > global_ocr_target_dpi)
+                downsample = (double)global_ocr_target_dpi / ocrresult->dpi;
+            else
+                downsample = 1.;
 /*
-** Don't want this affecting on the MuPDF vars.
+{
+static int count=0;
+char filename[256];
+sprintf(filename,"ocrbmp%03d.png",count++);
+bmp_write(ocrresult->bmp,filename,stdout,100);
+wfile_written_info(filename,stdout);
+printf("Calling ocrtess_ocrwords, bmp=%dx%d\n",ocrresult->bmp->width,ocrresult->bmp->height);
+}
 */
-void ocrwords_int_scale(OCRWORDS *words,int ndiv)
-
-    {
-    int i;
-
-    for (i=0;i<words->n;i++)
-        {
-        int c2,r2;
-        c2 = (words->word[i].c+words->word[i].w-1)/ndiv;
-        r2 = (words->word[i].r+words->word[i].h-1)/ndiv;
-        words->word[i].c = words->word[i].c/ndiv;
-        words->word[i].r = words->word[i].r/ndiv;
-        words->word[i].maxheight = words->word[i].maxheight/ndiv;
-        words->word[i].lcheight = words->word[i].lcheight/ndiv;
-        words->word[i].w = c2-words->word[i].c+1;
-        words->word[i].h = r2-words->word[i].r+1;
+            ocrtess_ocrwords_from_bmp8(api,ocrwords,ocrresult->bmp,
+                                       0,0,ocrresult->bmp->width-1,ocrresult->bmp->height-1,
+                                       ocrresult->dpi,-1,downsample,NULL);
+            ocrwords_scale(ocrwords,ocrresult->scale);
+            ocrwords_offset(ocrwords,ocrresult->c1,ocrresult->r1);
+/*
+printf("    Result:  %d words.\n",ocrresult->ocrwords.n);
+{ int i;
+for (i=0;i<ocrresult->ocrwords.n;i++)
+printf("        word[%d]='%s' (bs=%g)\n",i,ocrresult->ocrwords.word[i].text,ocrresult->ocrwords.word[i].bmpscale);
+}
+*/
+/*
+#if (DEBUG)
+{
+int i;
+printf("      OCR TESS:  (%d,%d)-(%d,%d) -- got %d words.\n",
+ocrresult->c1,ocrresult->r1,ocrresult->c2,ocrresult->r2,ocrresult->ocrwords.n);
+printf("                 ocrresult=%p, ocrresult->ocrwords.word=%p\n",ocrresult,ocrresult->ocrwords.word);
+for (i=0;i<ocrresult->ocrwords.n;i++)
+{
+OCRWORD *word;
+word=&ocrresult->ocrwords.word[i];
+printf("        %2d. '%s' (%d,%d) w=%d, h=%d\n",i+1,word->text,word->c,word->r,word->w,word->h);
+}
+}
+#endif
+*/
+            break;
+            }
+#endif
+#ifdef HAVE_GOCR_LIB
+        case 'g':
+            gocr_ocrwords_from_bmp8(&ocrresult->ocrwords,ocrresult->bmp,0,0,
+                                    ocrresult->bmp->width-1,ocrresult->bmp->height-1,0,1);
+            ocrwords_offset(&ocrresult->ocrwords,ocrresult->c1,ocrresult->r1);
+            break;
+#endif
+        default:
+            /*
+            wordbuf[0]='m';
+            wordbuf[1]='\0';
+            */
+            break;
         }
-    }
 
-
-void ocrwords_concatenate(OCRWORDS *dst,OCRWORDS *src)
-
-    {
-    int i;
-
-    for (i=0;i<src->n;i++)
-        ocrwords_add_word(dst,&src->word[i]);
+    /*
+    willus_mem_alloc_warn((void **)&ocrresult->word,strlen(wordbuf)+1,"ocr_proc_bitmap",10);
+    strcpy(ocrresult->word,wordbuf);
+    */
     }
 
 

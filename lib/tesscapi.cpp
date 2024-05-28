@@ -1,3 +1,4 @@
+#include "tesseract.h"
 #include "../tesseract_mod/tesscapi.cpp"
 
 // For our try/catch block
@@ -29,7 +30,9 @@ int tess_capi_get_word_boxes(void *vapi, PIX *pix, BOXA **out_boxa, int is_cjk, 
        return -1;
     }
     printf("engine inited in %s\n", api->GetInitLanguagesAsString());
+#ifndef DISABLED_LEGACY_ENGINE
     api->ClearAdaptiveClassifier();
+#endif
     api->Clear();
     return(0);
     }

@@ -246,7 +246,7 @@ decode_unicode_BE(fz_context *ctx, char *source, int sourcelen, char *dest, int 
 	if (sourcelen % 2 != 0)
 		fz_throw(ctx, FZ_ERROR_GENERIC, "fonterror : invalid unicode string");
 
-	tmp = fz_malloc_array(ctx, sourcelen / 2 + 1, sizeof(WCHAR));
+	tmp = fz_malloc_array(ctx, sourcelen / 2 + 1, WCHAR);
 	for (i = 0; i < sourcelen / 2; i++)
 		tmp[i] = BEtoHs(((WCHAR *)source)[i]);
 	tmp[sourcelen / 2] = '\0';
@@ -520,7 +520,7 @@ parseTTCs(fz_context *ctx, const char *path)
 		}
 
 		numFonts = BEtoHl(fontcollectionBE.NumFonts);
-		offsettableBE = fz_malloc_array(ctx, numFonts, sizeof(ULONG));
+		offsettableBE = fz_malloc_array(ctx, numFonts, ULONG);
 
 		safe_read(ctx, file, sizeof(FONT_COLLECTION), (char *)offsettableBE, numFonts * sizeof(ULONG));
 		for (i = 0; i < numFonts; i++)
@@ -591,6 +591,14 @@ destroy_system_font_list(void)
 	memset(&fontlistMS, 0, sizeof(fontlistMS));
 }
 
+static int qs_stricmp(const void *s1,const void *s2);
+static int qs_stricmp(const void *s1,const void *s2)
+
+    {
+    return(_stricmp((char *)s1,(char *)s2));
+    }
+
+
 static void
 create_system_font_list(fz_context *ctx)
 {
@@ -625,7 +633,7 @@ create_system_font_list(fz_context *ctx)
 #endif
 
 	// sort the font list, so that it can be searched binarily
-	qsort(fontlistMS.fontmap, fontlistMS.len, sizeof(pdf_fontmapMS), _stricmp);
+	qsort(fontlistMS.fontmap, fontlistMS.len, sizeof(pdf_fontmapMS), qs_stricmp);
 
 #ifdef DEBUG
 	// allow to overwrite system fonts for debugging purposes
@@ -641,7 +649,7 @@ create_system_font_list(fz_context *ctx)
 			if (entry)
 				*entry = fontlistMS.fontmap[i];
 		}
-		qsort(fontlistMS.fontmap, fontlistMS.len, sizeof(pdf_fontmapMS), _stricmp);
+		qsort(fontlistMS.fontmap, fontlistMS.len, sizeof(pdf_fontmapMS), qs_stricmp);
 	}
 #endif
 
@@ -698,7 +706,7 @@ pdf_load_windows_font_by_name(fz_context *ctx, const char *orig_name)
 	if (!found && !comma && (str_ends_with(fontname, "Bold") || str_ends_with(fontname, "Italic")))
 	{
 		int styleLen = str_ends_with(fontname, "Bold") ? 4 : str_ends_with(fontname, "BoldItalic") ? 10 : 6;
-		fontname = fz_resize_array(ctx, fontname, strlen(fontname) + 2, sizeof(char));
+		fontname = fz_realloc_array(ctx, fontname, strlen(fontname) + 2, char);
 		comma = fontname + strlen(fontname) - styleLen;
 		memmove(comma + 1, comma, styleLen + 1);
 		*comma = '-';
@@ -815,10 +823,10 @@ pdf_load_windows_cjk_font(fz_context *ctx, const char *fontname, int ros, int se
 		{
 			switch (ros)
 			{
-			case FZ_ADOBE_CNS_1: font = pdf_load_windows_font_by_name(ctx, "MingLiU"); break;
-			case FZ_ADOBE_GB_1: font = pdf_load_windows_font_by_name(ctx, "SimSun"); break;
-			case FZ_ADOBE_JAPAN_1: font = pdf_load_windows_font_by_name(ctx, "MS-Mincho"); break;
-			case FZ_ADOBE_KOREA_1: font = pdf_load_windows_font_by_name(ctx, "Batang"); break;
+			case FZ_ADOBE_CNS: font = pdf_load_windows_font_by_name(ctx, "MingLiU"); break;
+			case FZ_ADOBE_GB: font = pdf_load_windows_font_by_name(ctx, "SimSun"); break;
+			case FZ_ADOBE_JAPAN: font = pdf_load_windows_font_by_name(ctx, "MS-Mincho"); break;
+			case FZ_ADOBE_KOREA: font = pdf_load_windows_font_by_name(ctx, "Batang"); break;
 			default: fz_throw(ctx, FZ_ERROR_GENERIC, "invalid serif ros");
 			}
 		}
@@ -826,8 +834,8 @@ pdf_load_windows_cjk_font(fz_context *ctx, const char *fontname, int ros, int se
 		{
 			switch (ros)
 			{
-			case FZ_ADOBE_CNS_1: font = pdf_load_windows_font_by_name(ctx, "DFKaiShu-SB-Estd-BF"); break;
-			case FZ_ADOBE_GB_1:
+			case FZ_ADOBE_CNS: font = pdf_load_windows_font_by_name(ctx, "DFKaiShu-SB-Estd-BF"); break;
+			case FZ_ADOBE_GB:
 				fz_try(ctx)
 				{
 					font = pdf_load_windows_font_by_name(ctx, "KaiTi");
@@ -837,8 +845,8 @@ pdf_load_windows_cjk_font(fz_context *ctx, const char *fontname, int ros, int se
 					font = pdf_load_windows_font_by_name(ctx, "KaiTi_GB2312");
 				}
 				break;
-			case FZ_ADOBE_JAPAN_1: font = pdf_load_windows_font_by_name(ctx, "MS-Gothic"); break;
-			case FZ_ADOBE_KOREA_1: font = pdf_load_windows_font_by_name(ctx, "Gulim"); break;
+			case FZ_ADOBE_JAPAN: font = pdf_load_windows_font_by_name(ctx, "MS-Gothic"); break;
+			case FZ_ADOBE_KOREA: font = pdf_load_windows_font_by_name(ctx, "Gulim"); break;
 			default: fz_throw(ctx, FZ_ERROR_GENERIC, "invalid sans-serif ros");
 			}
 		}
@@ -861,6 +869,6 @@ pdf_load_windows_cjk_font(fz_context *ctx, const char *fontname, int ros, int se
 void pdf_install_load_system_font_funcs(fz_context *ctx)
 {
 #ifdef _WIN32
-	fz_install_load_system_font_funcs(ctx, pdf_load_windows_font, pdf_load_windows_cjk_font);
+	fz_install_load_system_font_funcs(ctx, pdf_load_windows_font, pdf_load_windows_cjk_font, NULL);
 #endif
 }

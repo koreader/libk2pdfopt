@@ -3,7 +3,7 @@
 **                are more-or-less generic functions that don't depend
 **                heavily on k2pdfopt settings.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -22,6 +22,10 @@
 
 #include "k2pdfopt.h"
 
+/* Didn't work out in v2.52 */
+/*
+static void bmpregion_get_rowcount_assuming_text(int *rowcount,BMPREGION *region,TEXTROW *bbox);
+*/
 static void trim_to(int *count,int *i1,int i2,double gaplen,int dpi,double defect_size_pts);
 static int height2_calc(int *rc,int n);
 static void bmpregion_count_text_row_pixels(BMPREGION *region,int *gw,int *copt,int *ngaps,
@@ -516,6 +520,7 @@ exit(10);
 }
 */
 #endif
+
     memset(colcount,0,(bbox->c2+1)*sizeof(int));
     memset(rowcount,0,(bbox->r2+1)*sizeof(int));
     for (j=bbox->r1;j<=bbox->r2;j++)
@@ -529,13 +534,16 @@ exit(10);
                 colcount[i+bbox->c1]++;
                 }
         }
-#if (WILLUSDEBUGX & 2)
+#if (WILLUSDEBUGX & 0x2)
 {
-if (region->rowcount!=NULL)
+if (region->rowcount!=NULL && region->r1>6690 && region->r1<6800)
 {
 int i;
+printf("STANDARD rowcount\n");
+printf("/sa l \"standard proc\" 2\n");
 for (i=region->r1;i<=region->r2;i++)
-printf("        rowcount[%d]=%d\n",i,region->rowcount[i]);
+printf("        %d %d\n",i-6700,region->rowcount[i]);
+printf("//nc\n");
 }
 }
 #endif
@@ -552,6 +560,30 @@ printf("        rowcount[%d]=%d\n",i,region->rowcount[i]);
     */
     trim_to(rowcount,&bbox->r1,bbox->r2,4.0,region->dpi,k2settings->defect_size_pts);
     trim_to(rowcount,&bbox->r2,bbox->r1,4.0,region->dpi,k2settings->defect_size_pts);
+
+/* Didn't help */
+#if 0
+    /* Save rowcounts into rc2 */
+    rc2=NULL;
+    willus_mem_alloc_warn((void **)&rc2,sizeof(int)*(bbox->r2+1),funcname,10);
+    memcpy(rc2,rowcount,sizeof(int)*(bbox->r2+1));
+
+    /* Recompute rowcounts assuming text */
+    bmpregion_get_rowcount_assuming_text(rowcount,region,bbox);
+#endif
+#if (WILLUSDEBUGX & 0x2)
+{
+if (region->rowcount!=NULL && region->r1>6690 && region->r1<6800)
+{
+int i;
+printf("rowcounts AFTER assuming text\n");
+printf("/sa l \"assuming text\" 2\n");
+for (i=region->r1;i<=region->r2;i++)
+printf("        %d %d\n",i-6700,region->rowcount[i]);
+printf("//nc\n");
+}
+}
+#endif
     if (calc_text_params)
         {
         /* Text row statistics */
@@ -590,6 +622,12 @@ printf("capheight=%d, h2=%d\n",bbox->capheight,h2);
         f=(double)bbox->lcheight/bbox->capheight;
         if (f<0.55)
             bbox->lcheight = (int)(0.72*bbox->capheight+.5);
+        /*
+        ** v2.52--does this make sense?  If lcheight and capheight are close
+        ** together, we should assume that lcheight is right and adjust capheight,
+        ** not the other way around.  Is it more likely that there are no caps
+        ** or high letters (e.g. d, f, h, k, l), or that there are a ton of them?
+        */
         else if (f>0.85)
             bbox->lcheight = (int)(0.72*bbox->capheight+.5);
 #if (WILLUSDEBUGX & 8)
@@ -615,6 +653,11 @@ fclose(f);
 }
 #endif
         }
+/* Didn't help */
+/*
+    memcpy(rowcount,rc2,sizeof(int)*(bbox->r2+1));
+    willus_mem_free((double **)&rc2,funcname);
+*/
 /*
     else
         {
@@ -639,6 +682,47 @@ exit(10);
         willus_dmem_free(11,(double **)&rowcount,funcname);
     */
     }
+
+/*
+** v2.52
+** For each column, only count the top-most and bottom-most black pixels in that column
+** into the rowcount[] stats.  This prevents lowercase height from getting fooled by
+** letters like e, a, s, A, H.
+**
+** DECIDED THIS DIDN'T REALLY HELP
+*/
+#if 0
+static void bmpregion_get_rowcount_assuming_text(int *rowcount,BMPREGION *region,TEXTROW *bbox)
+
+    {
+    int i,n;
+    n=bbox->c2-bbox->c1+1;
+    memset(rowcount,0,(bbox->r2+1)*sizeof(int));
+    for (i=0;i<n;i++)
+        {
+        unsigned char *p;
+        int j,jmin;
+
+        /* Find/count bottom black pixel(s) */
+        p=bmp_rowptr_from_top(region->bmp8,bbox->r1)+bbox->c1+i;
+        for (j=bbox->r1;j<=bbox->r2 && p[0]>=region->bgcolor;j++,p+=region->bmp8->width);
+        if (j>bbox->r2)
+            continue;
+        for (;j<=bbox->r2 && p[0]<region->bgcolor;j++,p+=region->bmp8->width)
+            rowcount[j]++;
+        if (j>bbox->r2)
+            continue;
+        jmin=j; 
+        /* Find/count top black pixel(s) */
+        p=bmp_rowptr_from_top(region->bmp8,bbox->r2)+bbox->c1+i;
+        for (j=bbox->r2;j>jmin && p[0]>=region->bgcolor;j--,p-=region->bmp8->width);
+        if (j<=jmin)
+            continue;
+        for (;j>jmin && p[0]<region->bgcolor;j--,p-=region->bmp8->width)
+            rowcount[j]++;
+        }
+    }
+#endif
 
 
 /*
@@ -1201,7 +1285,8 @@ k2printf("    Not centered (not enough obviously centered lines).\n");
 **
 */
 void bmpregion_find_textrows(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
-                             int dynamic_aperture,int remove_small_rows,
+                             int dynamic_aperture,
+                             int remove_small_rows,double minrowgap,
                              int join_figure_captions)
 
     {
@@ -1213,8 +1298,8 @@ void bmpregion_find_textrows(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
     int *rowthresh;
     double min_fig_height,max_fig_gap,max_label_height;
 
-#if (WILLUSDEBUGX & 0x2)
-k2printf("At bmpregion_find_textrows(dyn_aprt=%d, remove_small=%d, joinfigcaps=%d)\n",
+#if (WILLUSDEBUGX & 0x800102)
+k2printf("\nAt bmpregion_find_textrows(dyn_aprt=%d, remove_small=%d, joinfigcaps=%d)\n",
 dynamic_aperture,remove_small_rows,join_figure_captions);
 #endif
     min_fig_height=k2settings->dst_min_figure_height_in;
@@ -1461,7 +1546,7 @@ printf("    (Non-blank row.)\n");
     /* Compute gaps between rows and row heights */
     textrows_compute_row_gaps(textrows,region->r2);
 
-#if (WILLUSDEBUGX & 0x2)
+#if (WILLUSDEBUGX & 0x102)
     {
     k2printf("FIRST PASS IN FIND TEXT ROWS:\n");
     int i;
@@ -1477,9 +1562,28 @@ printf("    (Non-blank row.)\n");
 #if (WILLUSDEBUGX & 0x2)
 printf("CC\n");
 #endif
+    /* v2.52 -- remove rows that caught a speckle or defect */
+    textrows_remove_defects(textrows,(int)(k2settings->defect_size_pts/72.*region->dpi+.5));
+#if (WILLUSDEBUGX & 0x100)
+    {
+    k2printf("AFTER REMOVE DEFECTS:\n");
+    int i;
+    for (i=0;i<textrows->n;i++)
+        {
+        TEXTROW *textrow;
+        textrow=&textrows->textrow[i];
+        k2printf("   rowheight[%03d] = (%04d,%04d)-(%04d,%04d)\n",i,textrow->c1,textrow->r1,textrow->c2,textrow->r2);
+        }
+    }
+#endif
+
+#if (WILLUSDEBUGX & 0x800000)
+#else
     /* Look for double-height and triple-height rows and break them up */
     /* if conditions seem right.                                       */
-    textrows_find_doubles(textrows,rowthresh,region,k2settings,3,dynamic_aperture);
+    if (k2settings->detect_double_rows)
+        textrows_find_doubles(textrows,rowthresh,region,k2settings,3,dynamic_aperture);
+#endif
 
 #if (WILLUSDEBUGX & 0x2)
 printf("DD\n");
@@ -1487,17 +1591,46 @@ printf("DD\n");
     /* Compute gaps between rows and row heights again */
     textrows_compute_row_gaps(textrows,region->r2);
 
+#if (WILLUSDEBUGX & 0x800000)
+printf("TEXTROWS BEFORE SMALL ROW REMOVAL:\n");
+printf("    dpi = %d\n",region->dpi);
+printf("    ID COLS      ROWS     RBSE R2-R1 LC H50 CAP GAP GBLNK TYPE\n"
+       "    ----------------------------------------------------------------\n");
+for (i=0;i<textrows->n;i++)
+{
+static char *tt[]={"Undetermined","text","multi","word","figure","multiword"};
+TEXTROW *tr;
+tr=&textrows->textrow[i];
+printf("    %2d %4d-%4d %4d-%4d %4d %3d %3d %3d %3d %3d %3d   %s\n",i,tr->c1,tr->c2,tr->r1,tr->r2,tr->rowbase,tr->r2-tr->r1+1,tr->lcheight,tr->h5050,tr->capheight,tr->gap,tr->gapblank,tt[tr->type]);
+}
+#endif
     /* Remove rows with text height that seems to be too small */
     if (remove_small_rows)
         {
         /* textrows_remove_small_rows needs types determined */
         for (i=0;i<textrows->n;i++)
             textrow_determine_type(region,k2settings,i);
-        textrows_remove_small_rows(textrows,k2settings,0.25,0.5,region,-1.0);
+#if (WILLUSDEBUGX & 0x800000)
+printf("Calling remove_small_rows...\n");
+#endif
+        textrows_remove_small_rows(textrows,k2settings,0.25,0.5,region,minrowgap);
         }
 
     /* Compute gaps between rows and row heights again */
     textrows_compute_row_gaps(textrows,region->r2);
+#if (WILLUSDEBUGX & 0x800000)
+printf("TEXTROWS AFTER SMALL ROW REMOVAL:\n");
+printf("    dpi = %d\n",region->dpi);
+printf("    ID COLS      ROWS     RBSE R2-R1 LC H50 CAP GAP GBLNK TYPE\n"
+       "    ---------------------------------------------------------------\n");
+for (i=0;i<textrows->n;i++)
+{
+static char *tt[]={"Undetermined","text","multi","word","figure","multiword"};
+TEXTROW *tr;
+tr=&textrows->textrow[i];
+printf("    %2d %4d-%4d %4d-%4d %4d %3d %3d %3d %3d %3d %3d   %s\n",i,tr->c1,tr->c2,tr->r1,tr->r2,tr->rowbase,tr->r2-tr->r1+1,tr->lcheight,tr->h5050,tr->capheight,tr->gap,tr->gapblank,tt[tr->type]);
+}
+#endif
 
     if (textrows->n>1)
         region->bbox.type = REGION_TYPE_MULTILINE;
@@ -1508,7 +1641,7 @@ printf("DD\n");
     for (i=0;i<textrows->n;i++)
         textrow_determine_type(region,k2settings,i);
 
-#if (WILLUSDEBUGX & 0x2)
+#if (WILLUSDEBUGX & 0x102)
     {
     k2printf("FINAL PASS IN FIND TEXT ROWS:\n");
     int i;
@@ -2041,6 +2174,9 @@ printf("@get_word_gap_threshold, ngaps=%d, dr=%d\n",ngaps,dr);
     ** where dr = height of lowercase 'o' in pixels.
     */
     expected=(double)row_width/(6*dr)-1.;
+#if (WILLUSDEBUGX & 0x01000)
+printf("    expected=%g\n",expected);
+#endif
     /*
     ** Text rows longer than display width either need to be wrapped or shrunk
     */
@@ -2102,11 +2238,22 @@ printf("    gw[%2d]=(%4d,%2d); dgap[%2d]=%2d, gapcount[%2d]=%4d\n",i,copt[i],gw[
 #if (WILLUSDEBUGX & 0x1000)
 printf("i=%d/%d, dgap=%d, gapcount=%d\n",i,ngaps-1,dgap[i],gapcount[i]);
 #endif
+        /* Are we down to pretty small gap changes? If so, quit. */
         if ((double)dgap[i]/dr < 0.1)
+            break;
+        /*
+        ** New in v2.53--quit if this gap change is much smaller than the previous ones.
+        ** Fixes problem with one of the regression test cases.
+        ** Was the last gap change significantly bigger than this one?  If so, quit.
+        */
+        if (i>0 && (double)(dgap[i-1]-dgap[i])/dr > 0.35)
             break;
         if (i>0 && (double)gw[gapcount[i]]/gw[gapcount[i-1]] > 0.6)
             continue;
         pos = (double)gapcount[i]/expected;
+#if (WILLUSDEBUGX & 0x1000)
+printf("    pos[%d] = %g\n",i,pos);
+#endif
         if (bestpos<0. || fabs(pos-1.0) < fabs(bestpos-1.0))
             {
             bestpos=pos;
@@ -2114,7 +2261,7 @@ printf("i=%d/%d, dgap=%d, gapcount=%d\n",i,ngaps-1,dgap[i],gapcount[i]);
             }
         }
 #if (WILLUSDEBUGX & 0x1000)
-printf("Done loop checkinf for best-centered large gap. ibest=%d\n",ibest);
+printf("Done loop checking for best-centered large gap. ibest=%d\n",ibest);
 #endif
     if (ibest >= 0)
         {

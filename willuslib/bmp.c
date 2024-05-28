@@ -1,11 +1,11 @@
 /*
-** BMP.C        For WILLUSLIB, set of routines to deal with 8-bit and 24-bit
+** bmp.c        For WILLUSLIB, set of routines to deal with 8-bit and 24-bit
 **              bitmap structures, including functions that read and
 **              write BMP files, PNG files, and JPEG files.
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2023  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -149,6 +149,8 @@ static double bmp_row_by_row_stdev(WILLUSBITMAP *bmp,int ccount,int whitethresh,
                                    double theta_radians);
 static int pixval_dither(int pv,int n,int maxsrc,int maxdst,int x0,int y0);
 static int dither_rec(int bits,int x0,int y0);
+static int pcl_get_resolution(char *pclbuf,int n,int *w,int *h);
+static int pcl_next_raster_row(char *pclbuf,int n,int *index);
 
 
 double bmp_get_dpi(void)
@@ -603,13 +605,86 @@ int bmp_read_png(WILLUSBITMAP *bmp,char *filename,FILE *out)
     return(status);
     }
 
-static unsigned char *pngdata;
-static int pngindex;
+
+#define MAXPNGTHREADS 16
+static png_structp g_png_ptr[MAXPNGTHREADS];
+static unsigned char *g_pngdata[MAXPNGTHREADS];
+static int g_pngindex[MAXPNGTHREADS];
+static void png_thread_new(png_structp png_ptr,unsigned char *data,int idx_start);
+static void png_thread_close(png_structp png_ptr);
+static void bmp_read_png_from_memory(png_structp png_ptr,void *buf,int nbytes);
+static int png_thread_index(png_structp png_ptr);
+static void png_threads_check_init(void);
+
+
+static void png_threads_check_init(void)
+
+    {
+    static int png_inited=0;
+    int i;
+
+    if (png_inited)
+        return;
+    for (i=0;i<MAXPNGTHREADS;i++)
+        g_png_ptr[i]=NULL;
+    png_inited=1;
+    }
+
+
+static void png_thread_new(png_structp png_ptr,unsigned char *data,int idx_start)
+
+    {
+    int i;
+
+    i=png_thread_index(NULL);
+    g_png_ptr[i]=png_ptr;
+    g_pngdata[i]=data;
+    g_pngindex[i]=idx_start;
+    }
+
+
+static void png_thread_close(png_structp png_ptr)
+
+    {
+    int i;
+
+    i=png_thread_index(png_ptr);
+    g_png_ptr[i]=NULL;
+    }
+
+
 static void bmp_read_png_from_memory(png_structp png_ptr,void *buf,int nbytes)
 
     {
-    memcpy(buf,&pngdata[pngindex],nbytes);
-    pngindex+=nbytes;
+    int i;
+
+    i=png_thread_index(png_ptr);
+/*
+if (i>0)
+aprintf(ANSI_YELLOW "bmp_read_png:  index=%d" ANSI_NORMAL "\n",i);
+else
+printf("bmp_read_png:  index=%d\n",i);
+*/
+    memcpy(buf,&g_pngdata[i][g_pngindex[i]],nbytes);
+    g_pngindex[i]+=nbytes;
+    }
+
+
+static int png_thread_index(png_structp png_ptr)
+
+    {
+    int i;
+
+    png_threads_check_init();
+    for (i=0;i<MAXPNGTHREADS;i++)
+        if (g_png_ptr[i]==png_ptr)
+            break;
+    if (i>=MAXPNGTHREADS)
+        {
+        printf("Out of PNG read threads!\n");
+        exit(10);
+        }
+    return(i);
     }
 
 
@@ -641,9 +716,10 @@ int bmp_read_png_stream(WILLUSBITMAP *bmp,void *io,int size,FILE *out)
         }
     else
         {
-        pngindex=8;
-        pngdata=(unsigned char *)io;
-        if (png_sig_cmp(pngdata,0,8))
+        unsigned char *ptmp;
+
+        ptmp=(unsigned char *)io;
+        if (png_sig_cmp(ptmp,0,8))
             {
             nprintf(out,"%s",notpng);
             return(-2);
@@ -655,6 +731,8 @@ int bmp_read_png_stream(WILLUSBITMAP *bmp,void *io,int size,FILE *out)
         nprintf(out,"Cannot create PNG structure.\n");
         return(-3);
         }
+    if (size!=0)
+        png_thread_new(png_ptr,(unsigned char *)io,8);
     info_ptr = png_create_info_struct(png_ptr);
     if (info_ptr==NULL)
         {
@@ -783,12 +861,21 @@ int bmp_read_png_stream(WILLUSBITMAP *bmp,void *io,int size,FILE *out)
             gotpal=1;
             }
         }
+    if (size!=0)
+        png_thread_close(png_ptr);
     png_destroy_read_struct(&png_ptr,&info_ptr,&end_info);
     return(0);
     }
 
 
 int bmp_write_png(WILLUSBITMAP *bmp,char *filename,FILE *out)
+
+    {
+    return(bmp_write_png_ex(bmp,-1,filename,out));
+    }
+
+    
+int bmp_write_png_ex(WILLUSBITMAP *bmp,int trns_rgb,char *filename,FILE *out)
 
     {
     FILE    *f;
@@ -801,13 +888,20 @@ int bmp_write_png(WILLUSBITMAP *bmp,char *filename,FILE *out)
             fprintf(out,"Cannot open file %s for PNG output.\n",filename);
         return(-1);
         }
-    status = bmp_write_png_stream(bmp,f,out);
+    status = bmp_write_png_stream_ex(bmp,trns_rgb,f,out);
     fclose(f);
     return(status);
     }
 
 
 int bmp_write_png_stream(WILLUSBITMAP *bmp,FILE *f,FILE *out)
+
+    {
+    return(bmp_write_png_stream_ex(bmp,-1,f,out));
+    }
+   
+ 
+int bmp_write_png_stream_ex(WILLUSBITMAP *bmp,int trns_rgb,FILE *f,FILE *out)
 
     {
     png_structp png_ptr;
@@ -862,6 +956,14 @@ int bmp_write_png_stream(WILLUSBITMAP *bmp,FILE *f,FILE *out)
             pngpal[i].blue  = bmp->blue[i];
             }
         png_set_PLTE(png_ptr,info_ptr,pngpal,256);
+        }
+    if (bmp->bpp==24 && trns_rgb>=0)
+        {
+        png_color_16 tc;
+        tc.red=(trns_rgb>>16)&0xff;
+        tc.green=(trns_rgb>>8)&0xff;
+        tc.blue=trns_rgb&0xff;
+        png_set_tRNS(png_ptr,info_ptr,NULL,1,&tc);
         }
     png_set_pHYs(png_ptr,info_ptr,(int)(bmp_dpi/.0254+.5),(int)(bmp_dpi/.0254+.5),
                  PNG_RESOLUTION_METER);
@@ -2441,11 +2543,18 @@ void bmp_resize(WILLUSBITMAP *bmp,double scalefactor)
     copy=&_copy;
     bmp_init(copy);
     bmp_copy(copy,bmp);
-    bmp->width *= scalefactor;
-    bmp->height *= scalefactor;
+    bmp->width = bmp->width*scalefactor+0.5;
+    bmp->height = bmp->height*scalefactor+0.5;
     bmp_resample(bmp,copy,0.,0.,(double)copy->width,(double)copy->height,
                              bmp->width,bmp->height);
     bmp_free(copy);
+    }
+
+
+void bmp_integer_resample(WILLUSBITMAP *dest,WILLUSBITMAP *src,int n)
+
+    {
+    bmp_integer_resample_ex(dest,src,n,n);
     }
 
 
@@ -2462,14 +2571,14 @@ void bmp_resize(WILLUSBITMAP *bmp,double scalefactor)
 ** passes the bmp_is_grayscale() function.  Otherwise it will be 24-bit.
 **
 */
-void bmp_integer_resample(WILLUSBITMAP *dest,WILLUSBITMAP *src,int n)
+void bmp_integer_resample_ex(WILLUSBITMAP *dest,WILLUSBITMAP *src,int nx,int ny)
 
     {
-    int gray,np,n2,colorplanes,sbw;
+    int gray,colorplanes,sbw;
     int color,row,col;
 
-    dest->width = (src->width+(n-1))/n;
-    dest->height = (src->height+(n-1))/n;
+    dest->width = (src->width+(nx-1))/nx;
+    dest->height = (src->height+(ny-1))/ny;
     if ((gray=bmp_is_grayscale(src))!=0)
         {
         int i;
@@ -2481,8 +2590,6 @@ void bmp_integer_resample(WILLUSBITMAP *dest,WILLUSBITMAP *src,int n)
         dest->bpp=24;
     dest->type=WILLUSBITMAP_TYPE_NATIVE;
     bmp_alloc(dest);
-    np=n*n;
-    n2=np/2;
     colorplanes = gray ? 1 : 3;
     sbw=bmp_bytewidth(src);
     for (color=0;color<colorplanes;color++)
@@ -2495,8 +2602,8 @@ void bmp_integer_resample(WILLUSBITMAP *dest,WILLUSBITMAP *src,int n)
             unsigned char *sp1;
             int r1,r2,dr,dcol;
 
-            r1=drow*n;
-            r2=r1+n;
+            r1=drow*ny;
+            r2=r1+ny;
             if (r2>src->height)
                 r2=src->height;
             sp1=bmp_rowptr_from_top(src,r1)+color;
@@ -2507,19 +2614,17 @@ void bmp_integer_resample(WILLUSBITMAP *dest,WILLUSBITMAP *src,int n)
                 int pixsum,c1,c2,c1x,c2x,dc;
                 unsigned char *sp;
 
-                c1=dcol*n;
-                c2=c1+n;
+                c1=dcol*nx;
+                c2=c1+nx;
                 if (c2>src->width)
                     c2=src->width;
                 dc=c2-c1;
-                np=dc*dr;
-                n2=np/2;
                 c1x=c1*colorplanes;
                 c2x=c2*colorplanes;
-                for (pixsum=n2,row=r1,sp=sp1;row<r2;row++,sp+=sbw)
+                for (pixsum=dc*dr/2,row=r1,sp=sp1;row<r2;row++,sp+=sbw)
                     for (col=c1x;col<c2x;col+=colorplanes)
                         pixsum += sp[col];
-                pixsum /= np;
+                pixsum /= (dc*dr);
                 (*dp)=pixsum;
                 }
             }
@@ -2679,7 +2784,8 @@ int bmp_resample(WILLUSBITMAP *dest,WILLUSBITMAP *src,double x1,double y1,
         dest->bpp=24;
     dest->width=newwidth;
     dest->height=newheight;
-    dest->type=WILLUSBITMAP_TYPE_NATIVE;
+    /* dest->type=WILLUSBITMAP_TYPE_NATIVE; */
+    dest->type=src->type;
     if (!bmp_alloc(dest))
         {
         willus_mem_free(&tempbmp,funcname);
@@ -2724,8 +2830,10 @@ static void bmp_resample_1(double *tempbmp,WILLUSBITMAP *src,double x1,double y1
     dy=ceil(y2)-y0;
     y1-=y0;
     y2-=y0;
+/*
     if (src->type==WILLUSBITMAP_TYPE_WIN32 && color>=0)
         color=2-color;
+*/
     for (row=0;row<dy;row++)
         {
         unsigned char *p;
@@ -3074,7 +3182,6 @@ static double resample_single_fixed_point(int *y,int x1_fp,int x2_fp)
     }
 
 
-        
 
 /*
 ** dest bitmap MUST BE 24-bit
@@ -4795,4 +4902,114 @@ void bmp_extract(WILLUSBITMAP *dst,WILLUSBITMAP *src,int x0,int y0_from_top,int 
     pdest = dst->data;
     for (i=height;i>0;i--,psrc+=sbw,pdest+=dbw)
         memcpy(pdest,psrc,dbw);
+    }
+
+
+/*
+** Read BMP from simple PCL-formatted data
+** Return 0 for okay.
+** Negative for error.
+**
+** Presently works only for the simplest black/white rasters--no encoding.
+** This is enough to correctly convert HP 8722D VNA raster downloads.
+**
+*/
+int bmp_read_pcl(WILLUSBITMAP *bmp,char *pclbuf,int n)
+
+    {
+    int i,r,status;
+
+    
+    /* Set up bitmap params */
+    status=pcl_get_resolution(pclbuf,n,&bmp->width,&bmp->height);
+    if (status<0)
+        return(status);
+    bmp->bpp=8;
+    bmp->type=WILLUSBITMAP_TYPE_WIN32;
+    for (i=0;i<256;i++)
+        bmp->red[i]=bmp->blue[i]=bmp->green[i]=i;
+    /* Allocate */
+    if (!bmp_alloc(bmp))
+        return(-4);
+    /* Fill */
+    i=0;
+    for (r=0;r<bmp->height;r++)
+        {
+        unsigned char *p;
+        int status,j,k;
+
+        p=bmp_rowptr_from_top(bmp,r);
+        status=pcl_next_raster_row(pclbuf,n,&i);
+        if (status<=0)
+            break;
+        if (status*8!=bmp->width)
+            return(-1);
+        for (i++,k=0;k<status;i++,k++)
+            for (j=128;j;j>>=1,p++)
+                if (pclbuf[i]&j)
+                    (*p)=0;
+                else
+                    (*p)=255;
+        i--;
+        }
+    return(0);
+    }
+
+
+static int pcl_get_resolution(char *pclbuf,int n,int *w,int *h)
+
+    {
+    int i,nr,nc;
+
+    i=nc=nr=0;
+    while (1)
+        {
+        int status;
+
+        status=pcl_next_raster_row(pclbuf,n,&i);
+        if (status<=0)
+            break;
+        if (nc==0)
+            nc=status;
+        else if (nc!=status)
+            return(-2);
+        nr++;
+        }
+    if (nr<=0 || nc<=0)
+        return(-3);
+    (*w)=nc*8;
+    (*h)=nr;
+    return(0);
+    }
+
+
+static int pcl_next_raster_row(char *pclbuf,int n,int *index)
+
+    {        
+    int i;
+    static char *mstr="\x1b\x2a\x62";
+    char numbuf[32];
+
+    while (1)
+        {
+        if (memcmp(mstr,&pclbuf[(*index)],3))
+            {
+            (*index)=(*index)+1;
+            if ((*index)>n-3)
+                break;
+            continue;
+            }
+        (*index)=(*index)+3;
+        for (i=0;(*index)<n && pclbuf[(*index)]>='0' && pclbuf[(*index)]<='9' && i<30;)
+            {
+            numbuf[i++]=pclbuf[(*index)];
+            (*index)=(*index)+1;
+            }
+        numbuf[i]='\0';
+        if ((*index)>=n || i<=0)
+            break;
+        if (is_an_integer(numbuf))
+            return(atoi(numbuf));
+        }
+    return(-1);
     }

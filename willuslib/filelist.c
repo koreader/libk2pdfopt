@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2015  http://willus.com
+** Copyright (C) 2022  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -42,7 +42,7 @@ static void filelist_conditionally_add_entry(FILELIST *fl,FLENTRY *entry,
                                        int *index,int *count);
 static void filelist_conditionally_add_file(FILELIST *fl,wfile *wf,
                                        char *include_only[],char *exclude[],
-                                       int *index,int *count);
+                                       int *index,int *count,int is_symlink);
 static int parse_exline(char *buf,double *size,int *month,int *day,int *year,
                         int *hour,int *minute,int *second,int *attr,
                         char *filename,int dirstoo);
@@ -895,6 +895,51 @@ void filelist_remove_fast(FILELIST *fl,char *pattern)
     }
 
 
+void filelist_chdir_fast(FILELIST *fl,char *folder0)
+
+    {
+    int     i,j,len,len2;
+    char folder[MAXFILENAMELEN];
+
+    strncpy(fl->dir,folder0,MAXFILENAMELEN-1);
+    strncpy(folder,folder0,MAXFILENAMELEN-1);
+    len=strlen(folder);
+#ifdef WIN32
+    if (folder[len-1]!='\\')
+        strcat(folder,"\\");
+#else
+    if (folder[len-1]!='/')
+        strcat(folder,"/");
+#endif
+    len=strlen(folder);
+    for (i=j=0;i<fl->n;i++)
+        {
+#ifdef WIN32
+        if (strnicmp(fl->entry[i].name,folder,len))
+#else
+        if (strncmp(fl->entry[i].name,folder,len))
+#endif
+            continue;
+        if (i!=j)
+            fl->entry[j]=fl->entry[i];
+        j++;
+        }
+    fl->n=j;
+    /* Shorten the names */
+    for (i=0;i<fl->n;i++)
+        {
+#ifdef WIN32
+        if (strnicmp(fl->entry[i].name,folder,len))
+#else
+        if (strncmp(fl->entry[i].name,folder,len))
+#endif
+            continue;
+        len2=strlen(fl->entry[i].name);
+        memmove(fl->entry[i].name,&fl->entry[i].name[len],len2-len+1);
+        }
+    }
+
+
 /*
 ** Loses track of some of the file name space by not tracking it.
 */
@@ -977,7 +1022,7 @@ int filelist_fill_from_disk_1(FILELIST *fl,char *filespec,
     while (is_wild(dir))
         {
         int i,l;
-        char buf[MAXFILENAMELEN];
+        char buf[MAXFILENAMELEN+32];
 
         l=strlen(dir);
         if (dir[l-1]==SLASH)
@@ -1017,7 +1062,7 @@ int filelist_create_zipfile(FILELIST *fl,char *zipfile,FILE *out)
     char zipdir[512];
     char curdir[512];
     char tmpfile[512];
-    char cmd[1024];
+    char cmd[1064];
     FILE *f;
     int i;
 
@@ -1131,6 +1176,9 @@ static int filelist_disk_fill(FILELIST *fl,int index,
 printf("fdf: index=%d, dirname='%s', io[0]='%s', rec=%d, dt=%d\n",
 index,dirname,include_only[0],recursive,dirstoo);
 */
+/*
+printf("fdf(%s)\n",dirname);
+*/
     is_archive = (recursive>1 && wfile_is_archive(dirname));
     if (is_archive)
         {
@@ -1139,22 +1187,25 @@ index,dirname,include_only[0],recursive,dirstoo);
         wfile_unique_part(dir,fl->dir);
         return(filelist_recursive_archive_add(fl,index,dir,dirname,include_only,exclude,recursive,dirstoo));
         }
-    if (recursive || include_only[0]=='\0' || include_only[1]!='\0')
+    if (recursive || include_only[0][0]=='\0' || include_only[1][0]!='\0')
         wfile_fullname(wildspec,dirname,"*");
     else
         wfile_fullname(wildspec,dirname,include_only[0]);
     i=index;
     count=0;
+/*
+printf("    Reg files...\n");
+*/
     for (s=wfile_findfirst(wildspec,&wf);s;s=wfile_findnext(&wf))
         {
-        int fstatus,is_archive,symlink;
-
+        int is_archive,symlink;
         if (!strcmp(wf.basename,".") || !strcmp(wf.basename,".."))
-            continue;
-        fstatus=wfile_status(wf.fullname);
+            continue
+        /* WARNING: wfile_is_symlink() can be a slow call on a network drive! */;
+        /* fstatus=wfile_status(wf.fullname); */ /* 1-24-18--remove this call to go faster */
         is_archive=wfile_is_archive(wf.fullname);
         symlink=(wf.attr&WFILE_SYMLINK);
-        if (fstatus==2 && !symlink && (dirstoo!=1 || recursive))
+        if ((wf.attr&WFILE_DIR) && !symlink && (dirstoo!=1 || recursive))
             continue;
         /* If archive file and we want to look into archives, then skip it. */
         if (is_archive && recursive>1)
@@ -1164,23 +1215,36 @@ index,dirname,include_only[0],recursive,dirstoo);
             continue;
 */
         /* Regular file includes sym link to regular file or broken symlink */
-        if (fstatus!=2 && !wfile_is_regular_file(wf.fullname)
+        if (!(wf.attr&WFILE_DIR) && !wfile_is_regular_file(wf.fullname))
+/* Removed 1-24-18 */
+/*
               && (fstatus!=0 || !symlink))
+*/
             continue;
-        filelist_conditionally_add_file(fl,&wf,include_only,exclude,&i,&count);
+        filelist_conditionally_add_file(fl,&wf,include_only,exclude,&i,&count,
+                                        wf.attr&WFILE_SYMLINK);
         }
     wfile_findclose(&wf);
     if (!recursive)
         return(count);
+/*
+printf("    Dir files...\n");
+*/
     for (s=wfile_findfirst(wildspec,&wf);s;s=wfile_findnext(&wf))
         {
         int     n,archive;
-
+/*
+printf("        %s\n",wf.fullname);
+*/
         if (!strcmp(wf.basename,".") || !strcmp(wf.basename,".."))
             continue;
 
         archive = (recursive>1 && wfile_is_archive(wf.fullname));
+        /* 1-24-18 -- don't call wfile_status */
+        if (!(wf.attr&WFILE_DIR) && !archive)
+/*
         if (wfile_status(wf.fullname)!=2 && !archive)
+*/
             continue;
         /* Do not recurse symbolic links to dirs */
         if (wf.attr & WFILE_SYMLINK)
@@ -1205,11 +1269,11 @@ index,dirname,include_only[0],recursive,dirstoo);
                             || (dirstoo==3 && dir_truly_empty(wf.fullname))))
             {
             filelist_conditionally_add_file(fl,&wf,include_only,exclude,
-                                               &i,&count);
+                                               &i,&count,wf.attr&WFILE_SYMLINK);
             continue;
             }
         if (n>0 && dirstoo==1)
-            filelist_conditionally_add_file(fl,&wf,NULL,NULL,&i,&count);
+            filelist_conditionally_add_file(fl,&wf,NULL,NULL,&i,&count,wf.attr&WFILE_SYMLINK);
         i+=n;
         count+=n;
         }
@@ -1407,7 +1471,7 @@ static void filelist_conditionally_add_entry(FILELIST *fl,FLENTRY *entry,
 
 static void filelist_conditionally_add_file(FILELIST *fl,wfile *wf,
                                        char *include_only[],char *exclude[],
-                                       int *index,int *count)
+                                       int *index,int *count,int is_symlink)
 
     {
     char unique[MAXFILENAMELEN];
@@ -1435,7 +1499,12 @@ static void filelist_conditionally_add_file(FILELIST *fl,wfile *wf,
             entry.size = 0;
             }
 #endif
-        if (wfile_is_symlink(wf->fullname))
+        /* WARNING: wfile_is_symlink() can be a slow call on a network drive! */
+        /*
+        if (is_symlink<0)
+            is_symlink=wfile_is_symlink(wf->fullname); 
+        */
+        if (is_symlink)
             entry.attr |= WFILE_SYMLINK;
         filelist_add_entry(fl,&entry);
         (*index) = (*index) + 1;
@@ -2075,15 +2144,24 @@ static int nexttoken(char *dst,char *src,int *index)
 int filelist_add_entry(FILELIST *fl,FLENTRY *entry)
 
     {
-    int len;
+    return(filelist_add_entry_ex(fl,entry,NULL));
+    }
 
-    len=strlen(entry->name);
+
+int filelist_add_entry_ex(FILELIST *fl,FLENTRY *entry,char *namebuf)
+
+    {
+    int len;
+    char *name;
+
+    name=(namebuf==NULL ? entry->name : namebuf);
+    len=strlen(name);
     if (fl->databuf==NULL || fl->entry==NULL || fl->n+1>fl->nmax
                   || fl->nc+len+1 > fl->ncmax)
         filelist_realloc(fl,len+1);
     fl->entry[fl->n] = (*entry);
     fl->entry[fl->n].name = &fl->databuf[fl->nc];
-    strcpy(fl->entry[fl->n].name,entry->name);
+    strcpy(fl->entry[fl->n].name,name);
     fl->nc += len+1;
     fl->n++;
     fl->sorted=0;
@@ -2252,81 +2330,169 @@ void filelist_new_entry_name(FILELIST *fl,int index,char *newname)
     delta = newlen-oldlen;
     fl->nc += delta;
     strcpy(p,newname);
+    /*
+    ** This loop can slow things down a lot for doing a lot of these
+    ** calls on a large list.  If you have to do that, it's better to
+    ** just start a new filelist structure and copy the new entries and
+    ** names into it. -- 25 May 2021
+    */
     for (i=0;i<fl->n;i++)
         if (fl->entry[i].name > p)
             fl->entry[i].name += delta;
     }
 
 
+/*
+** 2-24-22:  Works with sizes exceeding 2^31 bytes now
+*/
 int filelist_write_to_file(FILELIST *fl,char *filename)
 
     {
-    FILE *f;
-    int i;
+    WZFILE *f;
+    size_t i,bufsize;
 
-    f=wfile_fopen_utf8(filename,"wb");
+    f=wzopen(filename,"wb");
     if (f==NULL)
         return(-1);
-    if (fwrite(fl,1,sizeof(FILELIST),f)<sizeof(FILELIST))
+    if (wzwrite(f,fl,sizeof(FILELIST))<sizeof(FILELIST))
         {
-        fclose(f);
+        wzclose(f);
         return(-2);
         }
     for (i=0;i<fl->n;i++)
+        {
         fl->entry[i].name = (char *)(fl->entry[i].name - fl->databuf);
-    if (fwrite(fl->entry,sizeof(FLENTRY),fl->n,f)<fl->n)
-        {
-        fclose(f);
-        return(-3);
-        }
-    for (i=0;i<fl->n;i++)
+        if (wzwrite(f,&fl->entry[i],sizeof(FLENTRY))<sizeof(FLENTRY))
+            {
+            wzclose(f);
+            return(-3);
+            }
         fl->entry[i].name = (char *)(fl->databuf + (size_t)fl->entry[i].name);
-    if (fwrite(fl->databuf,1,fl->bytes_allocated,f)<fl->bytes_allocated)
-        {
-        fclose(f);
-        return(-4);
         }
-    if (fclose(f))
+    bufsize=100*1024*1024; /* 100 MB at a time */
+    for (i=0;i<fl->bytes_allocated;)
+        {
+        size_t nb;
+
+        nb = fl->bytes_allocated-i > bufsize ? bufsize : fl->bytes_allocated-i;
+        if (wzwrite(f,&fl->databuf[i],(int)nb)<(int)nb)
+            {
+            wzclose(f);
+            return(-4);
+            }
+        i+=nb;
+        }
+    if (wzclose(f))
         return(-5);
     return(0);
     }
 
 
+/*
+** Old version--does not work with sizes > 2^31 bytes
+*/
+/*
+int filelist_write_to_file(FILELIST *fl,char *filename)
+
+    {
+    WZFILE *f;
+    int i;
+
+    f=wzopen(filename,"wb");
+    if (f==NULL)
+        return(-1);
+    if (wzwrite(f,fl,sizeof(FILELIST))<sizeof(FILELIST))
+        {
+        wzclose(f);
+        return(-2);
+        }
+    for (i=0;i<fl->n;i++)
+        fl->entry[i].name = (char *)(fl->entry[i].name - fl->databuf);
+    if (wzwrite(f,fl->entry,sizeof(FLENTRY)*fl->n)<sizeof(FLENTRY)*fl->n)
+        {
+        wzclose(f);
+        return(-3);
+        }
+    for (i=0;i<fl->n;i++)
+        fl->entry[i].name = (char *)(fl->databuf + (size_t)fl->entry[i].name);
+    if (wzwrite(f,fl->databuf,fl->bytes_allocated)<fl->bytes_allocated)
+        {
+        wzclose(f);
+        return(-4);
+        }
+    if (wzclose(f))
+        return(-5);
+    return(0);
+    }
+*/
+
+
+/*
+** Should work with buffer sizes exceeding 2^31 bytes now
+*/
 int filelist_read_from_file(FILELIST *fl,char *filename)
 
     {
-    FILE *f;
-    int i;
+    WZFILE *f;
+    size_t i,bufsize;
     static char *funcname="filelist_read_from_file";
 
-    f=wfile_fopen_utf8(filename,"rb");
+    f=wzopen(filename,"rb");
     if (f==NULL)
         return(-1);
-    if (fread(fl,1,sizeof(FILELIST),f)<sizeof(FILELIST))
+    if (wzread(f,fl,sizeof(FILELIST))<sizeof(FILELIST))
         {
-        fclose(f);
+        wzclose(f);
         return(-2);
         }
     fl->entry=NULL;
     fl->databuf=NULL;
     willus_mem_alloc_warn((void **)&fl->entry,sizeof(FLENTRY)*fl->nmax,funcname,10);
     willus_mem_alloc_warn((void **)&fl->databuf,fl->bytes_allocated,funcname,10);
-    if (fread(fl->entry,sizeof(FLENTRY),fl->n,f)<fl->n)
+    if (wzread(f,fl->entry,sizeof(FLENTRY)*fl->n)<sizeof(FLENTRY)*fl->n)
         {
-        fclose(f);
+        wzclose(f);
         return(-3);
         }
     for (i=0;i<fl->n;i++)
         fl->entry[i].name = (char *)(fl->databuf + (size_t)fl->entry[i].name);
-    if (fread(fl->databuf,1,fl->bytes_allocated,f)<fl->bytes_allocated)
+    bufsize=100*1024*1024; /* 100 MB at a time */
+    for (i=0;i<fl->bytes_allocated;)
         {
-        fclose(f);
-        return(-4);
+        size_t nb;
+
+        nb = fl->bytes_allocated-i > bufsize ? bufsize : fl->bytes_allocated-i;
+        if (wzread(f,&fl->databuf[i],(int)nb)<(int)nb)
+            {
+            wzclose(f);
+            return(-4);
+            }
+        i+=nb;
         }
-    if (fclose(f))
+    if (wzclose(f))
         return(-5);
     return(0);
     }
+
+/*
+void filelist_alloc(FILELIST *fl,int entries,int cps)
+
+    {
+    void *vp;
+    char *cp;
+    static char *funcname="filelist_alloc";
+
+    fl->bytes_allocated = (sizeof(FLENTRY)+cps)*entries;
+    willus_mem_alloc_warn(&vp,fl->bytes_allocated,funcname,10);
+    fl->databuf=(char *)vp;
+    cp=&fl->databuf[cps*entries];
+    fl->entry=(FLENTRY *)cp;
+    fl->n=0;
+    fl->nc=0;
+    fl->ncmax=cps*entries;
+    fl->nmax=entries;
+    }
+*/
 
 
 static void filelist_realloc(FILELIST *fl,int len)
@@ -2392,8 +2558,10 @@ static void filelist_realloc(FILELIST *fl,int len)
     delta = fl->databuf - odb;
     for (i=0;i<fl->n;i++)
         fl->entry[i].name += delta;
-// printf("    realloc:  %3d MB, cps=%3d, fl->nc/ncmax=%d/%d, fl->n/nmax=%d/%d\n",
-// fl->bytes_allocated>>20,cps,fl->nc,fl->ncmax,fl->n,fl->nmax);
+/*
+printf("    realloc:  %3d MB, cps=%3d, fl->nc/ncmax=%d/%d, fl->n/nmax=%d/%d\n",
+       (int)(fl->bytes_allocated>>20),(int)cps,(int)fl->nc,(int)fl->ncmax,(int)fl->n,(int)fl->nmax);
+*/
     }
 
 
@@ -2519,4 +2687,145 @@ void filelist_reslash(FILELIST *fl)
     wfile_reslash(fl->dir);
     for (i=0;i<fl->n;i++)
         wfile_reslash(fl->entry[i].name);
+    }
+
+
+/*
+** Fill from unix-style archive (.a) file
+** https://en.wikipedia.org/wiki/Ar_(Unix)#File_format_details
+*/
+int filelist_fill_from_ar(FILELIST *fl,char *arfile)
+
+    {
+    FLENTRY _entry,*entry;
+    FILE *f;
+    static char *funcname="filelist_fill_from_ar";
+    static char *namebuf;
+    int nbna;
+    char filename[256];
+    char buf[256];
+    int i,size,newpos;
+
+    namebuf=NULL;
+    nbna=0;
+    entry=&_entry;
+    entry->name=&filename[0];
+    filelist_clear(fl);
+    size=wfile_size(arfile);
+    if (size<=8)
+        return(-1);
+    f=fopen(arfile,"rb");
+    if (f==NULL)
+        return(-1);
+    if (fread(buf,1,8,f)<8)
+        {
+        fclose(f);
+        return(-2);
+        }
+    buf[8]='\0';
+    if (stricmp(buf,"!<arch>\n"))
+        {
+        fclose(f);
+        return(-3);
+        }
+    fseek(f,56,0);
+    if (fread(buf,1,10,f)<10)
+        {
+        fclose(f);
+        return(-4);
+        }
+    buf[10]='\0';
+    newpos=atoi(buf)+68;
+    while (newpos < size)
+        {
+        time_t t;
+        int slen,valid;
+
+        fseek(f,newpos,0);
+        if (fread(buf,1,16,f)<16)
+            break;
+        valid=0;
+        if (buf[0]=='/' && buf[1]=='/')
+            {
+            fseek(f,26L,1);
+            if (fread(buf,1,16,f)<16)
+                break;
+            buf[16]='\0';
+            clean_line(buf);
+            slen=atoi(buf);
+            fseek(f,2L,1);
+            if (slen+2 > nbna)
+                {
+                if (nbna==0)
+                    willus_mem_alloc_warn((void **)&namebuf,slen+2,funcname,10);
+                else
+                    willus_mem_realloc_robust_warn((void **)&namebuf,slen+2,nbna,funcname,10);
+                nbna=slen+2;
+                }
+            if (fread(namebuf,1,slen,f)<slen)
+                break;
+            namebuf[slen]='/';
+            namebuf[slen+1]='\0';
+            if (fread(buf,1,16,f)<16)
+                break;
+            slen=16;
+            }
+        if (buf[0]=='/')
+            {
+            int index;
+            index=atoi(&buf[1]);
+            if (namebuf!=NULL && strlen(namebuf)>index)
+                {
+                valid=1;
+                xstrncpy(buf,&namebuf[index],255);
+                slen=strlen(buf);
+                }
+            else
+                slen=16;
+            }
+        else
+            slen=16;
+        for (i=0;i<slen && buf[i]!='/';i++);
+        if (buf[i]!='/' || slen<=16 || buf[i+1]=='\0' || buf[i+1]==' ')
+            valid=1;
+        buf[i]='\0';
+        xstrncpy(entry->name,buf,255);
+        if (fread(buf,1,12,f)<12)
+            break;
+        t=(time_t)atoi(buf);
+        entry->date=(*localtime(&t));
+/*
+printf("sizeof(time_t)=%d\n",(int)sizeof(time_t));
+printf("%s:  %d-%d-%04d\n",entry->name,entry->date.tm_mon+1,entry->date.tm_mday,entry->date.tm_year+1900);
+*/
+        fseek(f,20L,1);
+        if (fread(buf,1,10,f)<10)
+            break;
+        buf[10]='\0';
+        clean_line(buf);
+        entry->size=atoi(buf);
+        entry->attr=0;
+/*
+printf("%06X:  0/0%7d %02d-%02d-%04d, %02d:%02d:%02d %s\n",
+newpos,
+(int)entry->size,
+entry->date.tm_mon+1,
+entry->date.tm_mday,
+entry->date.tm_year+1900,
+entry->date.tm_hour,
+entry->date.tm_min,
+entry->date.tm_sec,
+entry->name);
+*/
+        if (valid)
+            filelist_add_entry(fl,entry);
+        slen=(int)entry->size;
+        if (slen&1)
+            slen++;
+        newpos=ftell(f)+2+slen;
+        }
+    fclose(f);
+    if (nbna>0)
+        willus_mem_free((double **)&namebuf,funcname);
+    return(0);
     }

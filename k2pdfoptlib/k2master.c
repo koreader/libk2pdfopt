@@ -1,7 +1,7 @@
 /*
 ** k2master.c    Functions to handle the main (master) k2pdfopt output bitmap.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -20,11 +20,15 @@
 
 #include "k2pdfopt.h"
 
+static void masterinfo_pagequeue_queue_page(MASTERINFO *masterinfo,int rowcount,int srcpageno);
+static int masterinfo_pagequeue_row_start(MASTERINFO *masterinfo);
 static int masterinfo_detecting_orientation(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
                                  WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,
                                  char *rotstr,double rot_deg,double *bormean,int pageno);
 static int calculate_line_gap(BMPREGION *region,MASTERINFO *masterinfo,
                               K2PDFOPT_SETTINGS *k2settings,int single_passed_textline);
+static void masterinfo_pagequeue_pop_queue(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings);
+static void masterinfo_remove_top_rows(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int rows);
 static int masterinfo_pageheight_pixels(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings);
 #ifdef HAVE_MUPDF_LIB
 static void masterinfo_add_cropbox(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
@@ -43,8 +47,10 @@ static void find_word_gaps_using_wrectmaps(WRECTMAPS *wrectmaps,int **pgappos,
 static void find_word_gaps_using_textrow(WILLUSBITMAP *src,K2PDFOPT_SETTINGS *k2settings,
                                          int **pgappos,int **pgapsize,int *png,int whitethresh,
                                          int dpi);
-static int masterinfo_break_point(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int maxsize);
-static int masterinfo_break_point_1(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int maxsize);
+static int masterinfo_break_point(MASTERINFO *masterinfo,int row0,
+                                  K2PDFOPT_SETTINGS *k2settings,int maxsize);
+static int masterinfo_break_point_ignoring_page_break_markers(MASTERINFO *masterinfo,int row0,
+                                    K2PDFOPT_SETTINGS *k2settings,int maxsize);
 static int ocrlayer_bounding_box_inches(MASTERINFO *masterinfo,LINE2D *rect);
 static void k2master_rows_color(WILLUSBITMAP *bmp,MASTERINFO *masterinfo,
                                 K2PDFOPT_SETTINGS *k2settings);
@@ -53,6 +59,7 @@ static void k2master_rows_color(WILLUSBITMAP *bmp,MASTERINFO *masterinfo,
 void masterinfo_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
 
     {
+    static char *funcname="masterinfo_init";
     extern char *k2pdfopt_version;
     int i;
 
@@ -71,6 +78,14 @@ void masterinfo_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
     masterinfo->rcindex=0;
     masterinfo->debugfolder[0]='\0';
     bmp_init(&masterinfo->bmp);
+    /* v2.53 -- Added queueing of OCR and pages to help parallelize OCR */
+    ocrwords_init(&masterinfo->mi_ocrwords);
+    masterinfo->queued_page_info.na=32;
+    masterinfo->queued_page_info.n=0;
+    willus_mem_alloc_warn((void **)&masterinfo->queued_page_info.page,
+                            sizeof(QUEUED_PAGE)*masterinfo->queued_page_info.na,
+                            funcname,10);
+    /* v2.53 end */
     masterinfo->bmp.height=masterinfo->bmp.width=0;
     masterinfo->bmp.bpp=k2settings->dst_color ? 24 : 8;
     for (i=0;i<256;i++)
@@ -109,9 +124,46 @@ void masterinfo_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
     }
 
 
+static void masterinfo_pagequeue_queue_page(MASTERINFO *masterinfo,int rowcount,int srcpageno)
+
+    {
+    static char *funcname="masterinfo_pagequeue_queue_page";
+    QUEUED_PAGE_INFO *qpi;
+
+    qpi=&masterinfo->queued_page_info;
+    if (qpi->n >= qpi->na)
+        {
+        willus_mem_realloc_robust_warn((void **)&qpi->page,
+                            sizeof(QUEUED_PAGE)*2*qpi->na,
+                            sizeof(QUEUED_PAGE)*qpi->na,funcname,10);
+        qpi->na *= 2;
+        }
+    qpi->page[qpi->n].rowcount=rowcount;
+    qpi->page[qpi->n].srcpageno=srcpageno;
+    qpi->n++;
+    }
+
+
+static int masterinfo_pagequeue_row_start(MASTERINFO *masterinfo)
+
+    {
+    QUEUED_PAGE_INFO *qpi;
+    int i,sum;
+
+    qpi=&masterinfo->queued_page_info;
+    if (qpi->n<=0)
+        return(0);
+    for (i=sum=0;i<qpi->n;i++)
+        sum+=qpi->page[i].rowcount;
+    return(sum);
+    }
+
+
 void masterinfo_free(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
 
     {
+    static char *funcname="masterinfo_free";
+
 #ifdef HAVE_MUPDF_LIB
     if (k2settings->use_crop_boxes)
         wpdfboxes_free(&masterinfo->pageinfo.boxes);
@@ -122,14 +174,19 @@ void masterinfo_free(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
     wrectmaps_free(&masterinfo->rectmaps);
 #endif
     wpdfoutline_free(masterinfo->outline);
+    ocrwords_free(&masterinfo->mi_ocrwords);
+    /* Clear page queue */
+    willus_mem_free((double **)&masterinfo->queued_page_info.page,funcname);
+    masterinfo->queued_page_info.n=0;
+    masterinfo->queued_page_info.na=0;
     }
 
 
-void masterinfo_flush(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
+void masterinfo_flush(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int clearbitmap)
 
     {
 #ifndef K2PDFOPT_KINDLEPDFVIEWER
-    masterinfo_publish(masterinfo,k2settings,1);
+    masterinfo_publish(masterinfo,k2settings,clearbitmap ? 2 : 1);
 #endif
     }
 
@@ -168,6 +225,8 @@ printf("masterinfo->landscape=%d\n",masterinfo->landscape);
     else
         masterinfo->landscape_next = -1;
     masterinfo->nextpage=nextpage;
+    /* Record document scale factor so we know how PDF source dims were scaled */
+    masterinfo->document_scale_factor=k2settings->document_scale_factor;
     masterinfo->pageinfo.srcpage = pageno;
     /* v2.32 */
     
@@ -219,11 +278,24 @@ printf("masterinfo->landscape=%d\n",masterinfo->landscape);
         double rot;
         rot=bmp_autostraighten(src,srcgrey,white,k2settings->src_autostraighten,0.1,
                                k2settings->debug,out);
+#ifdef HAVE_K2GUI
+        if (k2gui_active() && fabs(rot)>1e-4)
+            k2printf("\n(Page straightened--rotated cc by %.2f deg.)\n",rot);
+#endif
         if (k2settings->use_crop_boxes)
             masterinfo->pageinfo.srcpage_fine_rot_deg = rot;
         }
+#if (WILLUSDEBUGX & 0x8000) /* Autocrop debug */
+printf("Starting autocrop.\n");
+bmp_write(srcgrey,"ac.png",stdout,100);
+printf("Written to ac.png, %dx%d\n",srcgrey->width,srcgrey->height);
+#endif
     if (k2settings->autocrop)
         bmp_autocrop2(srcgrey,masterinfo->autocrop_margins,(double)k2settings->autocrop/1000.);
+#if (WILLUSDEBUGX & 0x8000) /* Autocrop debug */
+printf("Done autocrop.\n");
+#endif
+#ifdef HAVE_LEPTONICA_LIB
     if (k2settings->dewarp && !k2settings->use_crop_boxes)
         {
         WILLUSBITMAP _dwbmp,*dwbmp;
@@ -261,6 +333,7 @@ printf("masterinfo->landscape=%d\n",masterinfo->landscape);
         if (k2settings->autocrop)
             bmp_autocrop2(srcgrey,masterinfo->autocrop_margins,(double)k2settings->autocrop/1000.);
         }
+#endif /* HAVE_LEPTONICA_LIB */
 #if (WILLUSDEBUGX & 0x20000)
 printf("k2settings->srccropmargins->units[0]=%d\n",k2settings->srccropmargins.units[0]);
 #endif
@@ -423,13 +496,14 @@ void masterinfo_add_bitmap(MASTERINFO *masterinfo,WILLUSBITMAP *src,
 #endif
     int dw,dw2;
     int i,srcbytespp,srcbytewidth,go_full,gap_start;
+    int gapstart_rescale;
     int destwidth,destx0,just,single_passed_textline;
     int dstmar_pixels[4];
 
     if (src->width<=0 || src->height<=0)
         return;
-#if (WILLUSDEBUGX & 32)
-k2printf("@masterinfo_add_bitmap.  dst->bpp=%d, src->bpp=%d, src=%d x %d\n",masterinfo->bmp.bpp,src->bpp,src->width,src->height);
+#if (WILLUSDEBUGX & 0x800020)
+k2printf("@masterinfo_add_bitmap.  dst->bpp=%d, src->bpp=%d, src=%d x %d, dpi=%d\n",masterinfo->bmp.bpp,src->bpp,src->width,src->height,dpi);
 #endif
 /*
 {
@@ -513,6 +587,11 @@ k2printf("    destwidth=%d, src->width=%d\n",destwidth,src->width);
     region.dpi=dpi;
     region.wrectmaps=wrectmaps;
     region.bbox=(*textrow0);
+    /* v2.50--reset bounding box */
+    region.bbox.c1=region.c1;
+    region.bbox.r1=region.r1;
+    region.bbox.c2=region.c2;
+    region.bbox.r2=region.r2;
 #if (WILLUSDEBUGX & 512)
 printf("Add bitmap to master, scanning region for vertical breaks...\n");
 printf("    Region = (%d,%d) - (%d,%d)\n",region.c1,region.r1,region.c2,region.r2);
@@ -534,7 +613,7 @@ textrow_echo(&region.textrows.textrow[0],stdout);
         {
         /* Possible multi-line region */
         single_passed_textline=0;
-        bmpregion_find_textrows(&region,k2settings,0,1,k2settings->join_figure_captions);
+        bmpregion_find_textrows(&region,k2settings,0,1,-1.0,k2settings->join_figure_captions);
         }
 
 #if (WILLUSDEBUGX & 512)
@@ -550,6 +629,11 @@ printf("    Found %d text rows.\n",region.textrows.n);
         textrow_scale(&masterinfo->lastrow,scale,scale,region.bmp->width-1,region.bmp->height-1);
         }
     gap_start = calculate_line_gap(&region,masterinfo,k2settings,single_passed_textline);
+    /* Don't re-scale gap_start later if it's in destination pixels (-bp option)--v2.52 */
+    gapstart_rescale = (masterinfo->mandatory_region_gap!=2);
+#if (WILLUSDEBUGX & 0x800000)
+printf("gap_start=%d, region->dpi=%d, region->width=%d, mandreggap=%d, gapstart_rescale=%d\n",gap_start,(int)region.dpi,region.bmp->width,masterinfo->mandatory_region_gap,gapstart_rescale);
+#endif
     /*
     ** Remember settings for next line
     */
@@ -563,8 +647,8 @@ printf("    Found %d text rows.\n",region.textrows.n);
     masterinfo->mandatory_region_gap = 0;
     masterinfo->page_region_gap_in = -1.;
 
-#if (WILLUSDEBUGX & 512)
-printf("gap_start=%d\n\n",gap_start);
+#if (WILLUSDEBUGX & 0x10000)
+printf("@OCR decision point, dst_ocr='%c'\n",k2settings->dst_ocr);
 #endif
 #ifdef HAVE_OCR_LIB
     if (k2settings->dst_ocr)
@@ -572,7 +656,7 @@ printf("gap_start=%d\n\n",gap_start);
         /* Run OCR on the bitmap */
         words=&_words;
         ocrwords_init(words);
-        k2ocr_ocrwords_fill_in_ex(masterinfo,words,&region,k2settings);
+        k2ocr_ocrwords_add_to_queue(masterinfo,words,&region,k2settings);
 /*
 {
 int i;
@@ -603,18 +687,23 @@ printf("\n");
     if (src1->bpp!=8)
         bmp_free(gray);
 
+#if (WILLUSDEBUGX & 0x800000)
+printf("gap_start (pre-2) = %d, rescale=%d\n",gap_start,gapstart_rescale);
+#endif
     /*
     ** Up to this point, the bitmap may have been scaled at higher resolution
-    ** so that the OCR would be more accurate.  Now that we are done with
-    ** OCR, scale down to the appropriate size to fit onto the master output
-    ** bitmap.
+    ** so that the OCR and/or line break scans would be more accurate.  Now
+    ** that we are done with OCR and line break scans, scale down to the
+    ** appropriate size to fit onto the master output bitmap.
     */
     if (nocr>1)
         {
         tmp=&_tmp;
         bmp_init(tmp);
         bmp_integer_resample(tmp,src1,nocr);
-        gap_start /= nocr;
+        /* If gap_start is in destination pixels already, don't re-scale -- v2.52 */
+        if (gapstart_rescale)
+            gap_start /= nocr;
 #ifdef HAVE_OCR_LIB
         if (k2settings->dst_ocr)
             ocrwords_int_scale(words,nocr);
@@ -623,6 +712,9 @@ printf("\n");
     else
         tmp=src1;
 
+#if (WILLUSDEBUGX & 0x800000)
+printf("gap_start (2) = %d, rescale=%d\n",gap_start,gapstart_rescale);
+#endif
 /*
 k2printf("writing...\n");
 ocrwords_box(words,tmp);
@@ -653,13 +745,24 @@ printf("%3d. '%s'\n",k,words->word[k].text);
 */
         ocrwords_offset(words,dw,masterinfo->rows+gap_start);
 /*
+#if (WILLUSDEBUGX2==3)
+{
+int i;
+printf("Pre add to master.  %d words.\n",words->n);
+for (i=0;i<words->n;i++)
+printf("    words[%2d]='%s' (%d,%d) %dx%d lch=%d bs=%g\n",
+i,words->word[i].text,words->word[i].c,words->word[i].r,words->word[i].bmp->width,words->word[i].bmp->height,(int)words->word[i].lcheight,words->word[i].bmpscale);
+}
+#endif
+*/
+/*
 #if (WILLUSDEBUGX & 0x10000)
 printf("After ocrwords_offset:\n");
 for (k=0;k<words->n;k++)
 printf("%3d. '%s'\n",k,words->word[k].text);
 #endif
 */
-        ocrwords_concatenate(&k2settings->dst_ocrwords,words);
+        ocrwords_concatenate(&masterinfo->mi_ocrwords,words);
 /*
 #if (WILLUSDEBUGX & 0x10000)
 printf("After being added:\n");
@@ -754,7 +857,7 @@ printf("pageheight=%d\n",masterinfo_pageheight_pixels(masterinfo,k2settings));
 #if (WILLUSDEBUGX & 1)
 printf("==> FLUSHING\n");
 #endif
-        masterinfo_flush(masterinfo,k2settings);
+        masterinfo_flush(masterinfo,k2settings,0);
 }
               
     /* Add tmp bitmap to dst */
@@ -785,6 +888,9 @@ bmp_write(tmp,filename,stdout,100);
     /*
     ** Add gap
     */
+#if (WILLUSDEBUGX & 0x800000)
+printf("Applying gap_start=%d before adding tmp bitmap ht %d\n",gap_start,tmp->height);
+#endif
     if (gap_start>0)
         {
         unsigned char *pdst;
@@ -794,7 +900,6 @@ bmp_write(tmp,filename,stdout,100);
         masterinfo->rows += gap_start;
         }
 #if (WILLUSDEBUGX & 32)
-printf("JJ\n");
 printf("tmp=%dx%dx%d, masterinfo->rows=%d, bmp=%dx%dx%d, dw=%d\n",tmp->width,tmp->height,tmp->bpp,masterinfo->rows,masterinfo->bmp.width,masterinfo->bmp.height,masterinfo->bmp.bpp,dw);
 printf("dw=%d, srcbytewidth=%d, dw2=%d\n",dw,srcbytewidth,dw2);
 #endif
@@ -810,10 +915,38 @@ printf("dw=%d, srcbytewidth=%d, dw2=%d\n",dw,srcbytewidth,dw2);
         pdst += srcbytewidth;
         memset(pdst,255,dw2);
         }
-#if (WILLUSDEBUGX & 32)
-printf("KK\n");
+/*
+#if (WILLUSDEBUGX2==3)
+{
+static int count=0;
+int ht;
+char filename[128];
+count++;
+sprintf(filename,"master%03d.png",count);
+ht=masterinfo->bmp.height;
+masterinfo->bmp.height=masterinfo->rows;
+bmp_write(&masterinfo->bmp,filename,stdout,100);
+masterinfo->bmp.height=ht;
+wfile_written_info(filename,stdout);
+}
 #endif
+*/
 #if (WILLUSDEBUGX & 512)
+{
+static int count=0;
+int ht;
+char filename[128];
+count++;
+sprintf(filename,"tmp%03d.png",count);
+bmp_write(tmp,filename,stdout,100);
+wfile_written_info(filename,stdout);
+sprintf(filename,"mst%03d.png",count);
+ht=masterinfo->bmp.height;
+masterinfo->bmp.height=masterinfo->rows;
+if (masterinfo->bmp.height>0)
+bmp_write(&masterinfo->bmp,filename,stdout,100);
+masterinfo->bmp.height=ht;
+wfile_written_info(filename,stdout);
 /*
 ht=masterinfo->bmp.height;
 masterinfo->bmp.height=masterinfo->rows;
@@ -822,7 +955,6 @@ if (masterinfo->bmp.height>0)
 bmp_write(&masterinfo->bmp,filename,stdout,100);
 masterinfo->bmp.height=ht;
 */
-count++;
 }
 #endif
 
@@ -857,7 +989,12 @@ static int calculate_line_gap(BMPREGION *region,MASTERINFO *masterinfo,
     if (n <= 1 && (!single_passed_textline || masterinfo->mandatory_region_gap))
         textrow[0].rowheight = -1.;
     if (masterinfo->page_region_gap_in >= 0.)
+{
         sourcegap_pixels = masterinfo->page_region_gap_in*region->dpi;
+#if (WILLUSDEBUGX & 0x800000)
+printf("calculate_line_gap: Appying page_region_gap of %g in.\n",masterinfo->page_region_gap_in);
+#endif
+}
     else
         sourcegap_pixels = masterinfo->lastrow.gapblank;
     if (sourcegap_pixels < 0)
@@ -900,14 +1037,26 @@ printf("maxgap_pixels=%d\n",maxgap_pixels);
     ** mandatory_region_gap==1 forces a specified gap to be added before this region
     **                    unless there is a special override case.
     **
+    ** mandatory_region_gap==2 forces a specified gap to be added before this region
+    **                    as long as its not the first page due to -bp option. (v2.52)
+    **
     ** mandatory_region_gap==4 means this is the first bitmap being added for the whole
     **                    document, so we don't need to add a gap in that case, either.
     */
     if (k2settings->dst_fit_to_page==-2)
         gap_pixels = 0;
-    else if (masterinfo->mandatory_region_gap==1)
-        gap_pixels= k2settings_gap_override(k2settings) ? 0 
-                                : masterinfo->page_region_gap_in*region->dpi;
+    else if (masterinfo->mandatory_region_gap==1 || masterinfo->mandatory_region_gap==2)
+        {
+        double dpi;
+        if (masterinfo->mandatory_region_gap==2)
+            dpi=k2settings->dst_dpi; /* Destination page dims (-bp option) -- v2.52 */
+        else
+            dpi=region->dpi; /* Source page dims */
+        gap_pixels= k2settings_gap_override(k2settings) ? 0 : masterinfo->page_region_gap_in*dpi;
+#if (WILLUSDEBUGX & 0x800000)
+printf("gap_pixels =%d set to page_region_gap of %g in (dpi=%d).\n",gap_pixels,masterinfo->page_region_gap_in,(int)region->dpi);
+#endif
+        }
     else if (textrow[0].type==REGION_TYPE_FIGURE || lastrow->type==REGION_TYPE_FIGURE)
         {
         /*
@@ -1010,11 +1159,13 @@ printf("Font and line spacing change... assigning source gap (%d).\n",sourcegap_
 
     /*
     ** Do not exceed max user-specified gap between regions.
+    ** If user used -bp option to set the gap (masterinfo->mandatory_region_gap==2)
+    **    then don't apply max gap limit.  (v2.52)
     */
-    if (gap_pixels > maxgap_pixels)
+    if (gap_pixels > maxgap_pixels && masterinfo->mandatory_region_gap!=2)
         {
         gap_pixels = maxgap_pixels;
-#if (WILLUSDEBUGX & 512)
+#if (WILLUSDEBUGX & 0x800000)
 printf("Gap limited to maxgap (%d).\n",maxgap_pixels);
 #endif
         }
@@ -1029,7 +1180,22 @@ printf("lastrow->gap now = %d(r2) - %d(rowbase) = %d\n",region->r2,textrow[n-1].
     }
 
 
-void masterinfo_remove_top_rows(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int rows)
+static void masterinfo_pagequeue_pop_queue(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
+
+    {
+    QUEUED_PAGE_INFO *qpi;
+    int i,rowcount;
+
+    qpi=&masterinfo->queued_page_info;
+    rowcount=qpi->page[0].rowcount;
+    for (i=0;i<qpi->n-1;i++)
+        qpi->page[i]=qpi->page[i+1];
+    qpi->n--;
+    masterinfo_remove_top_rows(masterinfo,k2settings,rowcount);
+    }
+
+
+static void masterinfo_remove_top_rows(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int rows)
 
     {
     int bw,i,j;
@@ -1075,8 +1241,8 @@ void masterinfo_remove_top_rows(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2sett
 #endif
 #ifdef HAVE_OCR_LIB
     /* Move unused OCR words by -rows so they track the master bitmap */
-    if (k2settings->dst_ocr)
-        ocrwords_offset(&k2settings->dst_ocrwords,0,-rows);
+    if (masterinfo->mi_ocrwords.n>0)
+        ocrwords_offset(&masterinfo->mi_ocrwords,0,-rows);
 #endif
     }
 
@@ -1108,26 +1274,107 @@ static int masterinfo_pageheight_pixels(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS
 
 
 /*
-** Publish pages from the master bitmap by finding break points that will
-** fit the device page.
+**
+** Find next number of pixel rows that should be dumped from master bitmap
+** starting at row0.  Returns row count.
+**
+*/
+int masterinfo_queue_next_output_page(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
+                                      int flushall)
+
+    {
+    int row0,rr,maxsize;
+    int rowcount;
+    int dstmar_pixels[4];
+
+/*
+printf("k2pp=%d, published_pages=%d ==> skippage=%d\n",k2settings->preview_page,masterinfo->published_pages,skippage);
+*/
+#if (WILLUSDEBUGX & 0x800000)
+/*
+if (masterinfo->rows>0)
+{
+static int r,count=0;
+char filename[128];
+count++;
+sprintf(filename,"master%03d.png",count);
+r=masterinfo->bmp.height;
+masterinfo->bmp.height=masterinfo->rows;
+bmp_write(&masterinfo->bmp,filename,stdout,100);
+masterinfo->bmp.height=r;
+wfile_written_info(filename,stdout);
+}
+*/
+#endif
+
+    row0=masterinfo_pagequeue_row_start(masterinfo);
+    if (k2settings->debug)
+        k2printf("@masterinfo_get_next_output_breakpoint(page %d)\n",masterinfo->published_pages);
+    if (masterinfo->bmp.width != k2settings->dst_width)
+        {
+        k2printf("\n\n\a" TTEXT_WARN "!! Internal error, masterinfo->bmp.width=%d != dst_width=%d.\n"
+               "Contact author." TTEXT_NORMAL "\n\n",masterinfo->bmp.width,k2settings->dst_width);
+        wsys_enter_to_exit(NULL);
+        exit(10);
+        }
+    /* v1.52: Make sure text wrapping is flushed if we are to publish everything. */
+    if (flushall)
+        wrapbmp_flush(masterinfo,k2settings,0);
+    get_dest_margins(dstmar_pixels,k2settings,(double)k2settings->dst_dpi,masterinfo->bmp.width,
+                     k2settings->dst_height);
+    maxsize=masterinfo_pageheight_pixels(masterinfo,k2settings);
+    rr= flushall ? 0 : maxsize;
+    if (k2settings->verbose)
+        k2printf("row0=%d, rows=%d, maxsize=%d, rr=%d\n",row0,masterinfo->rows,maxsize,rr);
+#if (WILLUSDEBUGX & 0x200)
+printf("@next_output_page: row0=%d, rows=%d, maxsize=%d, rr=%d\n",row0,masterinfo->rows,maxsize,rr);
+#endif
+#if (WILLUSDEBUGX & 64)
+k2printf("start:  row0=%d, mi->rows=%d, rr=%d\n",row0,masterinfo->rows,rr);
+#endif
+    /* Enough pixel rows in dest bitmap?  If so, create an output page */
+    if (masterinfo->rows-row0<=0 || masterinfo->rows-row0<rr)
+        return(0);
+    /* Get a suitable breaking point for the next page */
+    rowcount=masterinfo_break_point(masterinfo,row0,k2settings,maxsize);
+    masterinfo_pagequeue_queue_page(masterinfo,rowcount,masterinfo->pageinfo.srcpage);
+    return(rowcount);
+    }
+
+
+/*
+** Convert the next rowcount pixels from the top of the masterinfo bitmap
+** into an output page stored into bmp.
 **
 ** k2settings->dst_width = masterinfo->bmp.width
 **
 */
-int masterinfo_get_next_output_page(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
-                                    int flushall,WILLUSBITMAP *bmp,double *bmpdpi,
-                                    int *size_reduction,void *ocrwords)
+int masterinfo_pop_next_queued_page(MASTERINFO *masterinfo,
+                                    K2PDFOPT_SETTINGS *k2settings,
+                                    WILLUSBITMAP *bmp,double *bmpdpi,
+                                    int *size_reduction,void *ocrwords,
+                                    int *srcpageno)
 
     {
     /* bmp1 = viewable contents bitmap (smaller than bmp) */
     WILLUSBITMAP *bmp1,_bmp1;
-    int rr,maxsize,r0;
+    int maxsize;
     /* Local DPI, width, height */
     double ldpi;
     int lwidth,lheight,ltotheight;
-    int bp,i,skippage,preview;
+    int i,skippage,preview;
+    int rowcount;
     int dstmar_pixels[4];
 
+#if (WILLUSDEBUGX2==3)
+printf("@masterinfo_pop_next_queued_page()\n");
+printf("MASTERINFO OCRWORDS LIST:\n");
+ocrwords_echo(&masterinfo->mi_ocrwords,stdout,1,0);
+#endif
+    if (masterinfo->queued_page_info.n<=0)
+        return(0);
+    rowcount=masterinfo->queued_page_info.page[0].rowcount;
+    (*srcpageno)=masterinfo->queued_page_info.page[0].srcpageno;
     /*
     ** Set skippage if we are previewing and this is not the preview page.
     ** In this case, we don't need to do excess processing on the page
@@ -1139,6 +1386,23 @@ int masterinfo_get_next_output_page(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2
 /*
 printf("k2pp=%d, published_pages=%d ==> skippage=%d\n",k2settings->preview_page,masterinfo->published_pages,skippage);
 */
+#if (WILLUSDEBUGX & 0x800000)
+/*
+if (masterinfo->rows>0)
+{
+static int r,count=0;
+char filename[128];
+count++;
+sprintf(filename,"master%03d.png",count);
+r=masterinfo->bmp.height;
+masterinfo->bmp.height=masterinfo->rows;
+bmp_write(&masterinfo->bmp,filename,stdout,100);
+masterinfo->bmp.height=r;
+wfile_written_info(filename,stdout);
+}
+*/
+#endif
+
 
     if (k2settings->debug)
         k2printf("@masterinfo_get_next_output_page(page %d)\n",masterinfo->published_pages);
@@ -1149,9 +1413,6 @@ printf("k2pp=%d, published_pages=%d ==> skippage=%d\n",k2settings->preview_page,
         wsys_enter_to_exit(NULL);
         exit(10);
         }
-    /* v1.52: Make sure text wrapping is flushed if we are to publish everything. */
-    if (flushall)
-        wrapbmp_flush(masterinfo,k2settings,0);
     bmp1=&_bmp1;
     bmp_init(bmp1);
     /* dh = viewable height in pixels */
@@ -1159,33 +1420,34 @@ printf("k2pp=%d, published_pages=%d ==> skippage=%d\n",k2settings->preview_page,
     get_dest_margins(dstmar_pixels,k2settings,(double)k2settings->dst_dpi,masterinfo->bmp.width,
                      k2settings->dst_height);
     maxsize=masterinfo_pageheight_pixels(masterinfo,k2settings);
-    r0=dstmar_pixels[1];
-    if (r0+maxsize > k2settings->dst_height)
-        r0=k2settings->dst_height-maxsize;
-    rr= flushall ? 0 : maxsize;
     if (k2settings->verbose)
-        k2printf("rows=%d, maxsize=%d, rr=%d\n",masterinfo->rows,maxsize,rr);
+        k2printf("rows=%d, rowcount=%d, maxsize=%d\n",masterinfo->rows,rowcount,maxsize);
 #if (WILLUSDEBUGX & 0x200)
-printf("@next_output_page: rows=%d, maxsize=%d, rr=%d\n",masterinfo->rows,maxsize,rr);
+printf("@next_output_page: rows=%d, rowcount=%d, maxsize=%d\n",masterinfo->rows,rowcount,maxsize);
 #endif
 #if (WILLUSDEBUGX & 64)
-k2printf("start:  mi->rows=%d, rr=%d\n",masterinfo->rows,rr);
+k2printf("start:  mi->rows=%d, rowcount=%d\n",masterinfo->rows,rowcount);
 #endif
-    /* Enough pixel rows in dest bitmap?  If so, create an output page */
-    if (masterinfo->rows<=0 || masterinfo->rows<rr)
-        return(0);
-
-    /* Get a suitable breaking point for the next page */
-    bp=masterinfo_break_point(masterinfo,k2settings,maxsize);
     if (k2settings->verbose)
-        k2printf("bp: maxsize=%d, bp=%d, r0=%d\n",maxsize,bp,r0);
+        {
+        int r0;
+        r0=dstmar_pixels[1];
+        if (r0+maxsize > k2settings->dst_height)
+            r0=k2settings->dst_height-maxsize;
+        k2printf("rowcount: maxsize=%d, rowcount=%d, r0=%d\n",maxsize,rowcount,r0);
+        }
 #if (WILLUSDEBUGX & (64|0x200))
-k2printf("bp: maxsize=%d, bp=%d, r0=%d\n",maxsize,bp,r0);
+{
+int r0;
+r0=dstmar_pixels[1];
+if (r0+maxsize > k2settings->dst_height)
+r0=k2settings->dst_height-maxsize;
+k2printf("rowcount: maxsize=%d, rowcount=%d, r0=%d\n",maxsize,rowcount,r0);
+}
 #endif
     bmp1->bpp=masterinfo->bmp.bpp;
     for (i=0;i<256;i++)
         bmp1->red[i]=bmp1->green[i]=bmp1->blue[i]=i;
-    // h=bp*k2settings->dst_width/masterinfo->bmp.width;
     /*
     ** k2settings->dst_width = full device width in pixels
     ** k2settings->dst_height = full device height in pixels
@@ -1195,14 +1457,14 @@ k2printf("bp: maxsize=%d, bp=%d, r0=%d\n",maxsize,bp,r0);
     /* If too tall, shrink to fit */
 #if (WILLUSDEBUGX & (64|0x200))
 k2printf("masterinfo->rows=%d\n",masterinfo->rows);
-k2printf("bp=%d, maxsize=%d\n",bp,maxsize);
+k2printf("rowcount=%d, maxsize=%d\n",rowcount,maxsize);
 k2printf("dst_width=%g\n",(double)k2settings->dst_width);
 k2printf("dst_height=%g\n",(double)k2settings->dst_height);
 #endif
-    if (bp>maxsize)
+    if (rowcount>maxsize)
         {
         double devht_in;
-        lheight=bp;
+        lheight=rowcount;
         ltotheight=(int)((double)k2settings->dst_height*lheight/maxsize+.5);
         // lwidth=(int)((double)masterinfo->bmp.width*lheight/maxsize+.5);
         lwidth=(int)((double)ltotheight*k2settings->dst_width/k2settings->dst_height+.5);
@@ -1221,11 +1483,10 @@ k2printf("dst_height=%g\n",(double)k2settings->dst_height);
     /* We're previewing and this isn't the preview page, so don't process further */
     if (skippage)
         {
-        masterinfo_remove_top_rows(masterinfo,k2settings,bp);
-        return(bp);
+        masterinfo_pagequeue_pop_queue(masterinfo,k2settings);
+        return(rowcount);
         }
     get_dest_margins(dstmar_pixels,k2settings,(double)ldpi,lwidth,lheight);
-    r0=dstmar_pixels[1];
     bmp1->width=lwidth;
     bmp1->height=lheight;
 #if (WILLUSDEBUGX & (64|0x200))
@@ -1236,16 +1497,12 @@ k2printf("mi->published_pages=%d\n",masterinfo->published_pages);
 #ifdef HAVE_MUPDF_LIB
     /* Ignore native PDF output if on preview page */
     if (k2settings->use_crop_boxes && !preview)
-        {
-        masterinfo_add_cropbox(masterinfo,k2settings,bmp1,ldpi,bp);
-        masterinfo_remove_top_rows(masterinfo,k2settings,bp);
-        bmp_free(bmp1);
-        }     
+        masterinfo_add_cropbox(masterinfo,k2settings,bmp1,ldpi,rowcount);
 #endif /* HAVE_MUPDF_LIB */
     /* Create list of OCR'd words on this page and move */
     /* up positions of remaining OCR'd words.           */
 #ifdef HAVE_OCR_LIB
-    if (k2settings->dst_ocr)
+    if (masterinfo->mi_ocrwords.n>0)
         {
 /*
         OCRWORDS *ow;
@@ -1254,10 +1511,10 @@ k2printf("mi->published_pages=%d\n",masterinfo->published_pages);
 {
 FILE *f;
 f=fopen("words2.ep","w");
-for (i=0;i<k2settings->dst_ocrwords.n;i++)
+for (i=0;i<masterinfo->mi_ocrwords.n;i++)
 {
 OCRWORD *w;
-w=&k2settings->dst_ocrwords.word[i];
+w=&masterinfo->mi_ocrwords.word[i];
 fprintf(f,"%g %g\n",w->x0,w->y0);
 fprintf(f,"%g %g\n",w->x0+w->w0,w->y0);
 fprintf(f,"%g %g\n",w->x0+w->w0,w->y0+w->h0);
@@ -1267,23 +1524,39 @@ fprintf(f,"//nc\n");
 }
 fclose(f);
 }
-printf("Creating ocrwords list (n=%d, o->n=%d)...\n",k2settings->dst_ocrwords.n,ow->n);
+printf("Creating ocrwords list (n=%d, o->n=%d)...\n",masterinfo->mi_ocrwords.n,ow->n);
 exit(10);
 */
-        for (i=0;i<k2settings->dst_ocrwords.n;i++)
-            if (k2settings->dst_ocrwords.word[i].r 
-                        - k2settings->dst_ocrwords.word[i].maxheight 
-                        + k2settings->dst_ocrwords.word[i].h/2 < bp)
+#if (WILLUSDEBUGX2==3)
+printf("Finding words in master list.\n");
+printf("MASTERINFO LIST:\n");
+ocrwords_echo(&masterinfo->mi_ocrwords,stdout,1,0);
+printf("SELECTED LIST BEFORE:\n");
+ocrwords_echo(ocrwords,stdout,1,0);
+#endif
+        for (i=0;i<masterinfo->mi_ocrwords.n;i++)
+            if (masterinfo->mi_ocrwords.word[i].r 
+                        - masterinfo->mi_ocrwords.word[i].maxheight 
+                        + masterinfo->mi_ocrwords.word[i].h/2 < rowcount)
                 {
                 if (ocrwords!=NULL)
-                    ocrwords_add_word((OCRWORDS *)ocrwords,&k2settings->dst_ocrwords.word[i]);
-                ocrwords_remove_words(&k2settings->dst_ocrwords,i,i);
+                    ocrwords_add_word((OCRWORDS *)ocrwords,&masterinfo->mi_ocrwords.word[i]);
+                ocrwords_remove_words(&masterinfo->mi_ocrwords,i,i);
                 i--;
                 }
         }
+#if (WILLUSDEBUGX2==3)
+printf("SELECTED LIST AFTER:\n");
+ocrwords_echo(ocrwords,stdout,1,0);
+#endif
 #endif
     if (k2settings->use_crop_boxes && !preview)
-        return(bp);
+        {
+        /* v2.53--new.  Don't think this is necessary, but not sure. */
+        masterinfo_pagequeue_pop_queue(masterinfo,k2settings);
+        bmp_free(bmp1);
+        return(rowcount);
+        }
 
     /*
     ** Not using crop boxes from here on, so process output bitmap
@@ -1297,11 +1570,22 @@ exit(10);
     w1=(bmp1->width-masterinfo->bmp.width)/2;
     bw=bmp_bytewidth(&masterinfo->bmp);
     bw1=w1*bpp;
-    for (i=0;i<bp;i++)
+    for (i=0;i<rowcount;i++)
         memcpy(bmp_rowptr_from_top(bmp1,i)+bw1,bmp_rowptr_from_top(&masterinfo->bmp,i),bw);
 #ifdef HAVE_OCR_LIB
     if (k2settings->dst_ocr && ocrwords!=NULL)
+        {
         ocrwords_offset((OCRWORDS *)ocrwords,w1,0);
+#if (WILLUSDEBUGX & 0x10000)
+ocrwords_to_easyplot(ocrwords,"presort.ep",0,NULL);
+#endif
+        /* Sort only if words are not from MuPDF layer or if user forces a sort */
+        if (k2settings->dst_ocr!='m' || k2settings->ocrsort)
+            ocrwords_sort_by_position((OCRWORDS *)ocrwords);
+#if (WILLUSDEBUGX & 0x10000)
+ocrwords_to_easyplot(ocrwords,"postsort.ep",0,NULL);
+#endif
+        }
 #endif
     }
 
@@ -1332,20 +1616,7 @@ exit(10);
 #ifdef HAVE_OCR_LIB
         /* Rotate OCR'd words list */
         if (k2settings->dst_ocr && ocrwords!=NULL)
-            {
-            OCRWORDS *ocw;
-
-            ocw=(OCRWORDS *)ocrwords;
-            for (i=0;i<ocw->n;i++)
-                {
-                int cnew,rnew;
-                ocw->word[i].rot=90;
-                cnew = ocw->word[i].r;
-                rnew = bmp->width-1 - ocw->word[i].c;
-                ocw->word[i].c = cnew;
-                ocw->word[i].r = rnew;
-                }
-            }
+            ocrwords_rot90((OCRWORDS *)ocrwords,bmp->width);
 #endif
         bmp_rotate_right_angle(bmp,90);
         }
@@ -1389,13 +1660,13 @@ exit(10);
         if (k2settings->dst_ocr && ocrwords!=NULL)
             {
             FILE *f;
+            OCRWORDS *ocw;
+
+            ocw=(OCRWORDS *)ocrwords;
             sprintf(basename,"wordlist%05d.txt",filecount+1);
             f=fopen(basename,"w");
             if (f!=NULL)
                 {
-                OCRWORDS *ocw;
-
-                ocw=(OCRWORDS *)ocrwords;
                 for (i=0;i<ocw->n;i++)
                     fprintf(f,"%s\n",ocw->word[i].text);
                 fclose(f);
@@ -1420,11 +1691,11 @@ exit(10);
 #if (WILLUSDEBUGX & 0x200)
 printf("Removing top rows.  Before, rows=%d\n",masterinfo->rows);
 #endif
-    masterinfo_remove_top_rows(masterinfo,k2settings,bp);
+    masterinfo_pagequeue_pop_queue(masterinfo,k2settings);
 #if (WILLUSDEBUGX & 0x200)
 printf("  After, rows=%d\n",masterinfo->rows);
 #endif
-    return(bp);
+    return(rowcount);
     }
 
 
@@ -2037,153 +2308,6 @@ static void find_word_gaps_using_textrow(WILLUSBITMAP *src,K2PDFOPT_SETTINGS *k2
     }
 
 
-#if 0
-/*
-** Find gaps in the master bitmap so that it can be broken into regions
-** which go onto separate pages.
-*/
-static int masterinfo_break_point(MASTERINFO *masterinfo,int maxsize)
-
-    {
-    static char *funcname="break_point";
-    int *rowcount;
-    int fig,fc,figend,cw,bp1,bp2,i,j,goodsize,figure,bp,scanheight,nwc;
-    int bp1f,bp2f;
-    int bp1e,bp2e;
-
-k2printf("@breakpoint, mi->rows=%d, maxsize=%d\n",masterinfo->rows,maxsize);
-k2printf("    fit_to_page=%d\n",(int)masterinfo->fit_to_page);
-{
-static int count=1;
-char filename[MAXFILENAMELEN];
-sprintf(filename,"page%04d.png",count++);
-bmp_write(&masterinfo->bmp,filename,stdout,100);
-}
-    /* masterinfo->fit_to_page==-2 means user specified -f2p -2 which means */
-    /* flush entire contents of master to single page every time.   */
-    if (masterinfo->rows<maxsize || masterinfo->fit_to_page==-2)
-        return(masterinfo->rows);
-
-    /* scanheight tells how far down the master bitmap to scan */
-    if (masterinfo->fit_to_page==-1)
-        scanheight=masterinfo->rows;
-    else if (masterinfo->fit_to_page>0)
-        scanheight=(int)(((1.+masterinfo->fit_to_page/100.)*maxsize)+.5);
-    else
-        scanheight=maxsize;
-    /* If available rows almost exactly fit page, just send the whole thing */
-k2printf("    scanheight=%d, mi->rows=%d, fabs=%g\n",scanheight,masterinfo->rows,
-fabs((double)scanheight/masterinfo->rows-1.));
-    if (masterinfo->fit_to_page==0 && (abs(scanheight-masterinfo->rows)<=1
-             || fabs((double)scanheight/masterinfo->rows-1.)<.002))
-        return(masterinfo->rows);
-    if (scanheight > masterinfo->rows)
-        scanheight=masterinfo->rows;
-    goodsize=masterinfo->bmp.width/100;
-    figure=masterinfo->bmp.width/10;
-    willus_dmem_alloc_warn(29,(void **)&rowcount,masterinfo->rows*sizeof(int),funcname,10);
-    for (j=0;j<masterinfo->rows;j++)
-        {
-        unsigned char *p;
-        p=bmp_rowptr_from_top(&masterinfo->bmp,j);
-        rowcount[j]=0;
-        if (masterinfo->bmp.bpp==24)
-            {
-            for (i=0;i<masterinfo->bmp.width;i++,p+=3)
-                if (GRAYLEVEL(p[0],p[1],p[2])<masterinfo->bgcolor)
-                    rowcount[j]++;
-            }
-        else
-            {
-            for (i=0;i<masterinfo->bmp.width;i++,p++)
-                if (p[0]<masterinfo->bgcolor)
-                    rowcount[j]++;
-            }
-        }
-    /* cw = consecutive all-white rows */
-    /* fc = consecutive non-all-white rows */
-    bp1f=bp2f=0; /* bp1f,bp2f = max break points that fit within maxsize */
-    bp1e=bp2e=0; /* bp1e,bp2e = min break points that exceed maxsize */
-    for (figend=fc=fig=cw=i=bp=bp1=bp2=nwc=0;i<scanheight;i++)
-        {
-        if (rowcount[i]==0)
-            {
-if (cw==0)
-k2printf("%d black\n",fc);
-            cw++;
-            if (fc>figure)
-                {
-                fig=i-fc;
-                figend=i;
-                }
-            fc=0;
-            if (fig && i-figend > fc/2)
-                fig=0;
-            if (fig)
-                continue;
-            if (nwc==0)
-                continue;
-            bp1=i-cw/2;
-            if (bp1<=maxsize)
-                bp1f=bp1;
-            if (bp1>maxsize && bp1e==0)
-                bp1e=bp1;
-            if (cw>=goodsize)
-                {
-                bp2=i-cw/2;
-                if (bp2<=maxsize)
-                    bp2f=bp2;
-                if (bp2>maxsize && bp2e==0)
-                    bp2e=bp2;
-                }
-            }
-        else
-            {
-if (fc==0)
-k2printf("%d white\n",cw);
-            cw=0;
-            nwc++;
-            fc++;
-            }
-        }
-{
-static int count=0;
-FILE *out;
-count++;
-k2printf("rows=%d, gs=%d, scanheight=%d, bp1=%d, bp2=%d\n",masterinfo->rows,goodsize,scanheight,bp1,bp2);
-k2printf("     bp1f=%d, bp2f=%d, bp1e=%d, bp2e=%d\n",bp1f,bp2f,bp1e,bp2e);
-//bmp_write(&masterinfo->bmp,"master.png",stdout,100);
-//out=fopen("rc.dat","w");
-//for (i=0;i<scanheight;i++)
-//fprintf(out,"%d\n",rowcount[i]);
-//fclose(out);
-// if (count==2)
-// exit(10);
-}
-    willus_dmem_free(29,(double **)&rowcount,funcname);
-    if (masterinfo->fit_to_page==0)
-        {
-        if (bp2 > maxsize*.8)
-            return(bp2);
-        if (bp1 < maxsize*.25)
-            bp1=scanheight;
-        return(bp1);
-        }
-    if (bp1f==0 && bp1e==0)
-        return(scanheight);
-    if (bp2f > 0)
-        return((bp1f>0 && bp2f < maxsize*.8) ? bp1f : bp2f);
-    if (bp1f > 0)
-        return(bp1f);
-    if (masterinfo->fit_to_page<0)
-        return(bp1e);
-    if (bp2e > 0)
-        return(bp2e);
-    return(bp1e);
-    }
-#endif /* 0 */
-
-
 /*
 ** Find gaps in the master bitmap so that it can be broken into regions
 ** which go onto separate pages.
@@ -2197,15 +2321,31 @@ k2printf("     bp1f=%d, bp2f=%d, bp1e=%d, bp2e=%d\n",bp1f,bp2f,bp1e,bp2e);
 ** Re-written to use bmpregion_find_textrows() in v2.10.
 **
 */
-static int masterinfo_break_point(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int maxsize)
+static int masterinfo_break_point(MASTERINFO *masterinfo,int row0,
+                                  K2PDFOPT_SETTINGS *k2settings,int maxsize)
 
     {
     int rowcount;
     int i,nobreak;
 
-    rowcount=masterinfo_break_point_1(masterinfo,k2settings,maxsize);
 #if (WILLUSDEBUGX & 0x800000)
-printf("\n@masterinfo_break_point(rows=%d, recommended break=%d)\n",masterinfo->rows,rowcount);
+aprintf(ANSI_CYAN "\n@masterinfo_break_point(rows=%d)" ANSI_NORMAL "\n",masterinfo->rows);
+{
+static int count=0;
+int h;
+char filename[256];
+count++;
+h=masterinfo->bmp.height;
+masterinfo->bmp.height=masterinfo->rows;
+sprintf(filename,"master%04d.png",count);
+bmp_write(&masterinfo->bmp,filename,stdout,100);
+masterinfo->bmp.height=h;
+wfile_written_info(filename,stdout);
+}
+#endif
+    rowcount=masterinfo_break_point_ignoring_page_break_markers(masterinfo,row0,k2settings,maxsize);
+#if (WILLUSDEBUGX & 0x800000)
+aprintf(ANSI_CYAN "recommended break = %d\n",rowcount);
 #endif
     if (masterinfo->k2pagebreakmarks.n==0)
 {
@@ -2231,12 +2371,12 @@ printf("    Mark Type %d @ row=%d\n",mark->type,mark->row);
         mark=&masterinfo->k2pagebreakmarks.k2pagebreakmark[i];
         if (mark->type<0)
             continue;
-        if (mark->row >= rowcount && nobreak < -990)
+        if (mark->row >= rowcount+row0 && nobreak < -990)
             break;
         if (mark->type==K2PAGEBREAKMARK_TYPE_BREAKPAGE)
             {
             mark->type=-1;
-            rowcount=mark->row;
+            rowcount=mark->row-row0;
 #if (WILLUSDEBUGX & 0x800000)
 printf("    Page break mark forces rowcount = %d\n",rowcount);
 #endif
@@ -2247,9 +2387,9 @@ printf("    Page break mark forces rowcount = %d\n",rowcount);
             {
             if (nobreak > 1)
                 {
-                if (mark->row > rowcount)
+                if (mark->row > rowcount+row0)
                     {
-                    rowcount=nobreak;
+                    rowcount=nobreak-row0;
 #if (WILLUSDEBUGX & 0x800000)
 printf("    No-break span pre-dump forces rowcount = %d\n",nobreak);
 #endif
@@ -2257,12 +2397,12 @@ printf("    No-break span pre-dump forces rowcount = %d\n",nobreak);
                     }
                 }
             nobreak=nobreak > -990 ? -999 : mark->row;
-            if (nobreak < -990 && mark->row > rowcount)
+            if (nobreak < -990 && mark->row > rowcount+row0)
                 {
 #if (WILLUSDEBUGX & 0x800000)
 printf("    No-break span forces rowcount = %d\n",mark->row);
 #endif
-                rowcount=mark->row;
+                rowcount=mark->row-row0;
                 mark->type=-1;
                 break;
                 }
@@ -2278,10 +2418,11 @@ printf("    Final breakpoint = %d\n\n",rowcount);
 /*
 ** Called by masterinfo_break_point -- does not factor in page break markers.
 */
-static int masterinfo_break_point_1(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int maxsize)
+static int masterinfo_break_point_ignoring_page_break_markers(MASTERINFO *masterinfo,
+                           int row0,K2PDFOPT_SETTINGS *k2settings,int maxsize)
 
     {
-    int scanheight,j,r1,r2,r1a,r2a,rowcount;
+    int scanheight,j,r1,r2,r1a,r2a,rowcount,rows;
     BMPREGION region;
     WILLUSBITMAP *bmp,_bmp;
 
@@ -2295,14 +2436,17 @@ sprintf(filename,"page%04d.png",count++);
 bmp_write(&masterinfo->bmp,filename,stdout,100);
 }
 */
+    /* Valid rows in master bitmap */
+    rows = masterinfo->rows - row0;
+
     /* masterinfo->fit_to_page==-2 means user specified -f2p -2 which means */
     /* flush entire contents of master to single page every time.   */
-    if (masterinfo->rows<maxsize || masterinfo->fit_to_page==-2)
-        return(masterinfo->rows);
+    if (rows<maxsize || masterinfo->fit_to_page==-2)
+        return(rows);
 
     /* scanheight tells how far down the master bitmap to scan */
     if (masterinfo->fit_to_page==-1)
-        scanheight=masterinfo->rows;
+        scanheight=rows;
     else if (masterinfo->fit_to_page>0)
         scanheight=(int)(((1.+masterinfo->fit_to_page/100.)*maxsize)+.5);
     else
@@ -2312,11 +2456,11 @@ bmp_write(&masterinfo->bmp,filename,stdout,100);
 k2printf("    scanheight=%d, mi->rows=%d, fabs=%g\n",scanheight,masterinfo->rows,
 fabs((double)scanheight/masterinfo->rows-1.));
 */
-    if (masterinfo->fit_to_page==0 && (abs(scanheight-masterinfo->rows)<=1
-             || fabs((double)scanheight/masterinfo->rows-1.)<.002))
-        return(masterinfo->rows);
-    if (scanheight > masterinfo->rows)
-        scanheight=masterinfo->rows;
+    if (masterinfo->fit_to_page==0 && (abs(scanheight-rows)<=1
+             || fabs((double)scanheight/rows-1.)<.002))
+        return(rows);
+    if (scanheight > rows)
+        scanheight=rows;
 
     /*
     ** Find text rows (and gaps between)
@@ -2327,9 +2471,11 @@ fabs((double)scanheight/masterinfo->rows-1.));
         bmp_copy(bmp,&masterinfo->bmp);
     else
         bmp_convert_to_grayscale_ex(bmp,&masterinfo->bmp);
+    if (row0>0)
+        bmp_eliminate_top_rows(bmp,row0);
     bmp->height=scanheight*1.4;
-    if (bmp->height >  masterinfo->rows)
-        bmp->height = masterinfo->rows;
+    if (bmp->height >  rows)
+        bmp->height = rows;
     bmpregion_init(&region);
     region.bgcolor=masterinfo->bgcolor;
     region.c1=0;
@@ -2339,15 +2485,17 @@ fabs((double)scanheight/masterinfo->rows-1.));
     region.bmp8=bmp;
     region.bmp=bmp;
     region.dpi=k2settings->dst_dpi;
-    bmpregion_find_textrows(&region,k2settings,0,1,k2settings->join_figure_captions);
-/*
+    bmpregion_find_textrows(&region,k2settings,0,1,-1.0,k2settings->join_figure_captions);
+#if (WILLUSDEBUGX & 0x800000)
 {
 static int count=1;
+/*
 char filename[MAXFILENAMELEN];
 printf("regiondpi = %d\n",region.dpi);
 bmpregion_write(&region,"region.png");
 sprintf(filename,"page%04d.png",count);
 bmp_write(bmp,filename,stdout,100);
+*/
 printf("\nmaxsize=%d, scanheight=%d, dst_dpi=%d\n",maxsize,scanheight,k2settings->dst_dpi);
 printf("OUTPUT PAGE %d\n",count++);
 for (j=0;j<region.textrows.n;j++)
@@ -2356,7 +2504,7 @@ printf("%d. ",j+1);
 textrow_echo(&region.textrows.textrow[j],stdout);
 }
 }
-*/
+#endif
     bmp_free(bmp);
     for (r1a=r2a=r1=r2=j=0;j<region.textrows.n;j++)
         {
@@ -2384,6 +2532,7 @@ textrow_echo(&region.textrows.textrow[j],stdout);
         rowcount=scanheight;
     return(rowcount);
     }
+
 
 
 /*
@@ -2588,7 +2737,7 @@ printf("userrect(end)=%g,%g,%g,%g\n",userrect->p[0].x,userrect->p[0].y,userrect-
 static int ocrlayer_bounding_box_inches(MASTERINFO *masterinfo,LINE2D *rect)
 
     {
-#ifdef HAVE_MUPDF_LIB
+#if (defined(HAVE_MUPDF_LIB) || defined(HAVE_DJVU_LIB))
     static WTEXTCHARS *wtcs=NULL;
     static WTEXTCHARS _wtcs;
     static int pageno=-1;
@@ -2610,7 +2759,10 @@ printf("    wtcs->n = %d\n",wtcs->n);
     if (pageno!=masterinfo->pageinfo.srcpage || strcmp(pdffile,masterinfo->srcfilename))
         {
         wtextchars_clear(wtcs); /* v2.32 bug fix--clear out any previous words */
-        wtextchars_fill_from_page_ex(wtcs,masterinfo->srcfilename,masterinfo->pageinfo.srcpage,"",1);
+        k2ocr_wtextchars_fill_from_page(wtcs,masterinfo->srcfilename,masterinfo->pageinfo.srcpage,"",1);
+        /* v2.52 bug fix--scale text chars w/document scale factor */
+        if (masterinfo->document_scale_factor!=1)
+            wtextchars_scale_page(wtcs,masterinfo->document_scale_factor);
         wtextchars_rotate_clockwise(wtcs,360-(int)masterinfo->pageinfo.srcpage_rot_deg);
         pageno=masterinfo->pageinfo.srcpage;
         strncpy(pdffile,masterinfo->srcfilename,511);
@@ -2634,7 +2786,7 @@ printf("    Inches:  (%g,%g) - (%g,%g)\n",tc->x1/72.,tc->y1/72.,tc->x2/72.,tc->y
 #endif
         return(1);
         }
-#endif
+#endif /* HAVE_MUPDF_LIB || HAVE_DJVU_LIB */
     return(0);
     }
 
@@ -2683,7 +2835,11 @@ printf("@k2master_rows_color:  %d x %d\n",srcbmp->width,srcbmp->height);
     /* Parse region into columns */
     pageregions=&_pageregions;
     pageregions_init(pageregions);
+#ifdef HAVE_OCR_LIB
     if (k2settings->ocr_max_columns==2 || k2settings->max_columns>1)
+#else
+    if (k2settings->max_columns>1)
+#endif
         maxlevels = 2;
     else
         maxlevels = 3;
@@ -2697,7 +2853,7 @@ printf("@k2master_rows_color:  %d x %d\n",srcbmp->width,srcbmp->height);
 /*
 printf("region %d:  (%d,%d) - (%d,%d)\n",j,subregion->c1,subregion->r1,subregion->c2,subregion->r2);
 */
-        bmpregion_find_textrows(subregion,k2settings,0,1,0);
+        bmpregion_find_textrows(subregion,k2settings,0,1,-1.0,0);
         nfg=k2settings_ncolors(k2settings->dst_fgcolor);
         nbg=k2settings_ncolors(k2settings->dst_bgcolor);
 /*

@@ -1,7 +1,7 @@
 /*
 ** k2publish.c   Convert and write the master output bitmap to PDF output pages.
 **
-** Copyright (C) 2016  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -21,9 +21,14 @@
 #include "k2pdfopt.h"
 
 static void k2publish_outline_check(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
-                                    int plus_one);
+                                    int srcpageno,int plus_one);
 
 
+/*
+** flushall==1:  Flush the entire master bitmap but wait for OCR if not enough
+**               OCR has been queued up.
+** flushall==2:  Flush the entire master and do NOT wait for OCR (clear the bitmap)
+*/
 void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int flushall)
 
     {
@@ -34,13 +39,22 @@ void masterinfo_publish(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int
 #endif
     WILLUSBITMAP _bmp,*bmp;
     double bmpdpi;
-    int local_output_page_count,size_reduction;
+    int local_output_page_count,size_reduction,nocr,queue_pages_only;
 #ifdef HAVE_OCR_LIB
     OCRWORDS *ocrwords,_ocrwords;
 #else
     void *ocrwords;
 #endif
     int bitmap;
+    int srcpageno;
+
+    /* Queue up all output pages generated from this source page */ 
+    /* This will flush the text re-flow buffer if flushall is NZ */
+    while (masterinfo_queue_next_output_page(masterinfo,k2settings,flushall)>0);
+#if (WILLUSDEBUGX2==3)
+printf("Queued output pages = %d, rowcount=%d\n",masterinfo->queued_page_info.n,masterinfo->rows);
+ocrwords_echo(&masterinfo->mi_ocrwords,stdout,2,1);
+#endif
 
     bitmap=k2settings_output_is_bitmap(k2settings);
 /*
@@ -54,22 +68,58 @@ aprintf(ANSI_GREEN "\n   @masterinfo_publish(flushall=%d)....\n\n" ANSI_NORMAL,f
         }
 #endif
 #ifdef HAVE_OCR_LIB
-    if (k2settings->dst_ocr)
-        {
-        ocrwords=&_ocrwords;
-        ocrwords_init(ocrwords);
-        }
-    else
+    ocrwords=&_ocrwords;
+    ocrwords_init(ocrwords);
+    /*
+    ** If using native PDF OCR layer, nocr will be zero.
+    */
+    nocr=ocrwords_num_queued(&masterinfo->mi_ocrwords);
+    queue_pages_only = (flushall<2 && nocr>0
+                                   && k2ocr_max_threads()>1 
+                                   && nocr < 3*k2ocr_max_threads());
+#if (WILLUSDEBUGX2==3)
+if (!queue_pages_only && flushall<2)
+{
+printf("Changing queue_pages_only to 1.\n");
+queue_pages_only=1;
+}
 #endif
-        ocrwords=NULL;
+    if (nocr>0 && !queue_pages_only)
+        {
+        if (!k2settings->preview_page)
+            k2printf("OCRing %d images ... ",nocr);
+#if (WILLUSDEBUGX2==3)
+{
+static int count=1;
+printf("Calling multithreaded ocr. Count=%d, nwords=%d\n",count,masterinfo->mi_ocrwords.n);
+ocrwords_echo(&masterinfo->mi_ocrwords,stdout,count++,1);
+}
+#endif
+        k2ocr_multithreaded_ocr(&masterinfo->mi_ocrwords,k2settings);
+#if (WILLUSDEBUGX2==3)
+ocrwords_echo(&masterinfo->mi_ocrwords,stdout,1,1);
+#endif
+        nocr=0;
+        }
+#else
+    ocrwords=NULL;
+    nocr=0;
+    queue_page=0;
+#endif
+#if (WILLUSDEBUGX2==3)
+aprintf(ANSI_GREEN "\n   SRC PAGE %d, nocr=%d, queue=%d, threads=%d\n\n" ANSI_NORMAL,masterinfo->pageinfo.srcpage,nocr,queue_pages_only,k2ocr_max_threads());
+#endif
     bmp=&_bmp;
     bmp_init(bmp);
     local_output_page_count=0;
-    while (masterinfo_get_next_output_page(masterinfo,k2settings,flushall,bmp,
-                                           &bmpdpi,&size_reduction,ocrwords)>0)
+   
+    /* Process queued pages if ready */
+    while (!queue_pages_only && masterinfo_pop_next_queued_page(masterinfo,k2settings,
+                                         bmp,&bmpdpi,&size_reduction,ocrwords,&srcpageno)>0)
         {
-#if (WILLUSDEBUGX & 1)
-aprintf(ANSI_GREEN "\n   SRC PAGE %d\n\n" ANSI_NORMAL,masterinfo->pageinfo.srcpage);
+#if (WILLUSDEBUGX2==3)
+printf("Starting loop, rowcount=%d\n",masterinfo->rows);
+ocrwords_echo(ocrwords,stdout,1,1);
 #endif
         local_output_page_count++;
         masterinfo->output_page_count++;
@@ -95,7 +145,7 @@ masterinfo->preview_bitmap->width,masterinfo->preview_bitmap->height,masterinfo-
 #if (WILLUSDEBUGX & 1)
 printf("k2publish_outline_check\n");
 #endif
-        k2publish_outline_check(masterinfo,k2settings,0);
+        k2publish_outline_check(masterinfo,k2settings,srcpageno,0);
 #if (WILLUSDEBUGX & 1)
 printf("Done k2publish_outline_check, usecrop=%d, dst_ocr=%c\n",k2settings->use_crop_boxes,k2settings->dst_ocr);
 #endif
@@ -123,91 +173,43 @@ printf("use_toc=%d, outline=%p, spc=%d, srcpage=%d\n",k2settings->use_toc,master
 #ifdef HAVE_OCR_LIB
         if (k2settings->dst_ocr)
             {
-            int flags_extra;
-
-            flags_extra=0;
-            if (k2settings->dst_ocr=='m')
-                {
-                flags_extra=0x20;
-                /* Don't re-sort--messes up the copy/paste flow */
-                /*
-                if (masterinfo->ocrfilename[0]=='\0')
-                    ocrwords_sort_by_pageno(ocrwords);
-                */
-/*
-** This section no longer needed in v2.20.  The text in the ocrword boxes
-** has already been determined by k2ocr_ocrwords_get_from_ocrlayer() in k2ocr.c
-*/
-/*
-                for (i=0;i<ocrwords->n;i++)
-                    {
-                    static char *funcname="masterinfo_publish";
-
-                    if (ocrwords->word[i].pageno != pageno)
-                        {
-                        wtextchars_clear(wtcs);
-                        wtextchars_fill_from_page(wtcs,masterinfo->srcfilename,
-                                                  ocrwords->word[i].pageno,"");
-                        wtextchars_rotate_clockwise(wtcs,360-(int)ocrwords->word[i].rot0_deg);
-                        pageno=ocrwords->word[i].pageno;
-                        }
-                    willus_mem_free((double **)&ocrwords->word[i].text,funcname);
-                    wtextchars_text_inside(wtcs,&ocrwords->word[i].text,
-                                           ocrwords->word[i].x0,
-                                           ocrwords->word[i].y0,
-                                           ocrwords->word[i].x0+ocrwords->word[i].w0,
-                                           ocrwords->word[i].y0+ocrwords->word[i].h0);
-#if (WILLUSDEBUGX & 0x400)
-printf("MuPDF Word (%5.1f,%5.1f) - (%5.1f,%5.1f) = '%s'\n",
-ocrwords->word[i].x0,
-ocrwords->word[i].y0,
-ocrwords->word[i].x0+ocrwords->word[i].w0,
-ocrwords->word[i].y0+ocrwords->word[i].h0,
-ocrwords->word[i].text);
-#endif
-                    if (ocrwords->word[i].text==NULL || ocrwords->word[i].text[0]=='\0')
-                        {
-                        ocrwords_remove_words(ocrwords,i,i);
-                        i--;
-                        }
-                    }
-*/
-                
-                }
             if (masterinfo->ocrfilename[0]!='\0')
                 ocrwords_to_textfile(ocrwords,masterinfo->ocrfilename,
                                      masterinfo->published_pages>1);
-
             if (!bitmap && !k2settings->use_crop_boxes)
                 {
+                int flags;
+
+                flags = k2settings->dst_ocr_visibility_flags
+                         | ((k2settings->dst_ocr=='m') ? 0x20 : 0);
 #if (WILLUSDEBUGX & 0x400)
 printf("Calling pdffile_add_bitmap_with_ocrwords.\n");
 #endif
-#if (WILLUSDEBUGX & 0x10000)
+#if ((WILLUSDEBUGX & 0x10000) || (WILLUSDEBUGX2==3))
 if (ocrwords!=NULL)
-{
-int k;
-printf("flags_extra= %d\n",flags_extra);
-printf("PAGE OF WORDS\n");
-for (k=0;k<ocrwords->n;k++)
-printf("%3d. '%s'\n",k,ocrwords->word[k].text);
-}
+ocrwords_echo(ocrwords,stdout,1,1);
 #endif
-#if (WILLUSDEBUGX & 1)
+#if (WILLUSDEBUGX2==3)
+{
+static int count=1;
+char filename[256];
 printf("Calling pdffile_add_bitmap_with_ocrwords... (%d x %d, %d dpi)\n",bmp->width,bmp->height,(int)bmpdpi);
 printf("    pdffile=%s\n",masterinfo->outfile.filename);
 printf("    ptr=%p\n",masterinfo->outfile.f);
 printf("    nobjs=%d\n",masterinfo->outfile.n);
 printf("    na=%d\n",masterinfo->outfile.na);
+printf("    dpi=%d\n",(int)bmpdpi);
+printf("    size_red=%g\n",(double)size_reduction);
+printf("    words=%d\n",ocrwords->n);
+sprintf(filename,"out%02d.png",count++);
+bmp_write(bmp,filename,stdout,100);
+wfile_written_info(filename,stdout);
+}
 #endif
                 pdffile_add_bitmap_with_ocrwords(&masterinfo->outfile,bmp,bmpdpi,
                                              k2settings->jpeg_quality,size_reduction,
-                                             ocrwords,k2settings->dst_ocr_visibility_flags
-                                                        | flags_extra);
+                                             ocrwords,flags);
                 }
-#if (WILLUSDEBUGX & 0x400)
-printf("Back from pdffile_add_bitmap_with_ocrwords.\n");
-#endif
 /*
 {
 static int count=1;
@@ -229,30 +231,27 @@ printf("Calling pdffile_add_bitmap... (%d x %d, %d dpi)\n",bmp->width,bmp->heigh
                                k2settings->jpeg_quality,size_reduction);
             }
         }
-#if (WILLUSDEBUGX & 1)
-printf("local_output_page_count=%d\n",local_output_page_count);
-#endif
     /*
     ** v2.16 bug fix:  If no destination output generated, we still have to call outline_check().
     */
-    if (local_output_page_count==0)
-        k2publish_outline_check(masterinfo,k2settings,1);
+    if (!queue_pages_only && local_output_page_count==0)
+        k2publish_outline_check(masterinfo,k2settings,masterinfo->pageinfo.srcpage,1);
     bmp_free(bmp);
     }
 
 
 static void k2publish_outline_check(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,
-                                    int plus_one)
+                                    int srcpageno,int plus_one)
 
     {
     if (k2settings->use_toc!=0 && masterinfo->outline!=NULL
-         && masterinfo->outline_srcpage_completed!=masterinfo->pageinfo.srcpage)
+         && masterinfo->outline_srcpage_completed!=srcpageno)
          {
 /*
 aprintf(ANSI_MAGENTA "\n    --> DEST PAGE %d\n\n" ANSI_NORMAL,masterinfo->published_pages);
 */
-         wpdfoutline_set_dstpage(masterinfo->outline,masterinfo->pageinfo.srcpage,
+         wpdfoutline_set_dstpage(masterinfo->outline,srcpageno,
                                  masterinfo->published_pages+(plus_one?1:0));
-         masterinfo->outline_srcpage_completed = masterinfo->pageinfo.srcpage;
+         masterinfo->outline_srcpage_completed = srcpageno;
          }
     }

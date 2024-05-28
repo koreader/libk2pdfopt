@@ -1,7 +1,7 @@
 /*
 ** k2usage.c    K2pdfopt usage text and handling functions.
 **
-** Copyright (C) 2017  http://willus.com
+** Copyright (C) 2020  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -200,6 +200,9 @@ static char *k2pdfopt_options=
 "                  See also -er.\n"
 "-col <maxcol>     Set max number of columns.  <maxcol> can be 1, 2, or 4.\n"
 "                  Default is -col 2.  -col 1 disables column searching.\n"
+"                  Columns will be displayed left to right unless -r is\n"
+"                  specified, in which case they will be displayed right\n"
+"                  to left.  You can use the -go option to override this.\n"
 "-colorbg (or -colorfg) <hexcolor>|<bitmap>[,<hexcolor>|<bitmap>[,...]]\n"
 "                  Map the color white (background color, for -colorbg) or the\n"
 "                  color black (text color, for -colorfg) to <hexcolor>,\n"
@@ -231,6 +234,12 @@ static char *k2pdfopt_options=
 "                  with different numbers of columns.  Default = 1/72 inch.\n"
 "-d[-]             Turn on [off] dithering for bpc values < 8.  See -bpc.\n"
 "                  Default is on.\n"
+"-ddr[-]           Detect Double Rows.  [Expert mode.]  By default this is on.\n"
+"                  Use -ddr- to turn off.  This option does extra analysis to\n"
+"                  try and separate text rows by looking for double and triple\n"
+"                  rows that may have been missed on the first pass.  This can\n"
+"                  have the unintended consequence of breaking up figures\n"
+"                  across pages.\n"
 "-de <size>        Defect size in points.  For scanned documents, marks\n"
 "                  or defects smaller than this size are ignored when bounding\n"
 "                  rectangular regions.  The period at the end of a sentence is\n"
@@ -250,6 +259,7 @@ static char *k2pdfopt_options=
 "                  your PDF reader says the PDF file is 17 x 22 inches and\n"
 "                  it should actually be 8.5 x 11 inches, use -ds 0.5.  Default\n"
 "                  is 1.0.\n"
+#ifdef HAVE_LEPTONICA_LIB
 "-dw[-] [<fitorder>] De-warp [do not de-warp] pages (uses Leptonica de-warp\n"
 "                  algorithms).  Default is not to de-warp.  Does not work\n"
 "                  for native mode output.  Optional <fitorder> specifies the\n"
@@ -264,6 +274,7 @@ static char *k2pdfopt_options=
 "                  If you want it to work on cropped areas, you should run\n"
 "                  k2pdfopt in two passes--first to create selected crop\n"
 "                  areas (e.g. -mode crop), then to apply dewarping.\n"
+#endif
 /* "-debug [<n>]      Set debug mode to <n> (def = 1).\n" */
 "-ehl <n>          Same as -evl, except erases horizontal lines instead of\n"
 "                  vertical lines.  See -evl.  Default is -ehl 0.\n"
@@ -289,10 +300,10 @@ static char *k2pdfopt_options=
 "                  to the width of the device, but if they are too small or\n"
 "                  too tall, then if <val>=10, for example, they are allowed\n"
 "                  to be 10%% wider (if too small) or narrower (if too tall)\n"
-"                  than the screen in order to fit better.  Use -1 to fit the\n"
-"                  object no matter what.  Use -2 as a special case--all\n"
-"                  \"red-boxed\" regions (see -sm option) are placed one per\n"
-"                  page.\n"
+"                  than the screen in order to fit better.  Use -1 to fit\n"
+"                  a tall object entirely within the device screen no matter\n"
+"                  what.  Use -2 as a special case--all \"red-boxed\" regions\n"
+"                  (see -sm option) are placed one per page.\n"
 "                  Use -f2p -3 to fit as many \"red-boxed\" regions as\n"
 "                  possible on each page without breaking them across pages.\n"
 "                  (see -mode concat).\n"
@@ -318,6 +329,16 @@ static char *k2pdfopt_options=
 "                  makes the page darker and may make the font more readable.\n"
 "                  Default is 0.5.  Has no effect with native-mode output.\n"
 "                  See also -er, -cmax.\n"
+"-go <nn>          Grid order.  Override order of processing for a gridded page\n"
+"                  (see -grid) or for multiple columns.  The following integer\n"
+"                  codes are used:  1=left-to-right, 2=right-to-left,\n"
+"                  3=top-to-bottom, 4=bottom-to-top.  So -go 13 will first go\n"
+"                  left to right, starting at the top row and then working\n"
+"                  towards the bottom row, row by row.  -go 31 will go top to\n"
+"                  bottom starting with the left column and then working to the\n"
+"                  right, column by column.  The default is 31 unless -r is\n"
+"                  specified, in which case it is 32.  For multiple columns,\n"
+"                  only 1 or 2 need be specified.\n"
 "-grid <C>x<R>[x<O>][+]  Grid the source page into <C> columns by <R> rows with\n"
 "                  with <O> percent overlap.  No regard will be made for trying\n"
 "                  to break the page between columns or rows of text.  If a +\n"
@@ -330,7 +351,7 @@ static char *k2pdfopt_options=
 "                  following the grid option with other command options:\n"
 "                  -n -wrap- -f2p -2 -vb -2 -col 1.  For example, if you want\n"
 "                  a column search done on each grid piece, you can put this:\n"
-"                  -grid 2x2 -col 2.  See also -cbox.\n"
+"                  -grid 2x2 -col 2.  See also -go, -cbox.\n"
 #ifdef HAVE_MUPDF_LIB
 "-gs[-][-]         Force use of Ghostscript instead of MuPDF to read PDFs.\n"
 "                  K2pdfopt has built-in PDF translation (via the MuPDF\n"
@@ -350,11 +371,18 @@ static char *k2pdfopt_options=
 "                  See -gtr.  Default = .005.\n"
 */
 "-gtr <inches>     Threshold for detecting gaps between rows (expert mode).\n"
-"                  This sets the maximum total black pixels, in inches, on\n"
-"                  average, that can be in each row of pixels before the gap is\n"
-"                  no longer considered a gap.  A higher value makes it easier\n"
-"                  to detect gaps between rows of text.  Too high of a value\n"
-"                  may inadvertently split figures and other graphics.\n"
+"                  This option is commonly adjusted when lines of text in the\n"
+"                  source file are too close together or slightly overlap and\n"
+"                  don't have a clean gap between them.  It effectively sets\n"
+"                  how clean that gap has to be in order for k2pdfopt to\n"
+"                  consider that there are separate rows of text.  It does\n"
+"                  this by setting the maximum total black pixels, in inches,\n"
+"                  on average, that can be in each row of pixels before the gap\n"
+"                  is no longer considered a gap.  A higher value makes it\n"
+"                  easier to detect gaps between rows of text.  Too high of a\n"
+"                  value may inadvertently split figures and other graphics.\n"
+"                  For documents with nice clean spaces between each row of\n"
+"                  text, this setting should not need to be adjusted.\n"
 "                  Default = 0.006.  See also -rsf.\n"
 "-gtw <inches>     Threshold for detecting word gaps (expert mode).\n"
 "                  See -gtr.  Default = .0015.\n"
@@ -479,47 +507,63 @@ static char *k2pdfopt_options=
 "-mode <mode>      Shortcut for setting multiple options at once which\n"
 "                  determine the basic way in which k2pdfopt will behave.\n"
 "                  Available modes are:\n"
-"                      copy   Same as -n- -wrap- -col 1 -vb -2 -w 1s -h 1s\n"
-"                             -dpi 150 -rt 0 -c -t- -f2p -2 -m 0 -om 0 -pl 0\n"
-"                             -pr 0 -pt 0 -pb 0 -mc-.  Makes k2pdfopt\n"
-"                             behave exactly like my pdfr program--source\n"
-"                             pages are simply copied to the output file, but\n"
-"                             rendered as bitmaps.  No trimming or re-sizing\n"
-"                             is done.  Can also use -mode pdfr.\n"
+"                      copy   \"Copy\" mode.  This isn't really intended for\n"
+"                             use with an e-reader.  It just creates a\n"
+"                             bitmapped copy of your source document at the\n"
+"                             exact same dimensions.  This can be useful in\n"
+"                             order to eliminate any font compatibility\n"
+"                             issues or if you want to eliminate selectable\n"
+"                             text (follow with -mode copy with -ocr-).\n"
+"                             The equivalent settings are -n- -wrap- -col 1\n"
+"                             -vb -2 -w 1s -h 1s -dpi 150 -rt 0 -c -t- -f2p\n"
+"                             -2 -m 0 -om 0 -pl 0 -pr 0 -pt 0 -pb 0 -mc-.\n"
+"                             Use -odpi to select the bitmap resolution.\n"
 "                             Note 1:  Use -mode copy -n if you want an exact\n"
 "                                      copy (output in native mode).\n"
 "                             Note 2:  The default gamma and contrast settings\n"
 "                                      are not reset by -mode copy.  If you\n"
 "                                      want a perfect copy, do this:\n"
-"                                      -mode copy -gamma 1 -cmax 1\n"
-"                      fp     Also can use fitpage.  Same as -n -wrap- -col 1\n"
+"                                      -mode copy -gamma 1 -s- -cmax 1\n"
+"                      fp     \"Fit Page\" mode.  Also can use -mode fitpage.\n"
+"                             Fits the entire contents of each source page\n"
+"                             onto the reader display.  Same as -n -wrap- -col 1\n"
 "                             -vb -2 -f2p -2 -t.\n"
-"                      fw     Same as -n -wrap- -col 1 -vb -2 -t -ls.  Makes\n"
-"                             k2pdfopt behave like sopdf's \"fit width\"\n"
-"                             option.  Can also use -mode sopdf.\n"
-"                      2col   Same as -n -wrap- -col 2 -vb -2 -t.\n"
-"                             Optimizes for a 2-column scientific article with\n"
-"                             native PDF output.\n"
-"                      tm     Trim margins--same as -mode copy, but sets the\n"
-"                             output to be trimmed to the margins and the width\n"
-"                             and height of the output to match the trimmed\n"
-"                             source pages.  Also uses native mode.  Equivalent\n"
-"                             to -n -wrap- -col 1 -vb -2 -f2p -2 -t -w 1t -h 1t\n"
-"                             -rt 0 -c -m 0 -om 0 -pl 0 -pr 0 -pt 0 -pb 0 -mc-.\n"
-"                             Can also use -mode trim.\n"
-"                      crop   Used with -cbox option, puts each cropped area\n"
-"                             on a separate page, untrimmed, and sizes the\n"
-"                             page to the cropped region.  Same as -wrap-\n"
-"                             -col 1 -vb -2 -w 1t -h 1t -t- -rt 0 -c -f2p -2\n"
-"                             -m 0 -om 0 -pad 0 -mc- -n\n"
-"                      concat Keeping the output pages the same size as the\n"
-"                             source pages, fit as many crop-boxed regions on\n"
-"                             the output pages as possible without breaking\n"
-"                             them across pages.  Equivalent to: -n -wrap-\n"
-"                             -col 1 -vb -2 -t- -f2p -3 -fc- -w 1s -h 1s -ocr-\n"
-"                      def    Default k2pdfopt mode: -wrap -n- -col 2 -vb 1.75\n"
-"                             -dev k2 -rt auto -c- -t -f2p 0 -m 0 -om 0.02\n"
-"                             -ls-.\n"
+"                      fw     \"Fit Width\" mode.  Fits the text to the width\n"
+"                             of the reader in landscape mode without doing any\n"
+"                             text re-flow.  This is the best way to preserve\n"
+"                             the original layout of the source document.\n"
+"                             To fit to the reader width in portrait mode, add\n"
+"                             -ls- after -mode fw to turn off landscape.\n"
+"                             The -mode fw option is equivalent to -n -wrap-\n"
+"                             -col 1 -vb -2 -t -ls.  It was inspired by SoPDF's\n"
+"                             \"fit width\" option.  Can also use -mode sopdf\n"
+"                             or -mode fitwidth\n"
+"                      2col   \"Two-column\" mode.  Same as -n -wrap- -col 2\n"
+"                             -vb -2 -t.  Optimizes for a 2-column scientific\n"
+"                             article with native PDF output.\n"
+"                      tm     \"Trim margins\" mode.  Same as -mode copy, but\n"
+"                             sets the output to be trimmed to the margins and\n"
+"                             the width and height of the output to match the\n"
+"                             trimmed source pages.  Also uses native mode.\n"
+"                             Equivalent to -n -wrap- -col 1 -vb -2 -f2p -2 -t\n"
+"                             -w 1t -h 1t -rt 0 -c -m 0 -om 0 -pl 0 -pr 0 -pt 0\n"
+"                             -pb 0 -mc-.  Can also use -mode trim.\n"
+"                      crop   \"Crop\" mode.  Used with the -cbox option, this\n"
+"                             puts each cropped area on a separate page,\n"
+"                             untrimmed, and sizes the page to the cropped\n"
+"                             region.  Same as -wrap- -col 1 -vb -2 -w 1t -h 1t\n"
+"                             -t- -rt 0 -c -f2p -2 -m 0 -om 0 -pad 0 -mc- -n\n"
+"                      concat \"Concatenation\" mode.  Similar to -mode crop,\n"
+"                             but keeps the output pages the same size as the\n"
+"                             source pages and fits as many crop-boxed regions\n"
+"                             onto each new output page as possible without\n"
+"                             breaking them across pages.  Equivalent to: -n\n"
+"                             -wrap- -col 1 -vb -2 -t- -f2p -3 -fc- -w 1s -h 1s\n"
+"                             -ocr-\n"
+"                      def    \"Default\" mode. This is the mode you get if you\n"
+"                             run k2pdfopt with no customized options.  It is\n"
+"                             equivalent to -wrap -n- -col 2 -ocr m -vb 1.75\n"
+"                             -dev k2 -rt auto -c- -t -f2p 0 -m 0 -om 0.02 -ls-\n"
 "                  You can modify modes by overriding their options after\n"
 "                  specifying the mode, e.g. -mode fw -vb -1.\n"
 #ifdef HAVE_MUPDF_LIB
@@ -628,6 +672,8 @@ static char *k2pdfopt_options=
 "                  Interestingly, Linux seems to have much better multithreading\n"
 "                  performance than Windows.  I suspect the OS/X results are\n"
 "                  similar to the Linux results.\n"
+"                  NOTE:  -nt has no effect if you select -ocrd c or -ocrd p.\n"
+"                         See -ocrd.\n"
 #endif
 "-o <namefmt>      Set the output file name using <namefmt>.  %s will be\n"
 "                  replaced with the full name of the source file minus the\n"
@@ -680,29 +726,78 @@ static char *k2pdfopt_options=
 "-ocrcol <n>       If you are simply processing a PDF to OCR it (e.g. if you\n"
 "                  are using the -mode copy option) and the source document has\n"
 "                  multiple columns of text, set this value to the number of\n"
-"                  columns to process (up to 4).\n"
+"                  columns to process (up to 4).  Default is to use the same\n"
+"                  value as -col.\n"
+#ifdef HAVE_TESSERACT_LIB
+"-ocrd w|l|c|p     Set OCR detection type for k2pdfopt and Tesseract.  <type>\n"
+"                  can be word (w), line (l), columns (c), or page (p).  Default\n"
+"                  is line.\n"
+"                  For -ocrd w, k2pdfopt locates each word in the scanned\n"
+"                  document and passes individual words to Tesseract for\n"
+"                  OCR conversion.  This was the only type of detection before\n"
+"                  v2.42 but is not an optimal OCR conversion method when\n"
+"                  using Tesseract.\n"
+"                  For -ocrd l, k2pdfopt passes each line of the converted\n"
+"                  file to Tesseract for conversion.  This typically gives\n"
+"                  better results than -ocrd w since Tesseract can better\n"
+"                  determine the text baseline position with a full line.\n"
+"                  For -ocrd c, k2pdfopt detects each column of the converted\n"
+"                  file and passes that to Tesseract for conversion.\n"
+"                  For -ocrd p, k2pdfopt passes the entire output page of text\n"
+"                  to Tesseract and lets Tesseract parse it for word positions.\n"
+"                  Tesseract has done considerable code development for\n"
+"                  detecting words on pages (more than k2pdfopt), so this\n"
+"                  should also be a reliable way to create the OCR layer.\n"
+"                  One drawback to -ocrd c or -ocr p is that there is no benefit\n"
+"                  to using the OCR multithreading option (see -nt).\n"
+#endif
 "-ocrhmax <in>     Set max height for an OCR'd word in inches.  Any graphic\n"
 "                  exceeding this height will not be processed with the OCR\n"
 "                  engine.  Default = 1.5.  See -ocr.\n"
 #ifdef HAVE_TESSERACT_LIB
-"-ocrlang <lang>   Select the Tesseract OCR Engine language.  This is the\n"
+"-ocrlang <lang>|? Select the Tesseract OCR Engine language.  This is the\n"
 "                  root name of the training data, e.g. -lang eng for English,\n"
 "                  -ocrlang fra for French, -ocrlang chi_sim for simplified\n"
 "                  Chinese.  You can also use -l.  The default language is\n"
 "                  whatever is in your Tesseract trained data folder.  If you\n"
 "                  have more than one .traineddata file in that folder, the\n"
 "                  one with the most recent time stamp is used.\n"
-"                  NOTE: Using the -ocrvis t option will not show the OCR text\n"
+"                  NOTE 1: As of v2.52, k2pdfopt will download training files\n"
+"                  from github as needed.  You can append -fast to the training\n"
+"                  file name to get the fast version, otherwise the best version\n"
+"                  will be downloaded.  If the default url fails, you can\n"
+"                  specify the URL (folder name) in the environment variables\n"
+"                  TESSDATA_URL and TESSDATAFAST_URL, e.g.\n"
+"                  set TESSDATA_URL=https://raw.githubusercontent.com/tesseract-ocr/tessdata_best/master\n"
+"                  You will be prompted to approve downloads unless you specify\n"
+"                  the -y command-line option.\n"
+"                  NOTE 2: Use -ocrlang ? to see the list of Tesseract language\n"
+"                  files in your Tesseract data folder and available for\n"
+"                  download.\n"
+"                  NOTE 3: Using the -ocrvis t option will not show the OCR text\n"
 "                  correctly for any character above unicode value 255 since\n"
 "                  k2pdfopt does not use any embedded fonts, but the text\n"
 "                  will convert to the correct Unicode values when copy /\n"
 "                  pasted.\n"
-"                  NOTE 2: Tesseract allows the specification of multiple\n"
+"                  NOTE 4: Tesseract allows the specification of multiple\n"
 "                  language training files, e.g. -ocrlang eng+fra would\n"
 "                  specify English as the primary and French as the secondary\n"
 "                  OCR language.  In practice I have not found this to work\n"
 "                  very well.  Try multiple languages in different orders.\n"
 #endif
+"-ocrdpi <dpi>     Set the desired dpi of the bitmaps passed to the OCR engine\n"
+"                  OR set the desired height of a lower case letter (e.g. 'e')\n"
+"                  in pixels.  If <dpi> is positive, it is interpreted as dpi.\n"
+"                  If <dpi> is negative, the absolute value is interpreted as\n"
+"                  a lowercase letter height in pixels.  Any bitmapped text sent\n"
+"                  to the OCR engine will be downsampled (if too large) so that\n"
+"                  the appropriate dpi or lowercase letter size is achieved.\n"
+"                  The default is 300 because I've found this works best\n"
+"                  empirically for Tesseract v4.0.0 English OCR with font sizes\n"
+"                  in the range 8 - 15 pts.  Use a lower value if the font size\n"
+"                  in your document is larger than 15 - 20 pts.  Or use\n"
+"                  -ocrdpi -24 if you have a wide range of font sizes.\n"
+"                  Use -ocrdpi 0 to disable any downsampling.\n"
 "-ocrout[-] <namefmt>  Write [don't write] UTF-8 OCR text output to file\n"
 "                  <namefmt>.  See the -o option for more about how\n"
 "                  <namefmt> works.  Default extension is .txt.  Default is\n"
@@ -721,6 +816,14 @@ static char *k2pdfopt_options=
 "                  exactly match the font used by the document.  Use -ocrsp+\n"
 "                  to allow more than one space between each word in the row\n"
 "                  of text in order to optimize the selection position.\n"
+"-ocrvbb[-]        Verify OCR bounding boxes.  For PDF files that have a built-\n"
+"                  in OCR layer, if the resulting text selection does not seem to\n"
+"                  match the graphical word positions in the document, you can\n"
+"                  try this option.  It checks the bounding box for each word\n"
+"                  from the OCR layer against the actual graphical placement of\n"
+"                  the word in the document and \"shrinks\" the bounding box to\n"
+"                  just fit around the word.  This only affects non-native PDF\n"
+"                  conversions.  Default is -ocrvbb- (turned off).\n"
 "-ocrvis <s|t|b>   Set OCR visibility flags.  Put 's' to show the source doc,\n"
 "                  't' to show the OCR text, and/or 'b' to put a box around\n"
 "                  each word.  Default is -ocrvis s.  To show both the source\n"
@@ -742,12 +845,16 @@ static char *k2pdfopt_options=
 "                  make the device screen margins 0.1 times the device width\n"
 "                  (for the left and right margins) or height (for the top and\n"
 "                  bottom margins) of the output device screen.\n"
-"-ow[-] [<mb>]     Set the minimum file size (in MB) where overwriting the\n"
+"-ow[-|+] [<mb>]   Set the minimum file size (in MB) where overwriting the\n"
 "                  file will not be done without prompting.  Set to -1 (or\n"
 "                  just -ow with no value) to overwrite all files with no\n"
 "                  prompting.  Set to 0 (or just -ow-) to prompt for any\n"
 "                  overwritten file.  Def = -ow 10 (any existing file\n"
 "                  over 10 MB will not be overwritten without prompting).\n"
+"                  Use the + option (-ow+) to rename the existing file\n"
+"                  instead of overwriting it.  Existing files will be renamed\n"
+"                  as follows:\n"
+"                      file_k2pdfopt.pdf --> file_k2pdfopt_old<nnnn>.pdf\n"
 "                  See also -y option.\n"
 "-p <pagelist>     Specify pages to convert.  <pagelist> must not have any\n"
 "                  spaces.  E.g. -p 1-3,5,9,10- would do pages 1 through 3,\n"
@@ -787,7 +894,13 @@ static char *k2pdfopt_options=
 "-px <pagelist>    Exclude pages from <pagelist>.  Overrides -p option.  Default\n"
 "                  is no excluded pages (-px -1).\n"
 "-r[-]             Right-to-left [left-to-right] page scans.  Default is\n"
-"                  left to right.\n"
+"                  left to right.  See also -go option.\n"
+"-rhmin <points>   Row Height Minimum.  This sets the minimum height that any\n"
+"                  text row or text-row-like object can be, in points.  If\n"
+"                  the object is less than this height, it will be ignored\n"
+"                  in the converted file for the processes of formatting.\n"
+"                  The default is -1 (which means it is not used).\n"
+"                  This is an experimental option (as of v2.52).\n"
 #ifdef HAVE_K2GUI
 "-rls[+|-]         Restore [+] or don't restore [-] the last command-line\n"
 "                  settings from the environment variable K2PDFOPT_CUSTOM0.\n"
@@ -959,7 +1072,7 @@ static void strcatcrlf(char *d,char *s);
 static int prcmdopts(char *s,int nl,char *pattern,int prompt);
 static int opts_match(char *pattern,char *usage);
 static int cmdoplines(char *s);
-static char *pr1cmdopt(char *s,int maxlines,int display);
+static char *pr1cmdopt(char *s,int *maxlines,int display);
 static void prlines(char *s,int nlines);
 static int wait_enter(void);
 
@@ -1073,20 +1186,25 @@ static int prcmdopts(char *s,int nl,char *pattern,int prompt)
             nlo=cmdoplines(s);
             if (!all && !opts_match(pat2,s))
                 {
+                int nlines;
                 nlo=0;
                 if (s[0]=='\0')
                     break;
-                s=pr1cmdopt(s,-1,0);
+                nlines=-1;
+                s=pr1cmdopt(s,&nlines,0);
                 }
             else
                 {
+                int nlines;
+
                 if (ll-2-nlo<0 && c==0)
                     nlo=ll-2;
                 c++;
                 if (s[0]=='\0' || ll-2-nlo<0)
                     break;
-                s=pr1cmdopt(s,ll-2,1);
-                ll-=nlo;
+                nlines=ll-2;
+                s=pr1cmdopt(s,&nlines,1);
+                ll-=nlines;
                 }
             }
         while (ll>1)
@@ -1145,12 +1263,14 @@ static int cmdoplines(char *s)
     }
 
 
-static char *pr1cmdopt(char *s,int maxlines,int display)
+static char *pr1cmdopt(char *s,int *nlines,int display)
 
     {
-    int j,k,k0,nl;
+    int j,k,k0,nl,maxlines;
     char buf[128];
 
+    maxlines=(*nlines);
+    (*nlines)=0;
     for (nl=j=0;1;)
         {
         for (k=0;k<18 && s[j]!=' ' && s[j]!='\n' && s[j]!='\0';j++)
@@ -1175,8 +1295,13 @@ static char *pr1cmdopt(char *s,int maxlines,int display)
                 k2printf("%s\n",buf);
             }
         nl++;
+        (*nlines)=nl;
         if (maxlines>0 && nl>=maxlines)
+            {
+            if (s[j]=='\n')   /* v2.52 bug fix */
+                j++;
             return(&s[j]);
+            }
         if (s[j]=='\0')
             return(&s[j]);
         j++;

@@ -3,7 +3,7 @@
 **
 ** Part of willus.com general purpose C code library.
 **
-** Copyright (C) 2013  http://willus.com
+** Copyright (C) 2023  http://willus.com
 **
 ** This program is free software: you can redistribute it and/or modify
 ** it under the terms of the GNU Affero General Public License as
@@ -2044,3 +2044,5 @@ double afmod(double x,real modval)
         x+=modval;
     return(x);
     }
+
+

@@ -1,6 +1,8 @@
 cmake_minimum_required(VERSION 3.15)
 project(k2pdfopt LANGUAGES C CXX)
 
+option(DISABLED_LEGACY_ENGINE "Disable the legacy OCR engine" OFF)
+
 set(THREADS_PREFER_PTHREAD_FLAG TRUE)
 find_package(Threads REQUIRED)
 
@@ -20,8 +22,14 @@ add_library(k2pdfopt SHARED
 )
 set_target_properties(k2pdfopt PROPERTIES SOVERSION 2)
 target_compile_definitions(k2pdfopt PRIVATE BUILDING_LIBK2PDFOPT)
+if(DISABLED_LEGACY_ENGINE)
+    target_compile_definitions(k2pdfopt PRIVATE DISABLED_LEGACY_ENGINE)
+endif()
 target_include_directories(k2pdfopt PRIVATE ../k2pdfoptlib ../willuslib .)
 target_link_libraries(k2pdfopt PRIVATE m PkgConfig::Leptonica PkgConfig::Tesseract Threads::Threads)
+if(ANDROID)
+    target_link_libraries(k2pdfopt PRIVATE log)
+endif()
 
 install(TARGETS k2pdfopt)
 install(FILES ${HDR} DESTINATION ${CMAKE_INSTALL_PREFIX}/include/k2pdfopt)
