@@ -146,7 +146,7 @@ void k2sys_header(char *s)
 
 
 
-int k2printf(char *fmt,...)
+int k2printf(const char *fmt,...)
 
     {
     va_list args;

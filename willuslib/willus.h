@@ -385,16 +385,16 @@ typedef double  real;
 
 int    ansi_escape_code(char *s,int *len);
 void   ansi_set      (int on);
-int    aprintf       (char *fmt,...);
+int    aprintf       (const char *fmt,...);
 void   wlp_set_stdout     (int sout,int serr,char *filename,int close_after,
                            int append,int newstream,FILE *str);
 void   wlp_save_status    (void);
 void   wlp_restore_status (void);
-int    wlprintf      (char *fmt,...);
-int    nprintf       (FILE *f,char *fmt,...);
-int    nprintf2      (FILE *f1,FILE *f2,char *fmt,...);
-int    afprintf      (FILE *f,char *fmt,...);
-int    avprintf      (FILE *f,char *fmt,va_list args);
+int    wlprintf      (const char *fmt,...);
+int    nprintf       (FILE *f,const char *fmt,...);
+int    nprintf2      (FILE *f1,FILE *f2,const char *fmt,...);
+int    afprintf      (FILE *f,const char *fmt,...);
+int    avprintf      (FILE *f,const char *fmt,va_list args);
 int    ansi_rows_cols(FILE *f,int *rows,int *cols);
 
 /* wzfile.c */

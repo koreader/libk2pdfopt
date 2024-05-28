@@ -812,7 +812,7 @@ void k2sys_close(K2PDFOPT_SETTINGS *k2settings);
 void k2sys_header(char *s);
 void k2sys_exit(K2PDFOPT_SETTINGS *k2settings,int val);
 void k2sys_enter_to_exit(K2PDFOPT_SETTINGS *k2settings);
-int  k2printf(char *fmt,...);
+int  k2printf(const char *fmt,...);
 #define k2dprintf willusgui_dprintf
 void k2gets(char *buf,int maxlen,char *def);
 

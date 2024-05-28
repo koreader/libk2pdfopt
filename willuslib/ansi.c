@@ -117,7 +117,7 @@ void ansi_set(int on)
     }
 
 
-int aprintf(char *fmt,...)
+int aprintf(const char *fmt,...)
 
     {
     va_list args;
@@ -213,7 +213,7 @@ void wlp_set_stdout(int sout,int serr,char *filename,int close_after,
     }
     
 
-int wlprintf(char *fmt,...)
+int wlprintf(const char *fmt,...)
 
     {
     va_list args;
@@ -258,7 +258,7 @@ int wlprintf(char *fmt,...)
 /*
 ** Like nprintf, but prints to two streams at once.
 */
-int nprintf2(FILE *f1,FILE *f2,char *fmt,...)
+int nprintf2(FILE *f1,FILE *f2,const char *fmt,...)
 
     {
     va_list args;
@@ -285,7 +285,7 @@ int nprintf2(FILE *f1,FILE *f2,char *fmt,...)
 /*
 ** Like fprintf, but don't print if f==NULL.
 */
-int nprintf(FILE *f,char *fmt,...)
+int nprintf(FILE *f,const char *fmt,...)
 
     {
     va_list args;
@@ -302,7 +302,7 @@ int nprintf(FILE *f,char *fmt,...)
     }
         
 
-int afprintf(FILE *f,char *fmt,...)
+int afprintf(FILE *f,const char *fmt,...)
 
     {
     va_list args;
@@ -315,7 +315,7 @@ int afprintf(FILE *f,char *fmt,...)
     }
 
 
-int avprintf(FILE *f,char *fmt,va_list args)
+int avprintf(FILE *f,const char *fmt,va_list args)
 
     {
     int     status;
