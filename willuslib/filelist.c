@@ -1179,6 +1179,7 @@ index,dirname,include_only[0],recursive,dirstoo);
 /*
 printf("fdf(%s)\n",dirname);
 */
+#if 0
     is_archive = (recursive>1 && wfile_is_archive(dirname));
     if (is_archive)
         {
@@ -1187,6 +1188,7 @@ printf("fdf(%s)\n",dirname);
         wfile_unique_part(dir,fl->dir);
         return(filelist_recursive_archive_add(fl,index,dir,dirname,include_only,exclude,recursive,dirstoo));
         }
+#endif
     if (recursive || include_only[0][0]=='\0' || include_only[1][0]!='\0')
         wfile_fullname(wildspec,dirname,"*");
     else
@@ -1203,13 +1205,15 @@ printf("    Reg files...\n");
             continue
         /* WARNING: wfile_is_symlink() can be a slow call on a network drive! */;
         /* fstatus=wfile_status(wf.fullname); */ /* 1-24-18--remove this call to go faster */
-        is_archive=wfile_is_archive(wf.fullname);
         symlink=(wf.attr&WFILE_SYMLINK);
         if ((wf.attr&WFILE_DIR) && !symlink && (dirstoo!=1 || recursive))
             continue;
+#if 0
         /* If archive file and we want to look into archives, then skip it. */
+        is_archive=wfile_is_archive(wf.fullname);
         if (is_archive && recursive>1)
             continue;
+#endif
 /*
         if (fstatus==2 && (recursive || dirstoo==0 || dirstoo==2 || dirstoo==3))
             continue;
@@ -1239,7 +1243,11 @@ printf("        %s\n",wf.fullname);
         if (!strcmp(wf.basename,".") || !strcmp(wf.basename,".."))
             continue;
 
+#if 0
         archive = (recursive>1 && wfile_is_archive(wf.fullname));
+#else
+        archive = 0;
+#endif
         /* 1-24-18 -- don't call wfile_status */
         if (!(wf.attr&WFILE_DIR) && !archive)
 /*
@@ -1282,6 +1290,7 @@ printf("        %s\n",wf.fullname);
     }
 
 
+#if 0
 /*
 ** Ideally will unzip a zip file within a zip file when recursive == 3.  
 ** Right now it doesn't do this.
@@ -1389,6 +1398,7 @@ static int filelist_recursive_archive_add(FILELIST *dst,int index,
     filelist_free(fl);
     return(n);
     }
+#endif
 
 
 /*
@@ -1624,6 +1634,7 @@ int filelist_dir_name_match(char *pattern,char *dirname)
     return(pattern[len-1]=='*');
     }
 
+#if 0
 
 /*
 ** If the zip file or .7z file was made during standard time,
@@ -2140,6 +2151,7 @@ static int nexttoken(char *dst,char *src,int *index)
     return(-1);
     }
 
+#endif
 
 int filelist_add_entry(FILELIST *fl,FLENTRY *entry)
 
@@ -2342,6 +2354,7 @@ void filelist_new_entry_name(FILELIST *fl,int index,char *newname)
     }
 
 
+#if 0
 /*
 ** 2-24-22:  Works with sizes exceeding 2^31 bytes now
 */
@@ -2386,6 +2399,7 @@ int filelist_write_to_file(FILELIST *fl,char *filename)
         return(-5);
     return(0);
     }
+#endif
 
 
 /*
@@ -2427,6 +2441,7 @@ int filelist_write_to_file(FILELIST *fl,char *filename)
 */
 
 
+#if 0
 /*
 ** Should work with buffer sizes exceeding 2^31 bytes now
 */
@@ -2473,6 +2488,7 @@ int filelist_read_from_file(FILELIST *fl,char *filename)
         return(-5);
     return(0);
     }
+#endif
 
 /*
 void filelist_alloc(FILELIST *fl,int entries,int cps)

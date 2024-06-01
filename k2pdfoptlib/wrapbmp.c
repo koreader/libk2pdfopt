@@ -796,6 +796,7 @@ static double wrectmap_hcompare(WRECTMAP *x1,WRECTMAP *x2)
     }
 
 
+#if (WILLUSDEBUGX2)
 void wrectmap_write_bmp(WRECTMAP *wrmap,int index,BMPREGION *region)
 
     {
@@ -854,3 +855,4 @@ aprintf(ANSI_MAGENTA "%s is %d x %d" ANSI_NORMAL "\n",filename,bmp->width,bmp->h
     bmp_write(bmp,filename,stdout,100);
     bmp_free(bmp);
     }
+#endif

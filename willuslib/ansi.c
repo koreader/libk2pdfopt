@@ -49,8 +49,10 @@
 
 #define MAXSIZE 8000
 
+#if 0
 static int ansi_on=1;
 static char ansi_buffer[MAXSIZE];
+#endif
 
 static void ansi_code(FILE *f,int *args,int nargs,int code);
 static void ansi_parse(FILE *f,char *s);
@@ -110,11 +112,13 @@ int ansi_escape_code(char *s,int *len)
     }
         
 
+#if 0
 void ansi_set(int on)
 
     {
     ansi_on = on;
     }
+#endif
 
 
 int aprintf(const char *fmt,...)
@@ -329,16 +333,20 @@ int avprintf(FILE *f,const char *fmt,va_list args)
     else
 #endif
         {
+#if 0
         if (!ansi_on)
             {
             status=vsprintf(ansi_buffer,fmt,args);
             ansi_parse(f,ansi_buffer);
             }
         else
+#endif
             status=vfprintf(f,fmt,args);
         }
     return(status);
     }
+
+#if 0
 
 /*
 ** Returns 1 for success, 0 for fail.
@@ -488,6 +496,7 @@ static void ansi_code(FILE *f,int *args,int nargs,int code)
 #endif
     }
 
+#endif
 
 #ifdef WIN32
 static void ansi_win32_setcolor(FILE *f,int n)

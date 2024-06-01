@@ -376,6 +376,7 @@ void wsys_append_nul_redirect(char *s)
     }
 
 
+#ifndef NO_FILELIST
 int wsys_which(char *exactname,char *exename)
 
     {
@@ -391,7 +392,6 @@ int wsys_which(char *exactname,char *exename)
     }
 
 
-#ifndef NO_FILELIST
 int wsys_most_recent_in_path(char *exename,char *wildcard)
 
     {

@@ -143,6 +143,7 @@ DEVPROFILE *devprofile_get(char *name)
     }
 
 
+#if 0
 char *devprofile_select(void)
 
     {
@@ -164,3 +165,4 @@ char *devprofile_select(void)
         }
     return(NULL);
     }
+#endif

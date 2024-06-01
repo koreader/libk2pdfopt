@@ -41,6 +41,8 @@
 
 static int nextdir(char *dir,char *path,int *index);
 
+#ifndef NO_FILELIST
+
 int linux_which(char *exactname,char *exename)
 
     {
@@ -152,6 +154,7 @@ int linux_most_recent_in_path(char *exactname,char *wildcard)
     return(exactname[0]!='\0');
     }
 
+#endif
 
 static int nextdir(char *dir,char *path,int *index)
 

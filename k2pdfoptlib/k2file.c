@@ -64,6 +64,7 @@ static int k2file_setup_output_file_names(K2PDFOPT_SETTINGS *k2settings,char *fi
                                           MASTERINFO *masterinfo,
                                           char *dstfile,char *markedfile,PDFFILE *mpdf);
 
+#if 0
 
 /*
 ** If arg is a file wildcard specification, then figure out all matches and pass
@@ -1254,6 +1255,8 @@ masterinfo->preview_bitmap->width,masterinfo->preview_bitmap->height,masterinfo-
     return(status);
     }
 
+#endif
+
 
 static char *pagename(int pageno)
 
@@ -1829,6 +1832,7 @@ int k2file_get_num_pages(char *filename)
     }
 
 
+#if 0
 void k2file_get_overlay_bitmap(WILLUSBITMAP *bmp,double *dpi,char *filename,char *pagelist)
 
     {
@@ -1889,6 +1893,7 @@ void k2file_get_overlay_bitmap(WILLUSBITMAP *bmp,double *dpi,char *filename,char
         }
     bmp_free(tmp);
     }
+#endif
 
 
 void k2file_look_for_pagebreakmarks(K2PAGEBREAKMARKS *k2pagebreakmarks,
@@ -2065,6 +2070,8 @@ static void gs_postprocess(char *filename)
     k2printf(TTEXT_BOLD "    ... %d bytes" TTEXT_NORMAL " written to " TTEXT_MAGENTA "%s" TTEXT_NORMAL " (%.1f MB).\n",(int)size,filename,size/1024./1024.);
     }
 #endif
+
+#if 0
 
 static void gs_conv_cleanup(int psconv,char *filename,char *original_file)
 
@@ -2355,3 +2362,5 @@ static int k2file_setup_output_file_names(K2PDFOPT_SETTINGS *k2settings,char *fi
         }
     return(1);
     }
+
+#endif
