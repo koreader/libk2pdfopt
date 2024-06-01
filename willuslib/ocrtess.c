@@ -156,7 +156,9 @@ char *ocrtess_langnames[] =
     "yo","yor","Yoruba",
     ""
     };
+#if 0
 static char *defurl = "raw.githubusercontent.com/tesseract-ocr/tessdata_%s/master";
+#endif
 
 static int ocrtess_lstm_file(char *filename);
 static int ocrtess_tess_file(char *filename);
@@ -317,6 +319,7 @@ void ocrtess_baselang(char *dst,char *src,int maxlen)
     }
         
 
+#if 0
 void ocrtess_url(char *url0,int maxlen,int fast)
 
     {
@@ -340,6 +343,7 @@ void ocrtess_url(char *url0,int maxlen,int fast)
                   url);
     xstrncpy(url0,httpurl,maxlen);
     }
+#endif
         
 
 /*

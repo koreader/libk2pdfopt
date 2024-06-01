@@ -25,6 +25,7 @@
 #include <android/log.h>
 #endif
 
+#if 0
 
 void k2sys_init(void)
 
@@ -144,6 +145,7 @@ void k2sys_header(char *s)
            k2pdfopt_compiler,k2pdfopt_os,k2pdfopt_chip);
     }
 
+#endif
 
 
 int k2printf(const char *fmt,...)

@@ -588,6 +588,7 @@ static int ocrword_compare_position(OCRWORD *w1,OCRWORD *w2)
     return(w1->c - w2->c);
     }
 
+#if 0
 
 void ocrwords_to_easyplot(OCRWORDS *words,char *filename,int append,int *yoffset)
 
@@ -697,3 +698,4 @@ void ocrwords_echo(OCRWORDS *ocrwords,FILE *out,int count,int writebmp)
         }
     }
 
+#endif

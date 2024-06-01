@@ -187,14 +187,18 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings,char *initstr)
                 }
             else
                 {
+#if 0
                 sprintf(ocrinitmessage,"Could not initialize any Tesseract threads.\n"
                      "Possibly could not find Tesseract data (env var TESSDATA_PREFIX = %s).\n"
                      "Using GOCR v0.50.\n\n",
                      getenv("TESSDATA_PREFIX")==NULL?"(not assigned)":getenv("TESSDATA_PREFIX"));
+#endif
                 k2ocr_tess_status=-1;
                 maxthreads=1;
+#if 0
                 k2printf(TTEXT_WARN "%s" TTEXT_NORMAL,ocrinitmessage);
                 k2ocr_showlog();
+#endif
                 }
             strcat(initstr,ocrinitmessage);
             willus_mem_free((double **)&otii,funcname);
@@ -235,6 +239,9 @@ void k2ocr_init(K2PDFOPT_SETTINGS *k2settings,char *initstr)
 
 
 #ifdef HAVE_TESSERACT_LIB
+
+#if 0
+
 void ocrtess_debug_info(char **buf0,int use_ansi)
 
     {
@@ -294,6 +301,7 @@ static void k2ocr_status_line(char *buf,char *color,char *label,char *string)
     strcat(buf,"\n");
     }
 
+#endif
 
 void k2ocr_tesslang_selected(char *lang,int maxlen,K2PDFOPT_SETTINGS *k2settings)
 
@@ -417,6 +425,7 @@ static void *otinit(void *data)
     }
 #endif
 
+#if 0
 
 /*
 ** Dump Tesseract library debugging log using k2printf()
@@ -499,6 +508,7 @@ void k2ocr_end(K2PDFOPT_SETTINGS *k2settings)
 #endif /* HAVE_OCR_LIB */
     }
 
+#endif
 
 #ifdef HAVE_OCR_LIB
 /*

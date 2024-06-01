@@ -2372,6 +2372,7 @@ textrows_echo(&region->textrows,"rows");
 #if (WILLUSDEBUGX & 1)
 printf("Marking source page...\n");
 #endif
+#ifdef K2PDFOPT_DEBUG
     mark_source_page(k2settings,masterinfo,region,1,0xf);
     if (k2settings->debug)
         {
@@ -2382,6 +2383,7 @@ printf("Marking source page...\n");
             k2printf("@bmpregion_vertically_break (allow break) (%d,%d) - (%d,%d) (scale=%g)\n",
                 region->c1,region->r1,region->c2,region->r2,added_region.force_scale);
         }
+#endif
 #if (WILLUSDEBUGX & 1)
 printf("Tagging blank rows and columns...\n");
 #endif
@@ -2705,8 +2707,10 @@ printf("ADDING %s ROWS %d - %d OUT OF %d ...\n",added_region->notes?"NOTES":"MAI
             c2=textrow[j].c2;
         }
     marking_flags=(added_region->firstrow==0?0:1)|(added_region->lastrow==n-1?0:2);
+#ifdef K2PDFOPT_DEBUG
     /* Green or Magenta (for notes) */
     mark_source_page(k2settings,masterinfo,region,added_region->notes?4:3,added_region->notes?0xf:marking_flags);
+#endif
     region->bbox.type=REGION_TYPE_MULTILINE;
     region->bbox.c1=region->c1;
     region->bbox.c2=region->c2;
@@ -3086,7 +3090,9 @@ printf("assigned lcheight\n");
         marking_flags=(i==mlp->i1?0:1)|(i==mlp->i2?0:2);
         if (i<mlp->i2 || textrow->r2-textrow->rowbase>1)
             marking_flags |= 0x10;
+#ifdef K2PDFOPT_DEBUG
         textrow_mark_source(textrow,region,masterinfo,k2settings,marking_flags);
+#endif
 #if (WILLUSDEBUGX & 1)
 k2printf("   Row %2d: (%4d,%4d) - (%4d,%4d) rowbase=%4d, ch=%d, lch=%d, h5050=%d, rh=%d, nch=%d\n",i-mlp->i1+1,textrow->c1,textrow->r1,textrow->c2,textrow->r2,textrow->rowbase,textrow->capheight,textrow->lcheight,textrow->h5050,textrow->rowheight,nch);
 #endif
@@ -3474,6 +3480,7 @@ printf("        Too small for font.  Adjusted to %g\n",row_line_spacing_pixels);
     return((int)(row_line_spacing_pixels+.5));
     }
 
+#ifdef K2PDFOPT_DEBUG
 
 static void textrow_mark_source(TEXTROW *textrow,BMPREGION *region,MASTERINFO *masterinfo,
                                 K2PDFOPT_SETTINGS *k2settings,int marking_flags)
@@ -3504,6 +3511,7 @@ static void textrow_mark_source(TEXTROW *textrow,BMPREGION *region,MASTERINFO *m
     bmpregion_free(newregion);
     }
 
+#endif
 
 /*
 ** pi = preserve indentation
@@ -3573,6 +3581,7 @@ k2printf("Before small gap removal, column breaks:\n");
 k2printf("After small gap removal, column breaks:\n");
 // textrows_echo(textwords,"words");
 #endif
+#ifdef K2PDFOPT_DEBUG
     if (k2settings->show_marked_source)
         for (i=0;i<n;i++)
             {
@@ -3584,6 +3593,7 @@ k2printf("After small gap removal, column breaks:\n");
             mark_source_page(k2settings,masterinfo,&xregion,2,marking_flags);
             bmpregion_free(&xregion);
             }
+#endif
 #if (WILLUSDEBUGX & 4)
 for (i=0;i<n;i++)
 k2printf("    textword[%d] = %d - %d\n",i,textword[i].c1,textword[i].c2);

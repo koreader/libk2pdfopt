@@ -70,7 +70,7 @@ int bmpregion_col_black_count(BMPREGION *region,int c0)
     }
 
 
-// #if (defined(WILLUSDEBUGX) || defined(WILLUSDEBUG))
+#if (defined(WILLUSDEBUGX) || defined(WILLUSDEBUG))
 void bmpregion_write(BMPREGION *region,char *filename)
 
     {
@@ -96,7 +96,7 @@ void bmpregion_write(BMPREGION *region,char *filename)
     bmp_write(bmp,filename,stdout,97);
     bmp_free(bmp);
     }
-// #endif
+#endif
 
 void bmpregion_row_histogram(BMPREGION *region)
 

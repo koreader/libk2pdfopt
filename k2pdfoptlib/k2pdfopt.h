@@ -653,6 +653,8 @@ typedef struct
     HYPHENINFO hyphen;
     } WRAPBMP;
 
+#if 0
+
 typedef struct
     {
     int rowcount;
@@ -666,6 +668,8 @@ typedef struct
     int na;
     } QUEUED_PAGE_INFO;
 
+#endif
+
 /*
 ** MASTERINFO contains performance parameters relevant to the device output.
 ** (E.g. the "master" bitmap which is a running scroll of content meant to
@@ -673,16 +677,20 @@ typedef struct
 */
 typedef struct
     {
+#if 0
     char srcfilename[MAXFILENAMELEN];
     char ocrfilename[MAXFILENAMELEN];
     int outline_srcpage_completed; /* Which source page was last checked in the outline */
     PDFFILE outfile;      /* PDF output file data structure */
     WPDFOUTLINE *outline; /* PDF outline / bookmarks structure--loaded by MuPDF only */
+#endif
     WILLUSBITMAP bmp; /* Master output bitmap collects pages that will go to */
                       /* the output device */
     OCRWORDS mi_ocrwords;/* Queue of OCR bitmaps that have positions corresponding to */
                          /* the master bitmap -- v2.53 */
+#if 0
     QUEUED_PAGE_INFO queued_page_info; /* Queued up output pages */
+#endif
     WILLUSBITMAP *preview_bitmap;
     K2PAGEBREAKMARKS k2pagebreakmarks; /* User-specified page breaks */
     int preview_captured;  /* = 1 if preview bitmap obtained */
@@ -704,9 +712,11 @@ typedef struct
     int bgcolor;
     int fit_to_page;
     int wordcount;
+#if 0
     /* v2.42 for bitmap output and improved autocrop */
     int output_page_count;  /* Count in output file */
     int filecount;
+#endif
     int autocrop_margins[4];
     /* end v2.42 */
     char debugfolder[256];

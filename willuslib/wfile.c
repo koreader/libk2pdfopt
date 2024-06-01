@@ -142,6 +142,7 @@ static double ularge_to_double(ULARGE_INTEGER *x);
 
 
 
+#if 0
 int wfile_is_archive(char *filename)
 
     {
@@ -153,6 +154,7 @@ int wfile_is_archive(char *filename)
             return(1);
     return(0);
     }
+#endif
 
 
 double wfile_file_age_secs(char *filename)

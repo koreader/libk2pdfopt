@@ -201,6 +201,8 @@ int bmp_get_pdf_pageno(void)
     return(willusbmp_pageno);
     }
 
+#ifdef K2PDFOPT_DEBUG
+
 /*
 ** Quality is ignored if not JPEG.
 */
@@ -326,6 +328,7 @@ int bmp_write_ico(WILLUSBITMAP *bmp,char *filename,FILE *out)
     return(0);
     }
     
+#endif
 
 
 /*
@@ -4549,7 +4552,7 @@ static double bmp_row_by_row_stdev(WILLUSBITMAP *bmp,int ccount,int whitethresh,
 
 
 double bmp_autostraighten(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,int white,double maxdegrees,
-                          double mindegrees,int debug,FILE *out)
+                          double mindegrees,int debug_arg,FILE *out)
 
     {
     int i,na,n,imax,maxpt;
@@ -4558,6 +4561,11 @@ double bmp_autostraighten(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,int white,doub
     FILE *f;
     static int rpc=0;
     static char *funcname="bmp_autostraighten";
+#ifdef K2PDFOPT_DEBUG
+    int debug = debug_arg;
+#else
+    const int debug = 0;
+#endif
 
     rpc++;
     f=NULL;

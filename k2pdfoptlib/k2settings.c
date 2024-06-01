@@ -244,7 +244,11 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
 int k2settings_output_is_bitmap(K2PDFOPT_SETTINGS *k2settings)
 
     {
+#if 0
     return(filename_is_bitmap(k2settings->dst_opname_format));
+#else
+    return 0;
+#endif
     }
 
 
@@ -336,6 +340,7 @@ printf("    retval=%d\n",retval);
     return(retval);
     }
     
+#if 0
 
 void k2pdfopt_conversion_init(K2PDFOPT_CONVERSION *k2conv)
 
@@ -353,6 +358,7 @@ void k2pdfopt_conversion_close(K2PDFOPT_CONVERSION *k2conv)
     k2pdfopt_files_free(&k2conv->k2files);
     }
 
+#endif
 
 void k2pdfopt_settings_copy(K2PDFOPT_SETTINGS *dst,K2PDFOPT_SETTINGS *src)
 

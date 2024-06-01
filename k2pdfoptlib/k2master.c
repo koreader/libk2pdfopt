@@ -64,9 +64,11 @@ void masterinfo_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
     int i;
 
     /* Init outline / bookmarks */
+#if 0
     masterinfo->outline=NULL;
     masterinfo->output_page_count=0;
     masterinfo->outline_srcpage_completed=-1;
+#endif
     masterinfo->preview_bitmap=NULL;
     masterinfo->preview_captured=0;
     masterinfo->published_pages=0;
@@ -80,11 +82,13 @@ void masterinfo_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
     bmp_init(&masterinfo->bmp);
     /* v2.53 -- Added queueing of OCR and pages to help parallelize OCR */
     ocrwords_init(&masterinfo->mi_ocrwords);
+#if 0
     masterinfo->queued_page_info.na=32;
     masterinfo->queued_page_info.n=0;
     willus_mem_alloc_warn((void **)&masterinfo->queued_page_info.page,
                             sizeof(QUEUED_PAGE)*masterinfo->queued_page_info.na,
                             funcname,10);
+#endif
     /* v2.53 end */
     masterinfo->bmp.height=masterinfo->bmp.width=0;
     masterinfo->bmp.bpp=k2settings->dst_color ? 24 : 8;
@@ -123,6 +127,7 @@ void masterinfo_init(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
     sprintf(masterinfo->pageinfo.producer,"K2pdfopt %s",k2pdfopt_version);
     }
 
+#if 0
 
 static void masterinfo_pagequeue_queue_page(MASTERINFO *masterinfo,int rowcount,int srcpageno)
 
@@ -158,6 +163,7 @@ static int masterinfo_pagequeue_row_start(MASTERINFO *masterinfo)
     return(sum);
     }
 
+#endif
 
 void masterinfo_free(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
 
@@ -173,12 +179,16 @@ void masterinfo_free(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
 #ifdef K2PDFOPT_KINDLEPDFVIEWER
     wrectmaps_free(&masterinfo->rectmaps);
 #endif
+#if 0
     wpdfoutline_free(masterinfo->outline);
+#endif
     ocrwords_free(&masterinfo->mi_ocrwords);
+#if 0
     /* Clear page queue */
     willus_mem_free((double **)&masterinfo->queued_page_info.page,funcname);
     masterinfo->queued_page_info.n=0;
     masterinfo->queued_page_info.na=0;
+#endif
     }
 
 
@@ -303,6 +313,7 @@ printf("Done autocrop.\n");
         dwbmp=&_dwbmp;
         bmp_init(dwbmp);
         bmp_copy(dwbmp,srcgrey);
+#ifdef K2PDFOPT_DEBUG
         if (k2settings->debug)
             {
             bmp_write(dwbmp,"dewarp_pre_prep.png",NULL,100);
@@ -310,9 +321,11 @@ printf("Done autocrop.\n");
             wfile_written_info("dewarp_pre_prep.png",stdout);
             aprintf(TTEXT_NORMAL);
             }
+#endif
         k2bmp_prep_for_dewarp(dwbmp,srcgrey,k2settings->src_dpi/45,white);
         if (k2settings->autocrop)
             k2bmp_apply_autocrop(dwbmp,masterinfo->autocrop_margins);
+#ifdef K2PDFOPT_DEBUG
         if (k2settings->debug)
             {
             bmp_write(dwbmp,"dewarp_image.png",NULL,100);
@@ -320,14 +333,17 @@ printf("Done autocrop.\n");
             wfile_written_info("dewarp_image.png",stdout);
             aprintf(TTEXT_NORMAL);
             }
+#endif
         wlept_bmp_dewarp(dwbmp,src,srcgrey,white,k2settings->dewarp,
                          k2settings->debug?"k2opt_dewarp_model.pdf":NULL);
+#ifdef K2PDFOPT_DEBUG
         if (k2settings->debug)
             {
             aprintf(TTEXT_BOLD);
             wfile_written_info("k2opt_dewarp_model.pdf",stdout);
             aprintf(TTEXT_NORMAL);
             }
+#endif
         bmp_free(dwbmp);
         /* Re-do autocrop after de-warp */
         if (k2settings->autocrop)
@@ -372,6 +388,7 @@ printf("22\n");
     region->bbox.c2 = region->c2;
     region->bbox.r1 = region->r1;
     region->bbox.r2 = region->r2;
+#ifdef K2PDFOPT_DEBUG
     if (k2settings->show_marked_source)
         {
         if (k2settings->dst_color && marked!=NULL)
@@ -382,6 +399,7 @@ printf("22\n");
         else
             region->marked=region->bmp;
         }
+#endif
     masterinfo->bgcolor=white;
     /* dst_fit_to_page == -2 if gridding */
     masterinfo->fit_to_page = k2settings->dst_fit_to_page;
@@ -1180,6 +1198,7 @@ printf("lastrow->gap now = %d(r2) - %d(rowbase) = %d\n",region->r2,textrow[n-1].
     }
 
 
+#if 0
 static void masterinfo_pagequeue_pop_queue(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings)
 
     {
@@ -1193,6 +1212,7 @@ static void masterinfo_pagequeue_pop_queue(MASTERINFO *masterinfo,K2PDFOPT_SETTI
     qpi->n--;
     masterinfo_remove_top_rows(masterinfo,k2settings,rowcount);
     }
+#endif
 
 
 static void masterinfo_remove_top_rows(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int rows)
@@ -1272,6 +1292,7 @@ static int masterinfo_pageheight_pixels(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS
     return(pheight);
     }
 
+#if 0
 
 /*
 **
@@ -1729,6 +1750,7 @@ printf("@masterinfo_should_flush, breakpages=%d\n",k2settings->dst_break_pages);
     return(wpdfoutline_includes_srcpage(masterinfo->outline,masterinfo->nextpage,1)>0 ? 1 : 0);
     }
 
+#endif
 
 /*
 ** Correctly complete crop boxes that are associated with this output page

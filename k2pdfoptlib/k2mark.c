@@ -22,6 +22,7 @@
 
 int k2mark_page_count=0;
 
+#if 0
 /*
 ** src guaranteed to be 24-bit color
 */
@@ -65,6 +66,7 @@ bmp_write(src,filename,stdout,100);
         pdffile_add_bitmap(mpdf,bmp,newdpi,-1,1);
     bmp_free(bmp);
     }
+#endif
 
 
 /*
