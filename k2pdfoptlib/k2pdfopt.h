@@ -911,9 +911,7 @@ typedef struct
     PAGEREGION *pageregion;
     int n,na;
     } PAGEREGIONS;
-K2PDFOPT_EXPORT
 void pageregions_init(PAGEREGIONS *regions);
-K2PDFOPT_EXPORT
 void pageregions_free(PAGEREGIONS *regions);
 void pageregions_delete_one(PAGEREGIONS *regions,int index);
 void pageregions_insert(PAGEREGIONS *dst,int index,PAGEREGIONS *src);
