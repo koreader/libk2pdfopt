@@ -31,6 +31,7 @@
 #include "setting.h"
 #include "koptocr.h"
 
+K2PDFOPT_EXPORT
 PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h);
 l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs,
 		l_int32 reduction, l_int32 minwidth, l_int32 minheight,

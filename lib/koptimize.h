@@ -25,6 +25,7 @@
 #include "k2pdfopt.h"
 #include "context.h"
 
+K2PDFOPT_EXPORT
 void k2pdfopt_optimize_bmp(KOPTContext *kctx);
 
 #endif

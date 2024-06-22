@@ -24,6 +24,7 @@
 #include "k2pdfopt.h"
 #include "context.h"
 
+K2PDFOPT_EXPORT
 void k2pdfopt_crop_bmp(KOPTContext *kctx);
 
 #endif

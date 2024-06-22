@@ -28,19 +28,23 @@
 
 void k2pdfopt_tocr_init(char *datadir, char *lang);
 
+K2PDFOPT_EXPORT
 void k2pdfopt_tocr_end();
 
 const char* k2pdfopt_tocr_get_language();
 
+K2PDFOPT_EXPORT
 void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 		int x, int y, int w, int h, int dpi,
 		char *word, int max_length,
 		char *datadir, char *lang, int ocr_type,
 		int allow_spaces, int std_proc);
 
+K2PDFOPT_EXPORT
 void k2pdfopt_get_reflowed_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 		int x, int y, int w, int h);
 
+K2PDFOPT_EXPORT
 void k2pdfopt_get_native_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
         int x, int y, int w, int h);
 
