@@ -41,23 +41,24 @@ void pixmap_to_bmp(WILLUSBITMAP *bmp, unsigned char *pix_data, int ncomp) {
         // set palette
         for (i = 0; i < 256; i++)
             bmp->red[i] = bmp->blue[i] = bmp->green[i] = i;
+        p = pix_data;
         for (i = 0; i < bmp->height; i++) {
             b = bmp_rowptr_from_top(bmp, i);
-            p = pix_data + 2*i*bmp->width;
             for (j = 0; j < bmp->width; j++) {
-                b[j] = p[2*j];
+                *b++ = *p;
+                p += 2;
             }
         }
     } else if (ncomp == 4) {
         bmp->bpp = 24;
         bmp_alloc(bmp);
+        p = pix_data;
         for (i = 0; i < bmp->height; i++) {
             b = bmp_rowptr_from_top(bmp, i);
-            p = pix_data + 4*i*bmp->width;
             for (j = 0; j < bmp->width; j++) {
-                b[j] = p[4*j];
-                b[j+1] = p[4*j+1];
-                b[j+2] = p[4*j+2];
+                memcpy(b, p, 3);
+                p += 4;
+                b += 3;
             }
         }
     }
@@ -80,6 +81,7 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     masterinfo = &_masterinfo;
     /* Initialize settings */
     k2pdfopt_settings_init_from_koptcontext(k2settings, kctx);
+    k2settings->dst_color = src->bpp != 8;
     k2pdfopt_settings_quick_sanity_check(k2settings);
     /* Init for new source doc */
     k2pdfopt_settings_new_source_document_init(k2settings, initstr);
