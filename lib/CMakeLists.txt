@@ -55,6 +55,11 @@ add_library(k2pdfopt SHARED
     ../willuslib/wsys.c
 )
 set_target_properties(k2pdfopt PROPERTIES SOVERSION 2)
+set_target_properties(k2pdfopt PROPERTIES
+    C_VISIBILITY_PRESET hidden
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN TRUE
+)
 target_compile_definitions(k2pdfopt PRIVATE BUILDING_LIBK2PDFOPT NO_FILELIST)
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_definitions(k2pdfopt PRIVATE K2PDFOPT_DEBUG)

@@ -20,6 +20,13 @@
 
 #ifndef __K2PDFOPT_H__
 #define __K2PDFOPT_H__
+
+#if !defined(K2PDFOPT_EXPORT) && defined(__GNUC__)
+#  define K2PDFOPT_EXPORT __attribute__((visibility("default")))
+#elif !defined(K2PDFOPT_EXPORT)
+#  define K2PDFOPT_EXPORT
+#endif
+
 /*
 ** WILLUSDEBUGX flags:
 ** 0x00001 = Generic
@@ -904,7 +911,9 @@ typedef struct
     PAGEREGION *pageregion;
     int n,na;
     } PAGEREGIONS;
+K2PDFOPT_EXPORT
 void pageregions_init(PAGEREGIONS *regions);
+K2PDFOPT_EXPORT
 void pageregions_free(PAGEREGIONS *regions);
 void pageregions_delete_one(PAGEREGIONS *regions,int index);
 void pageregions_insert(PAGEREGIONS *dst,int index,PAGEREGIONS *src);
@@ -1033,11 +1042,14 @@ int  wrapbmp_remaining(WRAPBMP *wrapbmp,K2PDFOPT_SETTINGS *k2settings);
 void wrapbmp_add(WRAPBMP *wrapbmp,BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                  MASTERINFO *masterinfo,int colgap,int justification_flags);
 void wrapbmp_flush(MASTERINFO *masterinfo,K2PDFOPT_SETTINGS *k2settings,int allow_full_justify);
+K2PDFOPT_EXPORT
 void wrectmaps_init(WRECTMAPS *wrectmaps);
+K2PDFOPT_EXPORT
 void wrectmaps_free(WRECTMAPS *wrectmaps);
 void wrectmaps_clear(WRECTMAPS *wrectmaps);
 void wrectmaps_add_wrectmap(WRECTMAPS *wrectmaps,WRECTMAP *wrectmap);
 void wrectmaps_scale_wrapbmp_coords(WRECTMAPS *wrectmaps,double scalew,double scaleh);
+K2PDFOPT_EXPORT
 int  wrectmap_inside(WRECTMAP *wrmap,int xc,int yc);
 void wrectmaps_sort_horizontally(WRECTMAPS *wrectmaps);
 void wrectmap_write_bmp(WRECTMAP *wrectmap,int index,BMPREGION *region);

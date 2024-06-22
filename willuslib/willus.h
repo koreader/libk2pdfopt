@@ -22,6 +22,12 @@
 #ifndef __INCLUDED_WILLUS_H__
 #define __INCLUDED_WILLUS_H__
 
+#if !defined(WILLUS_EXPORT) && defined(__GNUC__)
+#  define WILLUS_EXPORT __attribute__((visibility("default")))
+#elif !defined(WILLUS_EXPORT)
+#  define WILLUS_EXPORT
+#endif
+
 /*
 ** Turbo C:         __TURBOC__
 ** MS-DOS GNU C:    __GO32__
@@ -559,9 +565,13 @@ void bmp8_to_grey(WILLUSBITMAP *bmap);
 void bmp8_to_bw(WILLUSBITMAP *bmap,int thresh);
 int  bmp8_greylevel_convert(int r,int g,int b);
 #define bmp8_graylevel_convert(r,g,b) bmp8_greylevel_convert(r,g,b)
+WILLUS_EXPORT
 void bmp_init(WILLUSBITMAP *bmap);
+WILLUS_EXPORT
 int  bmp_alloc(WILLUSBITMAP *bmap);
+WILLUS_EXPORT
 int  bmp_bytewidth(WILLUSBITMAP *bmp);
+WILLUS_EXPORT
 unsigned char *bmp_rowptr_from_top(WILLUSBITMAP *bmp,int row);
 void bmp_crop(WILLUSBITMAP *bmp,int x0,int y0_from_top,int width,int height);
 void bmp_crop_ex(WILLUSBITMAP *dst,WILLUSBITMAP *src,int x0,int y0_from_top,int width,int height);
@@ -569,11 +579,13 @@ void bmp_rotate_fast(WILLUSBITMAP *dst,double degrees,int expand);
 int  bmp_rotate_right_angle(WILLUSBITMAP *bmp,int degrees);
 int  bmp_rotate_90(WILLUSBITMAP *bmp);
 int  bmp_rotate_270(WILLUSBITMAP *bmp);
+WILLUS_EXPORT
 int  bmp_copy(WILLUSBITMAP *dest,WILLUSBITMAP *src);
 double bmp_jpeg_bytes_per_pixel(int quality);
 void bmp_flip_horizontal(WILLUSBITMAP *bmp);
 void bmp_flip_vertical(WILLUSBITMAP *bmp);
 int  bmp_bytewidth_win32(WILLUSBITMAP *bmp);
+WILLUS_EXPORT
 void bmp_free(WILLUSBITMAP *bmap);
 int  bmp_read(WILLUSBITMAP *bmap,char *filename,FILE *out);
 void bmp24_reduce_size(WILLUSBITMAP *bmp,int mx,int my);

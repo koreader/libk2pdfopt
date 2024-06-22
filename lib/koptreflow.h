@@ -24,7 +24,9 @@
 #include "k2pdfopt.h"
 #include "context.h"
 
+K2PDFOPT_EXPORT
 void k2pdfopt_reflow_bmp(KOPTContext *kctx);
+K2PDFOPT_EXPORT
 void pixmap_to_bmp(WILLUSBITMAP *bmp, unsigned char *pix_data, int ncomp);
 
 #endif
