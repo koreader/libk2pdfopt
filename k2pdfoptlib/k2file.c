@@ -1908,7 +1908,8 @@ void k2file_look_for_pagebreakmarks(K2PAGEBREAKMARKS *k2pagebreakmarks,
 #if (WILLUSDEBUGX & 0x800000)
 printf("@k2file_look_for_pagebreakmarks.\n");
 printf("    k2pagebreakmarks = %p\n",k2pagebreakmarks);
-printf("    n=%d\n",k2pagebreakmarks->n);
+if (k2pagebreakmarks)
+    printf("    n=%d\n",k2pagebreakmarks->n);
 #endif
     if (k2pagebreakmarks==NULL)
         return;
