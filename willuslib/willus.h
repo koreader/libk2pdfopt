@@ -571,7 +571,6 @@ WILLUS_EXPORT
 int  bmp_alloc(WILLUSBITMAP *bmap);
 WILLUS_EXPORT
 int  bmp_bytewidth(WILLUSBITMAP *bmp);
-WILLUS_EXPORT
 unsigned char *bmp_rowptr_from_top(WILLUSBITMAP *bmp,int row);
 void bmp_crop(WILLUSBITMAP *bmp,int x0,int y0_from_top,int width,int height);
 void bmp_crop_ex(WILLUSBITMAP *dst,WILLUSBITMAP *src,int x0,int y0_from_top,int width,int height);
