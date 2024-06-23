@@ -57,9 +57,15 @@ void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 		char *word, int max_length,
 		char *datadir, char *lang, int ocr_type,
 		int allow_spaces, int std_proc) {
+	WILLUSBITMAP srcgrey;
 	k2pdfopt_tocr_init(datadir, lang);
 	if (tess_api == NULL)
 		return;
+	bmp_init(&srcgrey);
+	if (src->bpp != 8) {
+		bmp_convert_to_greyscale_ex(&srcgrey, src);
+		src = &srcgrey;
+	}
 	OCRWORDS ocrwords = { NULL, 0, 0 };
 	ocrtess_ocrwords_from_bmp8(tess_api, &ocrwords, src, x, y, x + w - 1, y + h - 1, dpi, ocr_type, 1., stderr);
 	if (ocrwords.n) {
@@ -70,6 +76,7 @@ void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 	else
 		word[0] = '\0';
 	ocrwords_free(&ocrwords);
+	bmp_free(&srcgrey);
 }
 
 const char* k2pdfopt_tocr_get_language() {
@@ -106,7 +113,7 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 		pnai = &kctx->nnai;
 	}
 
-	if (*pboxa == NULL && *pnai == NULL && src->bpp == 8) {
+	if (*pboxa == NULL && *pnai == NULL && src->bpp) {
 		assert(x + w <= src->width);
 		assert(y + h <= src->height);
 		pixs = bitmap2pix(src, x, y, w, h);
@@ -144,14 +151,23 @@ void k2pdfopt_get_native_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 
 PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h) {
 	PIX* pix = pixCreate(w, h, 8);
-	unsigned char *rpt = src->data;
+	unsigned char *rpt;
+	WILLUSBITMAP srcgrey;
 	int i, j;
+	bmp_init(&srcgrey);
+	if (src->bpp == 8) {
+		rpt = src->data;
+	} else {
+		bmp_convert_to_greyscale_ex(&srcgrey, src);
+		rpt = srcgrey.data;
+	}
 	for (i = y; i < y + h; ++i) {
 		l_uint32 *lwpt = pixGetData(pix) + i * pixGetWpl(pix);
 		for (j = x; j < x + w; ++j) {
 			SET_DATA_BYTE(lwpt, j, *rpt++);
 		}
 	}
+	bmp_free(&srcgrey);
 	return pix;
 }
 
