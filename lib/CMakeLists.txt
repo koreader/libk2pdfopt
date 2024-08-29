@@ -10,7 +10,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(Leptonica lept REQUIRED IMPORTED_TARGET)
 pkg_check_modules(Tesseract tesseract REQUIRED IMPORTED_TARGET)
 
-add_library(k2pdfopt SHARED
+add_library(k2pdfopt
     koptcrop.c
     koptimize.c
     koptocr.c
