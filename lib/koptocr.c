@@ -52,7 +52,7 @@ void k2pdfopt_tocr_init(char *datadir, char *lang) {
 	}
 }
 
-void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
+int k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 		int x, int y, int w, int h, int dpi,
 		char *word, int max_length,
 		char *datadir, char *lang, int ocr_type,
@@ -60,7 +60,7 @@ void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 	WILLUSBITMAP srcgrey;
 	k2pdfopt_tocr_init(datadir, lang);
 	if (tess_api == NULL)
-		return;
+		return 1;
 	bmp_init(&srcgrey);
 	if (src->bpp != 8) {
 		bmp_convert_to_greyscale_ex(&srcgrey, src);
@@ -77,6 +77,7 @@ void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 		word[0] = '\0';
 	ocrwords_free(&ocrwords);
 	bmp_free(&srcgrey);
+	return 0;
 }
 
 const char* k2pdfopt_tocr_get_language() {

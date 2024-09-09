@@ -34,7 +34,7 @@ void k2pdfopt_tocr_end();
 const char* k2pdfopt_tocr_get_language();
 
 K2PDFOPT_EXPORT
-void k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
+int k2pdfopt_tocr_single_word(WILLUSBITMAP *src,
 		int x, int y, int w, int h, int dpi,
 		char *word, int max_length,
 		char *datadir, char *lang, int ocr_type,
