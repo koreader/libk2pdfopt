@@ -583,7 +583,7 @@ printf("    row[%2d].lc/h5050/cap = %3d %3d %3d\n",i,textrows->textrow[i].lcheig
             rh = textrows->textrow[i-1].rowheight;
         if (i>0 && (rh<0 || rh > textrows->textrow[i].rowheight))
             rh = textrows->textrow[i].rowheight;
-        if (rh<0 || rh > textrows->textrow[i+1].rowheight)
+        if (i<textrows->n-1 && (rh<0 || rh > textrows->textrow[i+1].rowheight))
             rh = textrows->textrow[i+1].rowheight;
 
         /* Make sure it's not too big */
