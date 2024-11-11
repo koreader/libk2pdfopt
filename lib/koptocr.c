@@ -41,7 +41,7 @@ void* tess_api = NULL;
 
 void k2pdfopt_tocr_init(char *datadir, char *lang) {
 	if (tess_api != NULL && strncmp(lang, k2pdfopt_tocr_get_language(tess_api), 32)) {
-		k2pdfopt_tocr_end(tess_api);
+		k2pdfopt_tocr_end();
 	}
 	if (tess_api == NULL) {
 		int status;
@@ -84,7 +84,7 @@ const char* k2pdfopt_tocr_get_language() {
 	return tess_capi_get_init_language(tess_api);
 }
 
-void k2pdfopt_tocr_end() {
+void k2pdfopt_tocr_end(void) {
 	if (tess_api != NULL) {
 		ocrtess_end(tess_api);
 		tess_api = NULL;
