@@ -31,13 +31,14 @@
 #include "setting.h"
 #include "koptocr.h"
 
-K2PDFOPT_EXPORT
-PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h);
-l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs,
+static l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs,
 		l_int32 reduction, l_int32 minwidth, l_int32 minheight,
 		l_int32 maxwidth, l_int32 maxheight, BOXA **pboxad, NUMA **pnai);
 
-void* tess_api = NULL;
+static int k2pdfopt_get_word_boxes_from_tesseract(PIX *pixs, int is_cjk,
+		BOXA **pboxad, NUMA **pnai);
+
+static void* tess_api = NULL;
 
 void k2pdfopt_tocr_init(char *datadir, char *lang) {
 	if (tess_api != NULL && strncmp(lang, k2pdfopt_tocr_get_language(tess_api), 32)) {
@@ -263,3 +264,5 @@ l_int32 k2pdfopt_pixGetWordBoxesInTextlines(PIX *pixs,
 	numaaDestroy(&naa);
 	return 0;
 }
+
+// vim: noexpandtab shiftwidth=4 softtabstop=4 tabstop=4
