@@ -151,24 +151,23 @@ void k2pdfopt_get_native_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 }
 
 PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h) {
-	PIX* pix = pixCreate(w, h, 8);
-	unsigned char *rpt;
-	WILLUSBITMAP srcgrey;
-	int i, j;
-	bmp_init(&srcgrey);
+	PIX *pix = pixCreateNoInit(w, h, 8);
 	if (src->bpp == 8) {
-		rpt = src->data;
+		for (int i = 0; i < h; ++i) {
+			const l_uint8 *s = src->data + (i + y) * src->width + x;
+			l_uint32 *d = pixGetData(pix) + i * pixGetWpl(pix);
+			for (int j = 0; j < w; ++j)
+				SET_DATA_BYTE(d, j, *s++);
+		}
 	} else {
-		bmp_convert_to_greyscale_ex(&srcgrey, src);
-		rpt = srcgrey.data;
-	}
-	for (i = y; i < y + h; ++i) {
-		l_uint32 *lwpt = pixGetData(pix) + i * pixGetWpl(pix);
-		for (j = x; j < x + w; ++j) {
-			SET_DATA_BYTE(lwpt, j, *rpt++);
+		assert(src->bpp == 24);
+		for (int i = 0; i < h; ++i) {
+			const l_uint8 *s = src->data + ((i + y) * src->width + x) * 3;
+			l_uint32 *d = pixGetData(pix) + i * pixGetWpl(pix);
+			for (int j = 0; j < w; ++j, s += 3)
+				SET_DATA_BYTE(d, j, bmp8_greylevel_convert(s[0], s[1], s[2]));
 		}
 	}
-	bmp_free(&srcgrey);
 	return pix;
 }
 
