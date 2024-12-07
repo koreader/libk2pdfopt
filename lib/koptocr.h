@@ -29,7 +29,7 @@
 void k2pdfopt_tocr_init(char *datadir, char *lang);
 
 K2PDFOPT_EXPORT
-void k2pdfopt_tocr_end();
+void k2pdfopt_tocr_end(void);
 
 const char* k2pdfopt_tocr_get_language();
 
