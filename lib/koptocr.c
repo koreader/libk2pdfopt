@@ -41,7 +41,7 @@ static int k2pdfopt_get_word_boxes_from_tesseract(PIX *pixs, int is_cjk,
 static void* tess_api = NULL;
 
 void k2pdfopt_tocr_init(char *datadir, char *lang) {
-	if (tess_api != NULL && strncmp(lang, k2pdfopt_tocr_get_language(tess_api), 32)) {
+	if (tess_api != NULL && strncmp(lang, k2pdfopt_tocr_get_language(), 32)) {
 		k2pdfopt_tocr_end();
 	}
 	if (tess_api == NULL) {
