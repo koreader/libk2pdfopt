@@ -123,6 +123,12 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     kctx->page_height = kctx->dst.height;
     kctx->precache = 0;
 
+    /* Free previous word box data before overwriting */
+    boxaDestroy(&kctx->rboxa);
+    boxaDestroy(&kctx->nboxa);
+    numaDestroy(&kctx->rnai);
+    numaDestroy(&kctx->nnai);
+
     int j;
     BOXA *rboxa = boxaCreate(masterinfo->rectmaps.n);
     BOXA *nboxa = boxaCreate(masterinfo->rectmaps.n);
