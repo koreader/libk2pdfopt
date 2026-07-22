@@ -27,6 +27,7 @@
  **
  */
 
+#include <assert.h>
 #include "setting.h"
 #include "koptocr.h"
 
