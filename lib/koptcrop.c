@@ -89,7 +89,10 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	 * 2. 2*x*k = m
 	 * which should be solved to x = m*a/(w-m)/2
 	*/
-	margin = margin*(region->c2 - region->c1)/(kctx->dev_width - margin)/2;
+	if (kctx->dev_width > margin)
+		margin = margin*(region->c2 - region->c1)/(kctx->dev_width - margin)/2;
+	else
+		margin = 0;
 
 	if (kctx->trim == 1) {
 		kctx->bbox.x0 = (float)region->c1 - min(margin, region->c1 - original_c1); // margin left
