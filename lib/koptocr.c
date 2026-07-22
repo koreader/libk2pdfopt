@@ -27,7 +27,6 @@
  **
  */
 
-#include <assert.h>
 #include "setting.h"
 #include "koptocr.h"
 
@@ -116,9 +115,11 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 	}
 
 	if (*pboxa == NULL && *pnai == NULL && src->bpp) {
-		assert(x + w <= src->width);
-		assert(y + h <= src->height);
+		if (x < 0 || y < 0 || x + w > src->width || y + h > src->height)
+			return;
 		pixs = bitmap2pix(src, x, y, w, h);
+		if (pixs == NULL)
+			return;
 		if (kctx->cjkchar) {
 			if (k2pdfopt_get_word_boxes_from_tesseract(pixs, kctx->cjkchar,
 					pboxa, pnai) != 0) {
@@ -160,8 +161,7 @@ PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h) {
 			for (int j = 0; j < w; ++j)
 				SET_DATA_BYTE(d, j, *s++);
 		}
-	} else {
-		assert(src->bpp == 24);
+	} else if (src->bpp == 24) {
 		for (int i = 0; i < h; ++i) {
 			const l_uint8 *s = src->data + ((i + y) * src->width + x) * 3;
 			l_uint32 *d = pixGetData(pix) + i * pixGetWpl(pix);
