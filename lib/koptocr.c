@@ -93,8 +93,8 @@ void k2pdfopt_tocr_end(void) {
 
 void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 		int x, int y, int w, int h, int box_type) {
-	static K2PDFOPT_SETTINGS _k2settings, *k2settings;
-	static char initstr[256];
+	K2PDFOPT_SETTINGS _k2settings, *k2settings;
+	char initstr[256];
 	PIX *pixs, *pixb;
 	BOXA **pboxa;
 	NUMA **pnai;
