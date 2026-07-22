@@ -29,10 +29,6 @@
 #include "setting.h"
 #include "koptcrop.h"
 
-float min(float a, float b) {
-    return (a < b) ? a : b;
-}
-
 void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 	static char *funcname="k2pdfopt_crop_bmp";
 	K2PDFOPT_SETTINGS _k2settings, *k2settings;
@@ -95,10 +91,10 @@ void k2pdfopt_crop_bmp(KOPTContext *kctx) {
 		margin = 0;
 
 	if (kctx->trim == 1) {
-		kctx->bbox.x0 = (float)region->c1 - min(margin, region->c1 - original_c1); // margin left
-		kctx->bbox.y0 = (float)region->r1 - min(margin, region->r1 - original_r1); // margin top;
-		kctx->bbox.x1 = (float)region->c2 + min(margin, original_c2 - region->c2); // margin right;
-		kctx->bbox.y1 = (float)region->r2 + min(margin, original_r2 - region->r2); // margin bottom;
+		kctx->bbox.x0 = (float)region->c1 - fminf(margin, region->c1 - original_c1); // margin left
+		kctx->bbox.y0 = (float)region->r1 - fminf(margin, region->r1 - original_r1); // margin top;
+		kctx->bbox.x1 = (float)region->c2 + fminf(margin, original_c2 - region->c2); // margin right;
+		kctx->bbox.y1 = (float)region->r2 + fminf(margin, original_r2 - region->r2); // margin bottom;
 	} else {
 		kctx->bbox.x0 = (float)region->c1 - margin;
 		kctx->bbox.y0 = (float)region->r1 - margin;
