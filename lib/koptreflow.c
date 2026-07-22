@@ -35,6 +35,8 @@ void pixmap_to_bmp(WILLUSBITMAP *bmp, unsigned char *pix_data, int ncomp) {
     int i,j;
     unsigned char *b, *p;
 
+    if (!pix_data || bmp->width <= 0 || bmp->height <= 0)
+        return;
     if (ncomp == 2) {
         bmp->bpp = 8;
         bmp_alloc(bmp);
