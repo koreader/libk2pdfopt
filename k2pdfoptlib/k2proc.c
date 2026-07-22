@@ -3406,7 +3406,7 @@ printf("        tr1->rowheight = %d\n",tr1->rowheight);
 #endif
 
     /* If wrapping, don't want to go line by line--use the median values for uniformity. */
-    if (allow_text_wrapping && mlp->median_line_spacing>0.)
+    if (allow_text_wrapping)
         if (mlp->median_line_spacing > 0.)
             row_line_spacing_pixels = mlp->median_line_spacing;
         else
