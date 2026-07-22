@@ -117,6 +117,8 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 	}
 
 	if (*pboxa == NULL && *pnai == NULL && src->bpp) {
+		assert(x + w <= src->width);
+		assert(y + h <= src->height);
 		if (x < 0 || y < 0 || x + w > src->width || y + h > src->height)
 			return;
 		pixs = bitmap2pix(src, x, y, w, h);
