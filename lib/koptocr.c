@@ -112,6 +112,8 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 	} else if (box_type == 1) {
 		pboxa = &kctx->nboxa;
 		pnai = &kctx->nnai;
+	} else {
+		return;
 	}
 
 	if (*pboxa == NULL && *pnai == NULL && src->bpp) {
