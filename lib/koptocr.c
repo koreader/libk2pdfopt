@@ -155,7 +155,11 @@ void k2pdfopt_get_native_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 }
 
 PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h) {
-	PIX *pix = pixCreateNoInit(w, h, 8);
+	PIX *pix;
+	if (!src || !src->data || x < 0 || y < 0 || w <= 0 || h <= 0
+			|| x + w > src->width || y + h > src->height)
+		return NULL;
+	pix = pixCreateNoInit(w, h, 8);
 	if (src->bpp == 8) {
 		for (int i = 0; i < h; ++i) {
 			const l_uint8 *s = src->data + (i + y) * src->width + x;
