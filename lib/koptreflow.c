@@ -128,6 +128,7 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     boxaDestroy(&kctx->nboxa);
     numaDestroy(&kctx->rnai);
     numaDestroy(&kctx->nnai);
+    wrectmaps_clear(&kctx->rectmaps);
 
     int j;
     BOXA *rboxa = boxaCreate(masterinfo->rectmaps.n);
