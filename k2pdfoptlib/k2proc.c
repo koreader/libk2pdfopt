@@ -1908,7 +1908,7 @@ printf("After remove small rows:  %d rows left\n",textrows->n);
         int bw,jmax;
 
         rows_per_column=region->r2+2;
-        memset(pixel_count_array,0,sizeof(int)*(region->c2+2)+(region->r2+2));
+        memset(pixel_count_array,0,sizeof(int)*(region->c2+2)*(region->r2+2));
         bw=bmp_bytewidth(region->bmp8);
         jmax = region->r2+2;
         /* Don't exceed bitmap height--v1.66 fix, 7-22-2013 */
