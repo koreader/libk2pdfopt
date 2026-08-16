@@ -94,8 +94,8 @@ void k2pdfopt_tocr_end(void) {
 
 void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 		int x, int y, int w, int h, int box_type) {
-	static K2PDFOPT_SETTINGS _k2settings, *k2settings;
-	static char initstr[256];
+	K2PDFOPT_SETTINGS _k2settings, *k2settings;
+	char initstr[256];
 	PIX *pixs, *pixb;
 	BOXA **pboxa;
 	NUMA **pnai;
@@ -113,12 +113,18 @@ void k2pdfopt_get_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 	} else if (box_type == 1) {
 		pboxa = &kctx->nboxa;
 		pnai = &kctx->nnai;
+	} else {
+		return;
 	}
 
 	if (*pboxa == NULL && *pnai == NULL && src->bpp) {
 		assert(x + w <= src->width);
 		assert(y + h <= src->height);
+		if (x < 0 || y < 0 || x + w > src->width || y + h > src->height)
+			return;
 		pixs = bitmap2pix(src, x, y, w, h);
+		if (pixs == NULL)
+			return;
 		if (kctx->cjkchar) {
 			if (k2pdfopt_get_word_boxes_from_tesseract(pixs, kctx->cjkchar,
 					pboxa, pnai) != 0) {
@@ -152,7 +158,11 @@ void k2pdfopt_get_native_word_boxes(KOPTContext *kctx, WILLUSBITMAP *src,
 }
 
 PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h) {
-	PIX *pix = pixCreateNoInit(w, h, 8);
+	PIX *pix;
+	if (!src || !src->data || x < 0 || y < 0 || w <= 0 || h <= 0
+			|| x + w > src->width || y + h > src->height)
+		return NULL;
+	pix = pixCreateNoInit(w, h, 8);
 	if (src->bpp == 8) {
 		for (int i = 0; i < h; ++i) {
 			const l_uint8 *s = src->data + (i + y) * src->width + x;
@@ -160,8 +170,7 @@ PIX* bitmap2pix(WILLUSBITMAP *src, int x, int y, int w, int h) {
 			for (int j = 0; j < w; ++j)
 				SET_DATA_BYTE(d, j, *s++);
 		}
-	} else {
-		assert(src->bpp == 24);
+	} else if (src->bpp == 24) {
 		for (int i = 0; i < h; ++i) {
 			const l_uint8 *s = src->data + ((i + y) * src->width + x) * 3;
 			l_uint32 *d = pixGetData(pix) + i * pixGetWpl(pix);
