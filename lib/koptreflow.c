@@ -150,15 +150,14 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     }
     /* 2D sort the bounding boxes of these words. */
     BOXAA *rbaa = boxaSort2d(rboxa, NULL, 3, -5, 5);
+    boxaDestroy(&rboxa);
     BOXAA *nbaa = boxaSort2d(nboxa, NULL, 3, -5, 5);
+    boxaDestroy(&nboxa);
 
     /* Flatten the boxaa, saving the boxa index for each box */
     kctx->rboxa = boxaaFlattenToBoxa(rbaa, &kctx->rnai, L_CLONE);
-    kctx->nboxa = boxaaFlattenToBoxa(nbaa, &kctx->nnai, L_CLONE);
-
-    boxaDestroy(&rboxa);
     boxaaDestroy(&rbaa);
-    boxaDestroy(&nboxa);
+    kctx->nboxa = boxaaFlattenToBoxa(nbaa, &kctx->nnai, L_CLONE);
     boxaaDestroy(&nbaa);
 
     bmp_free(src);
