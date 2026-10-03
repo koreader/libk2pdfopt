@@ -1,0 +1,79 @@
+name: CI
+
+permissions:
+  contents: read
+
+on: [push, pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  linux:
+
+    strategy:
+      fail-fast: false
+      matrix:
+        flavor: [Debug, Release]
+
+    name: Build & Lint (${{ matrix.flavor }})
+    runs-on: ubuntu-26.04
+
+    env:
+      CLICOLOR_FORCE: "1"
+
+    steps:
+
+    - name: Checkout
+      uses: actions/checkout@v7.0.1
+      with:
+          clean: false
+          show-progress: false
+
+    - name: Install prerequisites
+      run: |
+        set -ex
+        # Install buildcache.
+        mkdir -p ~/.local
+        wget https://gitlab.com/bits-n-bites/buildcache/-/releases/v0.33.0/downloads/buildcache-linux-amd64.tar.gz
+        tar xvf buildcache-linux-amd64.tar.gz -C ~/.local --strip-components=1
+        buildcache -V
+        # Install linters and build dependencies.
+        packages=(
+          clang-tidy
+          cppcheck
+          libleptonica-dev
+          libtesseract-dev
+        )
+        sudo apt-get update && sudo apt-get install --no-install-recommends "${packages[@]}"
+        # Get a more recent version of cppcheck (for `--exitcode-suppress=…` support).
+        wget http://archive.ubuntu.com/ubuntu/pool/universe/c/cppcheck/cppcheck_2.21.0-1_amd64.deb
+        sudo dpkg -i *.deb
+
+    - name: Cache buildcache directory
+      uses: actions/cache@v6.1.0
+      with:
+        path: bcache
+        key: ${{ runner.os }}-bcache-${{ matrix.flavor }}-${{ github.sha }}
+        restore-keys: ${{ runner.os }}-bcache-${{ matrix.flavor }}-
+
+    - name: Setup problem matchers
+      run: |
+        set -x
+        echo '::add-matcher::.github/problem-matchers.json'
+
+    - name: Configure
+      run: |
+        cmake -B build -S lib -G Ninja \
+          -DCMAKE_BUILD_TYPE=${{ matrix.flavor }} \
+          -DCMAKE_COLOR_DIAGNOSTICS=ON 2>&1
+        printf '%s\n' NINJA_STATUS="$(printf '\e[32;1m%%p⎹\e[0m ')" >>"${GITHUB_ENV}"
+        printf '%s\n' BUILDCACHE_DIR="$PWD/bcache" >>"${GITHUB_ENV}"
+
+    - name: Build
+      run: ninja -C build -k0 2>&1
+
+    - name: Lint
+      run: ninja -C build lint -k0 2>&1
