@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.15)
 project(k2pdfopt LANGUAGES C CXX)
 
+# Create `compile_commands.json` in the build directory
+# (used by clang-tidy / cppcheck to extract compiler flags).
+set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
+
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
+
 option(DISABLED_LEGACY_ENGINE "Disable the legacy OCR engine" OFF)
 set(LEPTONICA_PATCH auto CACHE STRING "Use patched Leptonica (auto|off|on)")
 
@@ -115,3 +121,30 @@ install(FILES
     ../willuslib/willus.h
     DESTINATION ${CMAKE_INSTALL_PREFIX}/include/k2pdfopt
 )
+
+# linting {{{
+
+set(CPPCHECK_FLAGS
+    --check-level=exhaustive
+    --error-exitcode=2
+    --inline-suppr
+    --platform=unix64
+    --std=c++17
+    --template=gcc
+)
+
+include(linting_cpp)
+
+get_target_property(SRCS k2pdfopt SOURCES)
+foreach(F IN LISTS SRCS)
+    add_clangtidy_target(${F} k2pdfopt)
+    add_cppcheck_target(${F} k2pdfopt)
+endforeach()
+
+# }}}
+
+if(PROJECT_PATCH)
+    include(${PROJECT_PATCH})
+endif()
+
+# vim: foldmethod=marker foldlevel=0
