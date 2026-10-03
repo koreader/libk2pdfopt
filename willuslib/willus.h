@@ -291,7 +291,7 @@ typedef double  real;
 #ifdef USE_CMAKE
 #include "config.h"
 #else /* USE_CMAKE */
-/*
+#if 0
 #ifndef HAVE_Z_LIB
 #define HAVE_Z_LIB
 #endif
@@ -313,12 +313,12 @@ typedef double  real;
 #ifndef HAVE_GOCR_LIB
 #define HAVE_GOCR_LIB
 #endif
-*/
 #ifndef HAVE_LEPTONICA_LIB
 #define HAVE_LEPTONICA_LIB
 #endif
 #ifndef HAVE_TESSERACT_LIB
 #define HAVE_TESSERACT_LIB
+#endif
 #endif
 /*
 ** Defines for presence of Jasper and GSL (Gnu Scientific Library).
@@ -347,11 +347,13 @@ typedef double  real;
 /*
 ** Consistency check
 */
+#if 0
 #if (!defined(HAVE_Z_LIB) && defined(HAVE_PNG_LIB))
 #undef HAVE_PNG_LIB
 #endif
 #if (!defined(HAVE_LEPTONICA_LIB) && defined(HAVE_TESSERACT_LIB))
 #undef HAVE_TESSERACT_LIB
+#endif
 #endif
 
 #include <stdio.h>
