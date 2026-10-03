@@ -1,0 +1,32 @@
+{
+    "problemMatcher": [
+        {
+            "owner": "clang-tidy",
+            "pattern": [
+                {
+                    "regexp": "^(?:\\x1b\\[[0-9;]+m)*(.+):(\\d+):(\\d+):\\s+(?:\\x1b\\[[0-9;]+m)*(warning|error):\\s+(?:\\x1b\\[[0-9;]+m)*(.*)\\s+\\[(.+)\\](?:\\x1b\\[[0-9;]+m)*$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5,
+                    "code": 6
+                }
+            ]
+        },
+        {
+            "owner": "cppcheck",
+            "pattern": [
+                {
+                    "regexp": "^(?:\\x1b\\[[0-9;]+m)*(.+):([0-9;]+):(\\d+):\\s+(?:\\x1b\\[[0-9;]+m)*(warning|error):(?:\\x1b\\[[0-9;]+m)*\\s+(.+)\\s+\\[(.+)\\](?:\\x1b\\[[0-9;]+m)*$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5,
+                    "code": 6
+                }
+            ]
+        }
+    ]
+}
