@@ -22,7 +22,6 @@
 #define _KOPTOCR_H
 
 #include "context.h"
-#include "k2pdfopt.h"
 #include "leptonica.h"
 #include "tesseract.h"
 
