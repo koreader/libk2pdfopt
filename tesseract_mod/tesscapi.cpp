@@ -42,6 +42,7 @@
 
 #include <allheaders.h>
 #include <tesseract/baseapi.h>
+#include <memory>
 /*
 #include "notdll.h"
 */
@@ -282,6 +283,69 @@ int tess_capi_get_ocr(void *vapi,PIX *pix,char *outstr,int maxlen,int segmode,FI
     return(0);
     }
 
+static int GetOCRWords(tesseract::TessBaseAPI *api,int **x00,int **y00,int **x11,int **y11,int **ybaseline0, char **utf8words)
+
+    {
+    using namespace tesseract;
+    int iword,nwords,totlen,it8;
+    int *x0,*y0,*x1,*y1,*ybaseline;
+    char *tutf8;
+
+    ResultIterator *res_it = api->GetIterator();
+    /* Count words */
+    iword=0;
+    totlen=0;
+    while (!res_it->Empty(RIL_BLOCK))
+        {
+        if (res_it->Empty(RIL_WORD))
+            {
+            res_it->Next(RIL_WORD);
+            continue;
+            }
+        iword++;
+        std::string textstr=std::unique_ptr<const char[]>(res_it->GetUTF8Text(RIL_WORD)).get();
+        totlen+=textstr.length()+1;
+        res_it->Next(RIL_WORD);
+        }
+    nwords=iword;
+    x0=(*x00)=(int *)malloc(sizeof(int)*5*nwords);
+    y0=(*y00)=&x0[nwords];
+    x1=(*x11)=&y0[nwords];
+    y1=(*y11)=&x1[nwords];
+    ybaseline=(*ybaseline0)=&y1[nwords];
+    tutf8=(*utf8words)=(char *)malloc(totlen);
+    iword=0;
+    it8=0;
+    res_it->Begin();
+    while (!res_it->Empty(RIL_BLOCK))
+        {
+        int len;
+
+        if (res_it->Empty(RIL_WORD))
+            {
+            res_it->Next(RIL_WORD);
+            continue;
+            }
+        std::string textstr=std::unique_ptr<const char[]>(res_it->GetUTF8Text(RIL_WORD)).get();
+        len=textstr.length();
+        for (int i=0;i<len;i++)
+            tutf8[it8+i]=textstr.at(i);
+        tutf8[it8+len]='\0';
+        it8 += len+1;
+        int left, top, right, bottom;
+        int u1,v1,u2,v2;
+        res_it->BoundingBox(RIL_WORD, &left, &top, &right, &bottom);
+        res_it->Baseline(RIL_WORD, &u1, &v1, &u2, &v2);
+        x0[iword]=left;
+        x1[iword]=right;
+        y0[iword]=top;
+        y1[iword]=bottom;
+        ybaseline[iword]=(v1+v2)/2;
+        iword++;
+        res_it->Next(RIL_WORD);
+        }
+    return(iword);
+    }
 
 int tess_capi_get_ocr_multiword(void *vapi,PIX *pix,int segmode,
                                 int **left,int **top,int **right,int **bottom,
@@ -306,7 +370,7 @@ int tess_capi_get_ocr_multiword(void *vapi,PIX *pix,int segmode,
         (*nw)=0;
         return(-1);
         }
-    (*nw)=api->GetOCRWords(left,top,right,bottom,ybase,text);
+    (*nw)=GetOCRWords(api, left,top,right,bottom,ybase,text);
     api->Clear();
     return(0);
     }
