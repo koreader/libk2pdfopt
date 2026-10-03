@@ -2,13 +2,33 @@ cmake_minimum_required(VERSION 3.15)
 project(k2pdfopt LANGUAGES C CXX)
 
 option(DISABLED_LEGACY_ENGINE "Disable the legacy OCR engine" OFF)
+set(LEPTONICA_PATCH auto CACHE STRING "Use patched Leptonica (auto|off|on)")
 
 set(THREADS_PREFER_PTHREAD_FLAG TRUE)
 find_package(Threads REQUIRED)
 
 find_package(PkgConfig REQUIRED)
+
+include(CheckSymbolExists)
+
+set(DEFS)
+set(LIBS)
+
 pkg_check_modules(Leptonica lept REQUIRED IMPORTED_TARGET)
+if(LEPTONICA_PATCH)
+    set(CMAKE_REQUIRED_LIBRARIES PkgConfig::Leptonica)
+    check_symbol_exists(dewarpBuildPageModel_ex allheaders.h HAS_LEPTONICA_PATCH)
+    if(HAS_LEPTONICA_PATCH)
+        list(APPEND DEFS HAVE_LEPTONICA_LIB)
+    elseif(LEPTONICA_PATCH AND NOT LEPTONICA_PATCH MATCHES [[^[Aa][Uu][Tt][Oo]$]])
+        message(FATAL_ERROR "leptonica is not patched!")
+    endif()
+endif()
+list(APPEND LIBS PkgConfig::Leptonica)
+
 pkg_check_modules(Tesseract tesseract REQUIRED IMPORTED_TARGET)
+list(APPEND DEFS HAVE_TESSERACT_LIB)
+list(APPEND LIBS PkgConfig::Tesseract)
 
 add_library(k2pdfopt
     koptcrop.c
@@ -60,7 +80,7 @@ set_target_properties(k2pdfopt PROPERTIES
     CXX_VISIBILITY_PRESET hidden
     VISIBILITY_INLINES_HIDDEN TRUE
 )
-target_compile_definitions(k2pdfopt PRIVATE BUILDING_LIBK2PDFOPT NO_FILELIST)
+target_compile_definitions(k2pdfopt PRIVATE BUILDING_LIBK2PDFOPT NO_FILELIST ${DEFS})
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_definitions(k2pdfopt PRIVATE K2PDFOPT_DEBUG)
     target_sources(k2pdfopt PRIVATE
@@ -76,7 +96,7 @@ if(DISABLED_LEGACY_ENGINE)
     target_compile_definitions(k2pdfopt PRIVATE DISABLED_LEGACY_ENGINE)
 endif()
 target_include_directories(k2pdfopt PRIVATE ../k2pdfoptlib ../willuslib .)
-target_link_libraries(k2pdfopt PRIVATE m PkgConfig::Leptonica PkgConfig::Tesseract Threads::Threads)
+target_link_libraries(k2pdfopt PRIVATE m Threads::Threads ${LIBS})
 if(ANDROID)
     target_link_libraries(k2pdfopt PRIVATE log)
 endif()
