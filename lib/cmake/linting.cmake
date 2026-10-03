@@ -1,0 +1,26 @@
+include_guard(GLOBAL)
+
+if(NOT CMAKE_EXPORT_COMPILE_COMMANDS)
+    message(FATAL_ERROR "CMAKE_EXPORT_COMPILE_COMMANDS not to be set!")
+endif()
+
+if("$ENV{GITHUB_ACTIONS}" STRGREATER "")
+    set(GITHUB_ACTIONS 1)
+endif()
+
+if(GITHUB_ACTIONS)
+    set(GA_GROUP ${CMAKE_CURRENT_LIST_DIR}/ga_group.sh)
+endif()
+
+function(add_chained_targets)
+    set(PREV_TGT)
+    foreach(TGT IN LISTS ARGN)
+        if(NOT TARGET ${TGT})
+            add_custom_target(${TGT})
+        endif()
+        if(PREV_TGT)
+            add_dependencies(${PREV_TGT} ${TGT})
+        endif()
+        set(PREV_TGT ${TGT})
+    endforeach()
+endfunction()
