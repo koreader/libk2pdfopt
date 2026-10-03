@@ -26,7 +26,7 @@
 #include "k2pdfopt.h"
 #include "context.h"
 
-void k2pdfopt_settings_init_from_koptcontext(K2PDFOPT_SETTINGS *k2settings, KOPTContext *kctx);
+void k2pdfopt_settings_init_from_koptcontext(K2PDFOPT_SETTINGS *k2settings, const KOPTContext *kctx);
 
 #endif
 
