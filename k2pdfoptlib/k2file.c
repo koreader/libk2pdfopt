@@ -1675,6 +1675,7 @@ static int toclist_valid(char *s,FILE *out)
     return(0);
     }
 
+#if 0
 
 /*
 ** Create outline from page list
@@ -1712,6 +1713,8 @@ static WPDFOUTLINE *wpdfoutline_from_pagelist(char *pagelist,int maxpages)
         }
     return(outline0);
     }
+
+#endif
 
 
 int get_source_type(char *filename)
