@@ -76,7 +76,6 @@ add_library(k2pdfopt
     ../willuslib/string.c
     ../willuslib/token.c
     ../willuslib/wfile.c
-    ../willuslib/wgui.c
     ../willuslib/willusversion.c
     ../willuslib/wleptonica.c
     ../willuslib/wsys.c

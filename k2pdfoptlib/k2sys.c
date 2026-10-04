@@ -153,6 +153,7 @@ int k2printf(const char *fmt,...)
     {
     va_list args;
     int     status;
+#if 0
     static void *k2printf_semaphore;
     static int count=0;
     
@@ -161,6 +162,7 @@ int k2printf(const char *fmt,...)
     count++;
     if (k2printf_semaphore)
         willusgui_semaphore_status_wait(k2printf_semaphore);
+#endif
     status=0;
     va_start(args,fmt);
 #ifdef HAVE_K2GUI
@@ -188,7 +190,9 @@ int k2printf(const char *fmt,...)
     fflush(stdout);
 #endif
     va_end(args);
+#if 0
     willusgui_semaphore_release(k2printf_semaphore);
+#endif
     return(status);
     }
 
