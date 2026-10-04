@@ -7,6 +7,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
+option(BUILD_SHARED_LIBS "build a shared library" ON)
 option(DISABLED_LEGACY_ENGINE "Disable the legacy OCR engine" OFF)
 set(LEPTONICA_PATCH auto CACHE STRING "Use patched Leptonica (auto|off|on)")
 
