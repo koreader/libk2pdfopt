@@ -123,6 +123,12 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     kctx->page_height = kctx->dst.height;
     kctx->precache = 0;
 
+    if (masterinfo->rectmaps.n <= 0) {
+        kctx->rboxa = NULL;
+        kctx->nboxa = NULL;
+        goto end;
+    }
+
     int j;
     BOXA *rboxa = boxaCreate(masterinfo->rectmaps.n);
     BOXA *nboxa = boxaCreate(masterinfo->rectmaps.n);
@@ -160,6 +166,7 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     kctx->nboxa = boxaaFlattenToBoxa(nbaa, &kctx->nnai, L_CLONE);
     boxaaDestroy(&nbaa);
 
+end:
     bmp_free(src);
     bmp_free(srcgrey);
     bmpregion_free(&region);
