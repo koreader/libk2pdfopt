@@ -509,9 +509,9 @@ int arrayf_ifft(float *xr,float *xi,int n);
 #define WILLUSBITMAP_TYPE_WIN32        1
 typedef struct
     {
-    int     red[256];
-    int     green[256];
-    int     blue[256];
+    unsigned char  red[256];
+    unsigned char  green[256];
+    unsigned char  blue[256];
     unsigned char *data;  /* Top to bottom in native type, bottom to */
                           /* top in Win32 type.                      */
     int     width;      /* Width of image in pixels */
