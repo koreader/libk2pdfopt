@@ -1522,6 +1522,7 @@ static void filelist_conditionally_add_file(FILELIST *fl,wfile *wf,
         }
     }
 
+#if 0
 
 void filelist_filter(FILELIST *fl,char *include[],char *exclude[])
 
@@ -1569,6 +1570,7 @@ void filelist_round_seconds(FILELIST *fl)
         fl->sorted=0;
     }
 
+#endif
 
 int filelist_use_file(char *fullname,char *include_only[],char *exclude[])
 

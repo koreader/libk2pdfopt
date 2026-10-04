@@ -987,6 +987,7 @@ void exp_str(char *buf,int maxlen,int decimals,double value)
     buf[j+2]='\0';
     }
 
+#if 0
 
 /*
 ** Parses most date/time formats.  The key assumption is that the time
@@ -1282,6 +1283,7 @@ int structtm_from_time(struct tm *date,char *time)
     return(0);
     }
 
+#endif
 
 /*
 ** Like strtok, but allows empty "cells".  E.g. if there are consecutive

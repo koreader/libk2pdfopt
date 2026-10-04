@@ -585,6 +585,7 @@ int wfile_date(const char *filename,struct tm *filedate)
 #endif
     }
 
+#if 0
 
 /*
 ** Add/subtract seconds from date
@@ -749,6 +750,7 @@ void wfile_set_mod_date(char *filename,struct tm *date)
 #endif
     }
 
+#endif
 
 /*
 ** see rpp.c in utility folder!
@@ -789,6 +791,7 @@ int wfile_is_regular_file(char *filename)
 #endif
     }
 
+#if 0
 
 int wfile_saved_during_daylight_savings(char *filename)
 
@@ -955,6 +958,8 @@ int wfile_leap_year(int year)
     {
     return((year%400==0) || ((year%100!=0) && (year%4==0)));
     }
+
+#endif
 
 /*
 ** Set working directory.
