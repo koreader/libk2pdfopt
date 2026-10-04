@@ -2195,9 +2195,8 @@ int wfile_slash(int c)
 double wfile_size(char *filename)
 
     {
-    double size;
-
 #if (defined(WIN32) || defined(WIN64))
+    double size;
     void *handle;
     DWORD high_order_32_bits;
     static char fullname[MAXFILENAMELEN];
@@ -2228,7 +2227,6 @@ double wfile_size(char *filename)
 #else
     return(generic_size(filename));
 #endif
-    return(size);
     }
 
 
@@ -3409,6 +3407,7 @@ void wfile_remove_file_plus_parent_dir(char *tempfile)
 
     if (tempfile[0]=='\0')
         return;
+    path[0] = '\0';
     wfile_remove_utf8(tempfile);
     wfile_basepath(path,tempfile);
     wfile_remove_dir(path,0);
