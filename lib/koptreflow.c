@@ -35,6 +35,8 @@ void pixmap_to_bmp(WILLUSBITMAP *bmp, unsigned char *pix_data, int ncomp) {
     int i,j;
     unsigned char *b, *p;
 
+    if (!pix_data || bmp->width <= 0 || bmp->height <= 0)
+        return;
     if (ncomp == 2) {
         bmp->bpp = 8;
         bmp_alloc(bmp);
@@ -105,7 +107,7 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     /* copy master bitmap to context dst bitmap */
     dst = &kctx->dst;
     martop = (int) (k2settings->dst_dpi * k2settings->dstmargins.box[1] * 2 + .5);
-    marbot = (int) (k2settings->dst_dpi * k2settings->dstmargins.box[1] * 2 + .5);
+    marbot = (int) (k2settings->dst_dpi * k2settings->dstmargins.box[3] * 2 + .5);
     marleft = (int) (k2settings->dst_dpi * k2settings->dstmargins.box[0] + .5);
     dst->bpp = masterinfo->bmp.bpp;
     dst->width = masterinfo->bmp.width;
@@ -123,6 +125,13 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
     kctx->page_height = kctx->dst.height;
     kctx->precache = 0;
 
+    /* Free previous word box data before overwriting */
+    boxaDestroy(&kctx->rboxa);
+    boxaDestroy(&kctx->nboxa);
+    numaDestroy(&kctx->rnai);
+    numaDestroy(&kctx->nnai);
+    wrectmaps_clear(&kctx->rectmaps);
+
     int j;
     BOXA *rboxa = boxaCreate(masterinfo->rectmaps.n);
     BOXA *nboxa = boxaCreate(masterinfo->rectmaps.n);
@@ -134,12 +143,16 @@ void k2pdfopt_reflow_bmp(KOPTContext *kctx) {
                               rectmap->coords[1].y,
                               rectmap->coords[2].x,
                               rectmap->coords[2].y);
-        BOX* nlbox = boxCreate(rectmap->coords[0].x*k2settings->src_dpi/rectmap->srcdpiw/kctx->zoom + kctx->bbox.x0,
+        BOX* nlbox = NULL;
+        if (rectmap->srcdpiw > 0. && rectmap->srcdpih > 0. && kctx->zoom > 0.) {
+            nlbox = boxCreate(rectmap->coords[0].x*k2settings->src_dpi/rectmap->srcdpiw/kctx->zoom + kctx->bbox.x0,
                               rectmap->coords[0].y*k2settings->src_dpi/rectmap->srcdpih/kctx->zoom + kctx->bbox.y0,
                               rectmap->coords[2].x*k2settings->src_dpi/rectmap->srcdpiw/kctx->zoom,
                               rectmap->coords[2].y*k2settings->src_dpi/rectmap->srcdpih/kctx->zoom);
+        }
         boxaAddBox(rboxa, rlbox, L_INSERT);
-        boxaAddBox(nboxa, nlbox, L_INSERT);
+        if (nlbox != NULL)
+            boxaAddBox(nboxa, nlbox, L_INSERT);
         wrectmaps_add_wrectmap(&kctx->rectmaps, rectmap);
 
         /*printf("rectmap:coords:\t%.1f %.1f\t%.1f %.1f\t%.1f %.1f\t%.1f %.1f\n",
