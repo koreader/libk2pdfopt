@@ -57,6 +57,7 @@ static void gnu_compiler(char *compiler_version);
 #endif
 static int wsys_decimal_is_period(void);
 
+#if 0
 
 void wsys_system_version(char *system,char *_os,char *_chip,char *_compiler)
 
@@ -338,6 +339,7 @@ void wsys_sleep_ms(int ms)
 #endif
     }
 
+#endif
 
 int wsys_num_cpus(void)
 
@@ -351,6 +353,7 @@ int wsys_num_cpus(void)
 #endif
     }
 
+#if 0
 
 char *wsys_full_exe_name(char *s)
 
@@ -463,6 +466,9 @@ double wsys_year_double(struct tm *date)
                 +date->tm_sec/(365.25*24.*3600.));
     }
 
+#endif
+
+#ifdef K2PDFOPT_DEBUG
 
 double wsys_utc_offset(void)
 
@@ -502,6 +508,9 @@ char *wsys_utc_string(void)
     return(buf);
     }
 
+#endif
+
+#if 0
 
 /*
 ** Call with 1 to set decimal point to a period.
@@ -757,3 +766,5 @@ int wsys_shell_command(char *cmd,char *stdoutfile,char *stderrfile)
     willus_mem_free((double **)&syscmd,funcname);
     return(status);
     }
+
+#endif

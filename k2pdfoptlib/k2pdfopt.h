@@ -124,6 +124,11 @@
 #endif
 #endif
 
+#undef HAVE_DJVU_LIB
+#undef HAVE_GOCR_LIB
+#undef HAVE_MUPDF_LIB
+#undef HAVE_OCR_LIB
+
 /* Compile w/Windows GUI? */
 #if (defined(HAVE_WIN32_API) && !defined(K2PDFOPT_KINDLEPDFVIEWER))
 #define HAVE_K2GUI
@@ -266,10 +271,12 @@ typedef struct
     char show_usage[32];
     int src_left_to_right;
     int src_whitethresh;
+#if 0
     char dst_fgcolor[MAXFILENAMELEN];
     char dst_fgtype; /* 0=none, 1=gray, 2=color, 3=bitmap */
     char dst_bgcolor[MAXFILENAMELEN];
     char dst_bgtype; /* 0=none, 1=gray, 2=color, 3=bitmap */
+#endif
     int src_paintwhite; /* Paint everything above src_whitethresh white */
     int text_only; /* Do not send figures to output file */
 
@@ -331,9 +338,11 @@ typedef struct
     int dst_sharpen;
     int dst_color;
     int dst_bpc;
+#if 0
     int dst_landscape;
     char dst_landscape_pages[1024];
     char dst_opname_format[MAXFILENAMELEN];
+#endif
     int src_autostraighten;
     /*
     double dst_mar;
@@ -372,12 +381,14 @@ typedef struct
     int text_wrap;
     double word_spacing; /* Negative for auto */
     double display_width_inches; /* Device width = dst_width / dst_dpi */
+#if 0
     char pagelist[1024];
     char pagexlist[1024]; /* exclude these pages */
     char bpl[2048];  /* Page break list--see -bpl option */
     int use_toc;
     char toclist[2048];
     char tocsavefile[MAXFILENAMELEN];
+#endif
     int column_fitted;
     double dpi_org;
     double contrast_max;
@@ -405,7 +416,9 @@ typedef struct
     /* v2.35--change overlap from int to double */
     double src_grid_overlap_percentage;
     /*int src_grid_order;*/ /* 0=down then across, 1=across then down */
+#if 0
     K2CROPBOXES cropboxes; /* Crop boxes */
+#endif
     K2NOTESET noteset;
     /*
     ** Preview options
@@ -429,8 +442,10 @@ typedef struct
     int info;    /* 1 = info only about source files */
     int pagebreakmark_breakpage_color;  /* v2.33, #RRGGBB, 0 = no mark */
     int pagebreakmark_nobreak_color;    /* v2.33, #RRGGBB, 0 = no mark */
+#if 0
     char dst_author[256];
     char dst_title[256];
+#endif
     /* v2.34 */
     double dst_fontsize_pts; /* 0=not used */
     int assume_yes; /* 1 = assume yes to overwrite */
@@ -992,7 +1007,11 @@ int  k2settings_output_is_bitmap(K2PDFOPT_SETTINGS *k2settings);
 int k2settings_columns_left_to_right(K2PDFOPT_SETTINGS *k2settings);
 int k2settings_valid_grid_order(K2PDFOPT_SETTINGS *k2settings);
 K2NOTES *page_has_notes_margin(K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masterinfo);
+#if 0
 int  k2pdfopt_settings_landscape(K2PDFOPT_SETTINGS *k2settings,int pageno,int maxpages);
+#else
+# define k2pdfopt_settings_landscape(...)  0
+#endif
 void k2pdfopt_conversion_init(K2PDFOPT_CONVERSION *k2conv);
 void k2pdfopt_conversion_close(K2PDFOPT_CONVERSION *k2conv);
 void k2pdfopt_settings_copy(K2PDFOPT_SETTINGS *dst,K2PDFOPT_SETTINGS *src);
@@ -1015,9 +1034,13 @@ void k2pdfopt_settings_set_margins_and_devsize(K2PDFOPT_SETTINGS *k2settings,
                          double src_fontsize_pts,int trimmed);
 char *k2pdfopt_settings_unit_string(int units);
 void k2pdfopt_settings_clear_cropboxes(K2PDFOPT_SETTINGS *k2settings,int flagmask,int flagtype);
+#if 0
 void k2cropboxes_init(K2CROPBOXES *cropboxes);
 int  k2cropboxes_count(K2CROPBOXES *cropboxes,int flagmask,int flagtype);
 int  k2settings_has_cropboxes(K2PDFOPT_SETTINGS *k2settings);
+#else
+# define k2settings_has_cropboxes(S)  0
+#endif
 int  k2settings_need_color_initially(K2PDFOPT_SETTINGS *k2settings);
 int  k2settings_need_color_permanently(K2PDFOPT_SETTINGS *k2settings);
 int  k2settings_ncolors(char *s);

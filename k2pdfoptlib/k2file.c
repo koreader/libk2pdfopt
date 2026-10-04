@@ -1815,6 +1815,7 @@ void k2file_get_info(char *filename,int *pagelist,char **buf)
         }
     }
 
+#if 0
 
 int k2file_get_num_pages(char *filename)
 
@@ -1832,7 +1833,6 @@ int k2file_get_num_pages(char *filename)
     }
 
 
-#if 0
 void k2file_get_overlay_bitmap(WILLUSBITMAP *bmp,double *dpi,char *filename,char *pagelist)
 
     {
