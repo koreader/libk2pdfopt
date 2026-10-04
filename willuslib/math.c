@@ -24,7 +24,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
-#include <math.h>
 #include "willus.h"
 
 static double interp_high_order_dx_1(double x0,double *x,double *y,int n,
