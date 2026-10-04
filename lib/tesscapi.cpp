@@ -9,11 +9,11 @@ extern "C" {
 #include <stdexcept>
 
 int tess_capi_get_word_boxes(void *vapi, PIX *pix, BOXA **out_boxa, int is_cjk, FILE *out)
-
-    {
+{
     if (vapi==NULL)
         return -1;
 
+    int ret = 0;
     tesseract::TessBaseAPI *api;
     api=(tesseract::TessBaseAPI *)vapi;
     try {
@@ -28,18 +28,16 @@ int tess_capi_get_word_boxes(void *vapi, PIX *pix, BOXA **out_boxa, int is_cjk, 
             *out_boxa = api->GetWords(NULL);
         }
     } catch (const std::exception &e) {
-       if (out!=NULL)
-           fprintf(out,"tesscapi:  Error during page segmentation. %s\n", e.what());
-       api->Clear();
-       return -1;
+        if (out!=NULL)
+            fprintf(out,"tesscapi:  Error during page segmentation. %s\n", e.what());
+        ret = -1;
     }
-    k2printf("engine inited in %s\n", api->GetInitLanguagesAsString());
 #ifndef DISABLED_LEGACY_ENGINE
     api->ClearAdaptiveClassifier();
 #endif
     api->Clear();
-    return(0);
-    }
+    return ret;
+}
 
 const char* tess_capi_get_init_language(void *vapi) {
     if (vapi==NULL)
