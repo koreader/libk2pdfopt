@@ -132,7 +132,8 @@ void bmp_adjust_contrast(WILLUSBITMAP *src,WILLUSBITMAP *srcgrey,
                          K2PDFOPT_SETTINGS *k2settings,int *white)
 
     {
-    int i,j,tries,wc,tc,hist[256];
+    int i,j,tries,wc,hist[256];
+    long tc;
     double contrast,rat0;
     WILLUSBITMAP *dst,_dst;
 
@@ -229,7 +230,7 @@ void bmp_clear_outside_crop_border(MASTERINFO *masterinfo,WILLUSBITMAP *src,
 
     region=&_region;
     bmpregion_init(region);
-    bytes_per_pix = src==NULL ? 0 : src->bpp>>8;
+    bytes_per_pix = src==NULL ? 0 : src->bpp>>3;
     region->bmp = (src!=NULL && src->bpp>8) ? src : srcgrey;
     region->bmp8 = srcgrey;
     region->dpi = k2settings->src_dpi;
