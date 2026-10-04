@@ -1471,9 +1471,9 @@ void bmp_crop_ex(WILLUSBITMAP *dst,WILLUSBITMAP *src,int x0,int y0_from_top,int 
     dst->type=src->type;
     dst->bpp=src->bpp;
     bmp_alloc(dst);
-    memcpy(dst->red,src->red,sizeof(int)*256);
-    memcpy(dst->green,src->green,sizeof(int)*256);
-    memcpy(dst->blue,src->blue,sizeof(int)*256);
+    memcpy(dst->red,src->red,256);
+    memcpy(dst->green,src->green,256);
+    memcpy(dst->blue,src->blue,256);
     bpr=bmp_bytewidth(dst);
     for (i=0;i<height;i++)
         {
@@ -1672,9 +1672,9 @@ int bmp_copy(WILLUSBITMAP *dest,WILLUSBITMAP *src)
     if (!bmp_alloc(dest))
         return(0);
     memcpy(dest->data,src->data,src->height*bmp_bytewidth(src));
-    memcpy(dest->red,src->red,sizeof(int)*256);
-    memcpy(dest->green,src->green,sizeof(int)*256);
-    memcpy(dest->blue,src->blue,sizeof(int)*256);
+    memcpy(dest->red,src->red,256);
+    memcpy(dest->green,src->green,256);
+    memcpy(dest->blue,src->blue,256);
     return(1);
     }
 
