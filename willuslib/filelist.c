@@ -2705,6 +2705,7 @@ void filelist_reslash(FILELIST *fl)
         wfile_reslash(fl->entry[i].name);
     }
 
+#if 0
 
 /*
 ** Fill from unix-style archive (.a) file
@@ -2845,3 +2846,5 @@ entry->name);
         willus_mem_free((double **)&namebuf,funcname);
     return(0);
     }
+
+#endif

@@ -97,9 +97,11 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->dst_fulljustify=-1; // 0 = no, 1 = yes
     k2settings->dst_sharpen=1;
     k2settings->dst_bpc=4;
+#if 0
     k2settings->dst_landscape=0;
     k2settings->dst_landscape_pages[0]='\0'; /* v2.32 */
     strcpy(k2settings->dst_opname_format,"%s_k2opt");
+#endif
     k2settings->src_autostraighten=0;
     k2settings->dstmargins.pagelist[0]='\0';
     k2settings->dstmargins.cboxflags=0;
@@ -127,7 +129,9 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->text_wrap=1;
     k2settings->word_spacing=-0.20;
     k2settings->display_width_inches = 3.6; /* Device width = dst_width / dst_dpi */
+#if 0
     k2settings->pagelist[0]='\0';
+#endif
     k2settings->column_fitted=0;
     k2settings->contrast_max = 2.0;
     k2settings->dst_gamma=0.5;
@@ -174,12 +178,14 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->dst_width = k2settings->dst_userwidth;
     k2settings->dst_height = k2settings->dst_userheight;
 
+#if 0
     /* v2.10 */
     k2settings->use_toc = -1;
     k2settings->toclist[0]='\0';
     k2settings->tocsavefile[0]='\0';
     k2settings->bpl[0]='\0';
     k2cropboxes_init(&k2settings->cropboxes);
+#endif
 
     /* v2.13 */
     k2settings->devsize_set=0;
@@ -191,11 +197,13 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->restore_last_settings=-1;
 #endif
 
+#if 0
     /* v2.22 */
     k2settings->dst_fgcolor[0]='\0';
     k2settings->dst_bgcolor[0]='\0';
     k2settings->dst_fgtype=0;
     k2settings->dst_bgtype=0;
+#endif
 
     /* v2.31 */
 #ifdef HAVE_GHOSTSCRIPT
@@ -212,9 +220,11 @@ void k2pdfopt_settings_init(K2PDFOPT_SETTINGS *k2settings)
     k2settings->pagebreakmark_breakpage_color=-1;
     k2settings->pagebreakmark_nobreak_color=-1;
     k2settings->erase_horizontal_lines=0;
+#if 0
     k2settings->pagexlist[0]='\0';
     k2settings->dst_author[0]='\0';
     k2settings->dst_title[0]='\0';
+#endif
 
     /* v2.34 */
     k2settings->dst_fontsize_pts=0.; /* 0 = not used */
@@ -315,6 +325,7 @@ K2NOTES *page_has_notes_margin(K2PDFOPT_SETTINGS *k2settings,MASTERINFO *masteri
     return(NULL);
     }
 
+#if 0
 
 /*
 ** Should the current source page be turned to landscape mode?
@@ -339,8 +350,6 @@ printf("    retval=%d\n",retval);
 #endif
     return(retval);
     }
-    
-#if 0
 
 void k2pdfopt_conversion_init(K2PDFOPT_CONVERSION *k2conv)
 
@@ -465,6 +474,7 @@ void k2pdfopt_settings_quick_sanity_check(K2PDFOPT_SETTINGS *k2settings)
     if (k2settings->text_wrap>0 || k2settings_output_is_bitmap(k2settings))
         k2settings->use_crop_boxes=0;
 
+#if 0
     /*
     ** v2.22: If -colorfg or -colorbg not grayscale, turn color output on.
     */
@@ -488,6 +498,7 @@ void k2pdfopt_settings_quick_sanity_check(K2PDFOPT_SETTINGS *k2settings)
             if (k2settings_color_type(k2settings_color_by_index(k2settings->dst_bgcolor,i))==2)
                 k2settings->dst_color=1;
         }
+#endif
 
     /* v2.22: If previewing a native PDF, turn color output on. */
     if (!k2settings->dst_color && k2settings->use_crop_boxes && k2settings->preview_page!=0)
@@ -631,6 +642,7 @@ printf("restore:  dst_dpi=%d\n",k2settings->dst_dpi);
 #endif
     }
 
+#if 0
 
 void k2pdfopt_settings_fit_column_to_screen(K2PDFOPT_SETTINGS *k2settings,
                                             double column_width_inches)
@@ -658,6 +670,7 @@ printf("fit_column_to_screen: dst_dpi=%d\n",k2settings->dst_dpi);
     k2settings->column_fitted=1;
     }
 
+#endif
 
 /*
 ** Set device width and height in pixels.
@@ -1035,6 +1048,8 @@ void k2cropbox_set_default_values(K2CROPBOX *cbox,double value,int units)
     }
 */
 
+#if 0
+
 /*
 ** Clear cropboxes that have flags set to flagtype
 */
@@ -1092,6 +1107,7 @@ int k2settings_has_cropboxes(K2PDFOPT_SETTINGS *k2settings)
                       K2CROPBOX_FLAGS_NOTUSED|K2CROPBOX_FLAGS_IGNOREBOXEDAREA,0)>0);
     }
 
+#endif
 
 int k2settings_need_color_initially(K2PDFOPT_SETTINGS *k2settings)
 

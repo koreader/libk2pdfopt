@@ -301,13 +301,13 @@ static void k2ocr_status_line(char *buf,char *color,char *label,char *string)
     strcat(buf,"\n");
     }
 
-#endif
-
 void k2ocr_tesslang_selected(char *lang,int maxlen,K2PDFOPT_SETTINGS *k2settings)
 
     {
     xstrncpy(lang,ocrtess_lang_by_index(k2settings->dst_ocr_lang,0),maxlen);
     }
+
+#endif
 
 
 static void k2ocr_tesslang_init(char *lang,int assume_yes)
@@ -378,9 +378,9 @@ static void k2ocr_tesslang_init(char *lang,int assume_yes)
             k2printf(TTEXT_NORMAL " ... download successful." TTEXT_NORMAL "\n");
         }
     }
-            
 
-    
+#if 0
+
 static void *otinit(void *data)
 
     {
@@ -423,6 +423,9 @@ static void *otinit(void *data)
     pthread_exit(NULL);
     return(NULL);
     }
+
+#endif
+
 #endif
 
 #if 0

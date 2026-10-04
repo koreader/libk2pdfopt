@@ -85,6 +85,7 @@ void k2proc_init_one_document(void)
     bmpregion_vertically_break(NULL,NULL,NULL,0.,0,0,NULL);
     }
 
+#if 0
 
 /*
 ** Determine median font size (based on row heights) in a region.
@@ -139,6 +140,7 @@ printf("Calling bmpregion_find_textrows for font size eval\n");
     bmpregion_free(region);
     }
 
+#endif
 
 /*
 ** First break the source page into cropboxes and/or gridded rectangles based
@@ -154,6 +156,7 @@ void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
                                MASTERINFO *masterinfo,int level,int pages_done)
 
     {
+#if 0
     PAGEREGIONS *pageregions,_pageregions;
     int i,gridded;
 
@@ -189,8 +192,12 @@ void bmpregion_source_page_add(BMPREGION *region,K2PDFOPT_SETTINGS *k2settings,
         bmpregion_source_box_process(&pageregions->pageregion[i].bmpregion,
                                      k2settings,masterinfo,level,pages_done); 
     pageregions_free(pageregions);
+#else
+    bmpregion_source_box_process(region, k2settings, masterinfo, level, pages_done);
+#endif
     }
 
+#if 0
 
 void bmpregion_add_cover_image(BMPREGION *coverimage,K2PDFOPT_SETTINGS *k2settings,
                                MASTERINFO *masterinfo)
@@ -264,6 +271,7 @@ void bmpregion_add_cover_image(BMPREGION *coverimage,K2PDFOPT_SETTINGS *k2settin
     bmpregion_free(newregion);
     }
 
+#endif
 
 /*
 ** Process a rectangular source page bitmap determined from either a cropbox or
@@ -485,6 +493,7 @@ printf("Restoring DPI?\n");
     pageregions_free(pageregions);
     }
 
+#if 0
 
 /*
 ** Set up gridded pageregion array
@@ -786,6 +795,7 @@ static void bmpregion_set_cropbox_pixels(BMPREGION *dstregion,K2CROPBOX *cropbox
         dstregion->r2=srcregion->bmp8->height-1;
     }
 
+#endif
 
 /*
 ** Return sorted list (by display order) of page regions up to appropriate level
@@ -2499,6 +2509,7 @@ region_height_inches);
 #if (WILLUSDEBUGX & 1)
 printf("Added_region.force_scale = %g\n",added_region.force_scale);
 #endif
+#if 0
     if (added_region.force_scale < -1.5 && region_width_inches > MIN_REGION_WIDTH_INCHES
                          && region_width_inches/k2settings->max_region_width_inches < 1.25
                          && region_height_inches > 0.5)
@@ -2510,6 +2521,7 @@ printf("Added_region.force_scale = %g\n",added_region.force_scale);
         added_region.allow_text_wrapping = 0;
         }
     else
+#endif
         revert=0;
 #if (WILLUSDEBUGX & 0x201)
 k2printf("Entering vert region loop, %d regions.\n",n);

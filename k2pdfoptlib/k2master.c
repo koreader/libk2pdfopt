@@ -1647,6 +1647,7 @@ ocrwords_to_easyplot(ocrwords,"postsort.ep",0,NULL);
     if (k2settings->dst_negative)
         bmp_invert(bmp);
 
+#if 0
     /* Fix colors */
 /*
     if ((k2settings->dst_fgtype!=4 && k2settings->dst_bgtype!=4)
@@ -1664,6 +1665,7 @@ ocrwords_to_easyplot(ocrwords,"postsort.ep",0,NULL);
                               k2settings->dst_bgtype,
                               0,0,bmp->width-1,bmp->height-1);
         }
+#endif
 
 
     /* Write sequence of OCR'd words if debugging */
@@ -2876,8 +2878,10 @@ printf("@k2master_rows_color:  %d x %d\n",srcbmp->width,srcbmp->height);
 printf("region %d:  (%d,%d) - (%d,%d)\n",j,subregion->c1,subregion->r1,subregion->c2,subregion->r2);
 */
         bmpregion_find_textrows(subregion,k2settings,0,1,-1.0,0);
+#if 0
         nfg=k2settings_ncolors(k2settings->dst_fgcolor);
         nbg=k2settings_ncolors(k2settings->dst_bgcolor);
+#endif
 /*
 printf("nc=%d, rcindex=%d\n",nc,masterinfo->rcindex);
 printf("TEXTROWS.n=%d\n",region->textrows.n);
@@ -2891,12 +2895,14 @@ printf("TEXTROW[%2d]=%d\n",i,region->textrows.textrow[i].type);
             textrow=&subregion->textrows.textrow[i];
             if (textrow->type==REGION_TYPE_TEXTLINE)
                 {
+#if 0
                 if (k2settings->dst_fgtype==4)
                     strcpy(fgc,k2settings_color_by_index(k2settings->dst_fgcolor,
                                                          masterinfo->rcindex%nfg));
                 if (k2settings->dst_bgtype==4)
                     strcpy(bgc,k2settings_color_by_index(k2settings->dst_bgcolor,
                                                          masterinfo->rcindex%nbg));
+#endif
                 masterinfo->rcindex++;
                 /* For some reason if it's a single text line, need to re-calc bbox. */
                 /* Should investigate why at some point... */
@@ -2917,6 +2923,7 @@ printf("TEXTROW[%2d]=%d\n",i,region->textrows.textrow[i].type);
                 }
             }
         }
+#if 0
     if (k2settings->dst_fgtype!=4)
         strcpy(fgc,k2settings->dst_fgcolor);
     else
@@ -2929,6 +2936,7 @@ printf("TEXTROW[%2d]=%d\n",i,region->textrows.textrow[i].type);
         bmp_change_colors(region->bmp,bmpmask,fgc,k2settings_color_type(fgc),
                                               bgc,k2settings_color_type(bgc),
                                          0,0,region->bmp->width-1,region->bmp->height-1);
+#endif
     pageregions_free(pageregions);
     bmp_free(bmpmask);
     if (srcbmp->bpp!=8)
